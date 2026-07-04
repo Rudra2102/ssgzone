@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  # Production overrides
+  api-gateway:
+    environment:
+      - NODE_ENV=production
+      - SSL_ENABLED=true
+    volumes:
+      - ./config/ssl:/etc/ssl:ro
+      - ./config/dkim:/etc/dkim:ro
+
+  mail-server:
+    environment:
+      - SSL_ENABLED=true
+      - SMTP_TLS_CERT=/etc/ssl/certs/ssgzone.in.crt
+      - SMTP_TLS_KEY=/etc/ssl/private/ssgzone.in.key
+    volumes:
+      - ./config/ssl:/etc/ssl:ro
+      - ./config/dkim:/etc/dkim:ro
+    ports:
+      - "465:465"   # SMTPS
+      - "993:993"   # IMAPS
+      - "995:995"   # POP3S
+
+  # Nginx reverse proxy for production
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./config/ssl:/etc/ssl:ro
+    depends_on:
+      - api-gateway
+      - admin-portal
+      - webmail-client
+
+  # Production database with backup
+  postgres:
+    environment:
+      - POSTGRES_DB=ssgzone_mail
+      - POSTGRES_USER=ssgzone
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    command: >
+      postgres
+      -c ssl=on
+      -c ssl_cert_file=/etc/ssl/certs/ssgzone.in.crt
+      -c ssl_key_file=/etc/ssl/private/ssgzone.in.key
+
+volumes:
+  postgres_data:
+  mail_data:
+  elasticsearch_data:
+  minio_data:

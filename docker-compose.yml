@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  # Database
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: ssgzone_mail
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: academy
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+
+  # Redis for caching and sessions
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  # Elasticsearch for email search
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+
+  # API Gateway
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "4000:4000"
+    environment:
+      - NODE_ENV=production
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=ssgzone_mail
+      - DB_USER=postgres
+      - DB_PASSWORD=academy
+      - REDIS_HOST=redis
+    depends_on:
+      - postgres
+      - redis
+
+  # Mail Server
+  mail-server:
+    build: ./mail-server
+    ports:
+      - "25:25"    # SMTP
+      - "587:587"  # SMTP Submission
+      - "993:993"  # IMAPS
+      - "995:995"  # POP3S
+    environment:
+      - DOMAIN=ssgzone.in
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=ssgzone_mail
+      - DB_USER=postgres
+      - DB_PASSWORD=academy
+      - REDIS_HOST=redis
+    depends_on:
+      - postgres
+    volumes:
+      - mail_data:/var/mail
+
+  # DNS Manager
+  dns-manager:
+    build: ./dns-manager
+    ports:
+      - "3005:3005"
+    environment:
+      - NODE_ENV=production
+      - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_data:
+  mail_data:
+  elasticsearch_data:
+  minio_data:

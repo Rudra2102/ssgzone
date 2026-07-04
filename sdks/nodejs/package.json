@@ -1,0 +1,17 @@
+{
+  "name": "ssgzone-mail-sdk",
+  "version": "1.0.0",
+  "description": "Official Node.js SDK for SSGzone Mail Platform",
+  "main": "index.js",
+  "keywords": ["email", "saas", "mail", "ssgzone"],
+  "author": "SSGzone Team",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ssgzone/nodejs-sdk.git"
+  },
+  "homepage": "https://docs.ssgzone.in/sdk/nodejs"
+}

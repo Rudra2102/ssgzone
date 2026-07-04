@@ -1,0 +1,29 @@
+# CSV Import Template for Bulk Tenant Creation
+# 
+# INSTRUCTIONS:
+# 1. Delete these instruction lines (lines starting with #)
+# 2. Keep the header row (first line with column names)
+# 3. Fill in your tenant data in the rows below
+# 4. Save as CSV file (comma-separated values)
+# 5. Upload via SuperAdmin Dashboard > Tenant Management > Bulk Import
+#
+# COLUMN DESCRIPTIONS:
+# - company_name: Full company name (Required, Example: "TechCorp Solutions")
+# - slug: URL-friendly identifier (Required, lowercase, no spaces, Example: "techcorp")
+# - saas_app_id: ID of SaaS application (Required, Get from Applications tab, Example: "1")
+# - admin_name: Full name of tenant admin (Required, Example: "John Smith")
+# - max_users: Maximum users allowed (Optional, Default: 50, Example: "100")
+#
+# IMPORTANT NOTES:
+# - slug must be unique across all tenants
+# - saas_app_id must exist in your SaaS Applications
+# - Do not use quotes unless the value contains commas
+# - Save with UTF-8 encoding
+#
+# EXAMPLE DATA (Delete these lines and add your own):
+company_name,slug,saas_app_id,admin_name,max_users
+TechCorp Solutions,techcorp,1,John Smith,100
+Global Enterprises,globalent,1,Sarah Johnson,150
+Innovation Labs,innovlab,1,Michael Chen,75
+Digital Dynamics,digitaldyn,1,Emily Davis,200
+Future Systems,futuresys,1,David Wilson,50

@@ -1,0 +1,22 @@
+From test@example.com Mon Jan 01 00:00:00 2024
+From: test@example.com
+To: user@tenant.lms.ssghub.com
+Subject: Test Email 1
+
+This is test email 1.
+
+From test@example.com Mon Jan 01 00:01:00 2024
+From: test@example.com
+To: user@tenant.lms.ssghub.com
+Subject: Test Email 2
+
+This is test email 2.
+
+From test@example.com Mon Jan 01 00:02:00 2024
+From: test@example.com
+To: user@tenant.lms.ssghub.com
+Subject: Test Email 3
+
+This is test email 3 with more content for testing purposes.
+This email has multiple lines to simulate real email content.
+

@@ -1,0 +1,19 @@
+{
+  "name": "ssghub-ip-warmup-service",
+  "version": "1.0.0",
+  "description": "IP Warmup Management Service for SSGhub Mail Platform",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "node-cron": "^3.0.3",
+    "redis": "^4.6.10",
+    "pg": "^8.11.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}

@@ -1,0 +1,177 @@
+openapi: 3.0.3
+info:
+  title: SSGhub Mail Platform API
+  description: Enterprise-grade multi-tenant email service for SaaS applications
+  version: 1.0.0
+  contact:
+    name: SSGhub Support
+    url: https://ssghub.com/support
+    email: support@ssghub.com
+
+servers:
+  - url: https://api.ssghub.com/api/v1
+    description: Production server
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  /saas/register:
+    post:
+      tags: [SaaS Management]
+      summary: Register new SaaS application
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [saas_slug, company_name, admin_email]
+              properties:
+                saas_slug:
+                  type: string
+                  example: lms
+                company_name:
+                  type: string
+                  example: Learning Management Solutions
+                admin_email:
+                  type: string
+                  format: email
+      responses:
+        '201':
+          description: SaaS application registered successfully
+
+  /tenant/provision:
+    post:
+      tags: [Tenant Management]
+      summary: Provision new tenant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [saas_slug, company_name, tenant_slug]
+              properties:
+                saas_slug:
+                  type: string
+                  example: lms
+                company_name:
+                  type: string
+                  example: NABC University
+                tenant_slug:
+                  type: string
+                  example: nabc
+                data_region:
+                  type: string
+                  enum: [us-east-1, us-west-2, eu-west-1]
+      responses:
+        '201':
+          description: Tenant provisioned successfully
+
+  /tenant/group/create:
+    post:
+      tags: [Tenant Management]
+      summary: Create distribution group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email]
+              properties:
+                name:
+                  type: string
+                  example: Sales Team
+                email:
+                  type: string
+                  example: sales@nabc.lms.ssghub.com
+      responses:
+        '200':
+          description: Distribution group created
+
+  /user/create:
+    post:
+      tags: [User Management]
+      summary: Create user mailbox
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tenant_slug, saas_slug, first_name, last_name, password]
+              properties:
+                tenant_slug:
+                  type: string
+                  example: nabc
+                saas_slug:
+                  type: string
+                  example: lms
+                first_name:
+                  type: string
+                  example: Amit
+                last_name:
+                  type: string
+                  example: Shah
+                password:
+                  type: string
+                  format: password
+      responses:
+        '201':
+          description: User created successfully
+
+  /user/update:
+    put:
+      tags: [User Management]
+      summary: Update user settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+                auto_responder:
+                  type: object
+                  properties:
+                    subject:
+                      type: string
+                    message:
+                      type: string
+                    is_active:
+                      type: boolean
+      responses:
+        '200':
+          description: User updated successfully
+
+  /user/suspend:
+    post:
+      tags: [User Management]
+      summary: Suspend user account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: User suspended successfully
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
