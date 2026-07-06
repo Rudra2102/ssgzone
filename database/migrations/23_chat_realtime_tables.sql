@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS chat_read_receipts (
 );
 CREATE INDEX IF NOT EXISTS idx_chat_read_room ON chat_read_receipts(room_id);
 
+-- Unique constraint on chat_participants
+ALTER TABLE chat_participants ADD CONSTRAINT IF NOT EXISTS chat_participants_room_user_unique UNIQUE (room_id, user_id);
+
 -- Add reply_to and edited_at to chat_messages if not present
 ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS reply_to UUID REFERENCES chat_messages(id);
 ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS edited_at TIMESTAMP;
