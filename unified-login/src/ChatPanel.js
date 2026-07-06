@@ -85,6 +85,7 @@ export default function ChatPanel({ userData, tenantId }) {
   const typingTimer = useRef(null);
   const activeRoomRef = useRef(null);
   const userId = userData?.id;
+  const userEmail = userData?.email || '';
   const userName = userData?.full_name || userData?.email || 'User';
 
   useEffect(() => { activeRoomRef.current = activeRoom; }, [activeRoom]);
@@ -94,7 +95,7 @@ export default function ChatPanel({ userData, tenantId }) {
     if (!userId || !tenantId) return;
     const socket = io(WS_URL, { transports: ['websocket', 'polling'] });
     socketRef.current = socket;
-    socket.emit('join', { userId, tenantId, userName });
+    socket.emit('join', { userId, tenantId, userName, userEmail });
 
     socket.on('user_online', ({ userId: uid }) => setOnlineUsers(p => [...new Set([...p, uid])]));
     socket.on('user_offline', ({ userId: uid }) => setOnlineUsers(p => p.filter(id => id !== uid)));
@@ -208,7 +209,7 @@ export default function ChatPanel({ userData, tenantId }) {
         await fetch(`${API_BASE}/chat/rooms/${data.room.id}/participants`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: userId, user_name: userName, role: 'admin' })
+          body: JSON.stringify({ user_id: userId, user_email: userEmail, user_name: userName, role: 'admin' })
         });
         setShowNewRoom(false); setNewRoomName('');
         loadRooms();
