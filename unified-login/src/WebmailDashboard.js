@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import ChatPanel from './ChatPanel';
 
 function WebmailDashboard() {
   const [activeNav, setActiveNav] = useState('dashboard');
@@ -10,6 +11,12 @@ function WebmailDashboard() {
 
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const token = localStorage.getItem('webmail_token');
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const nav = params.get('autoNav');
+    if (nav) setActiveNav(nav);
+  }, []);
 
   useEffect(() => {
     fetchData();
@@ -198,7 +205,13 @@ function WebmailDashboard() {
         </div>
 
         {/* Content */}
-        <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+        <div style={{ flex: 1, overflowY: activeNav === 'chat' ? 'hidden' : 'auto', padding: activeNav === 'chat' ? 0 : 24, display: 'flex', flexDirection: 'column' }}>
+          {activeNav === 'chat' && (
+            <div style={{ flex: 1, padding: 16, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <ChatPanel userData={userData} tenantId={userData?.tenant_id || userData?.company_id || 'demo'} />
+            </div>
+          )}
+          {activeNav !== 'chat' && <div style={{ flex: 1 }}>
 
           {/* Stats Row */}
           <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
@@ -347,6 +360,7 @@ function WebmailDashboard() {
               ))}
             </div>
           </div>
+          </div>}
         </div>
       </div>
 
