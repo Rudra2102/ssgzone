@@ -16,6 +16,22 @@ function WebmailDashboard() {
     const params = new URLSearchParams(window.location.search);
     const nav = params.get('autoNav');
     if (nav) setActiveNav(nav);
+
+    // SSO token from PEMS — decode and auto-login
+    const sso = params.get('sso');
+    if (sso && !localStorage.getItem('user_data')) {
+      try {
+        const decoded = atob(sso);
+        const parts = decoded.split(':');
+        // format: email:tenantSlug:fullName:timestamp:signature
+        if (parts.length >= 3) {
+          const [email, , fullName] = parts;
+          const syntheticUser = { email, full_name: fullName || email, id: btoa(email) };
+          localStorage.setItem('user_data', JSON.stringify(syntheticUser));
+          localStorage.setItem('webmail_token', sso);
+        }
+      } catch (e) {}
+    }
   }, []);
 
   useEffect(() => {
