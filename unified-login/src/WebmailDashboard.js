@@ -2,7 +2,28 @@ import React, { useState, useEffect } from 'react';
 import ChatPanel from './ChatPanel';
 
 function WebmailDashboard() {
-  const [activeNav, setActiveNav] = useState('dashboard');
+  // SSO decode synchronously before any state init
+  (() => {
+    if (localStorage.getItem('user_data')) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const sso = params.get('sso');
+      if (!sso) return;
+      const decoded = atob(sso);
+      const parts = decoded.split(':');
+      if (parts.length >= 3) {
+        const email = parts[0];
+        const fullName = parts[2];
+        localStorage.setItem('user_data', JSON.stringify({ email, full_name: fullName || email, id: btoa(email) }));
+        localStorage.setItem('webmail_token', sso);
+      }
+    } catch (e) {}
+  })();
+
+  const params = new URLSearchParams(window.location.search);
+  const initialNav = params.get('autoNav') || 'dashboard';
+
+  const [activeNav, setActiveNav] = useState(initialNav);
   const [stats, setStats] = useState({ email: {}, chat: {}, whatsapp: {}, notifications: {} });
   const [emails, setEmails] = useState([]);
   const [notifications, setNotifications] = useState([]);
@@ -13,25 +34,8 @@ function WebmailDashboard() {
   const token = localStorage.getItem('webmail_token');
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const nav = params.get('autoNav');
+    const nav = new URLSearchParams(window.location.search).get('autoNav');
     if (nav) setActiveNav(nav);
-
-    // SSO token from PEMS — decode and auto-login
-    const sso = params.get('sso');
-    if (sso && !localStorage.getItem('user_data')) {
-      try {
-        const decoded = atob(sso);
-        const parts = decoded.split(':');
-        // format: email:tenantSlug:fullName:timestamp:signature
-        if (parts.length >= 3) {
-          const [email, , fullName] = parts;
-          const syntheticUser = { email, full_name: fullName || email, id: btoa(email) };
-          localStorage.setItem('user_data', JSON.stringify(syntheticUser));
-          localStorage.setItem('webmail_token', sso);
-        }
-      } catch (e) {}
-    }
   }, []);
 
   useEffect(() => {

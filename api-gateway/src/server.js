@@ -40,7 +40,7 @@ const app = express();
 const PORT = process.env.API_PORT || 4000;
 
 // Security middleware
-app.use(helmet());
+app.use(helmet({ frameguard: false }));
 app.use(cors());
 
 // Body parsing
