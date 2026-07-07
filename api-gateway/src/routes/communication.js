@@ -3,6 +3,8 @@ const auth = require('../middleware/auth');
 const tenantCheck = require('../middleware/tenantCheck');
 const rateLimit = require('../middleware/rateLimit');
 const inputValidation = require('../middleware/inputValidation');
+const { startEmailScheduler } = require('../jobs/emailScheduler');
+const emailService = require('../services/emailService');
 const router = express.Router();
 const { Pool } = require('pg');
 
@@ -17,6 +19,8 @@ const pool = new Pool({
 router.use(auth);
 router.use(rateLimit);
 router.use(inputValidation);
+
+startEmailScheduler();
 
 // Email Management Routes
 router.post('/email/send', async (req, res) => {
@@ -591,6 +595,82 @@ router.post('/chat/rooms/direct', async (req, res) => {
   } catch (error) {
     console.error('Create direct room error:', error);
     res.status(500).json({ error: 'Failed to create direct room' });
+  }
+});
+
+// ── EMAIL SEARCH ──────────────────────────────────────────────────────────
+router.get('/email/search', async (req, res) => {
+  try {
+    const { tenant_id, q, from, date_from, date_to, read_status, folder } = req.query;
+    if (!tenant_id) return res.status(400).json({ error: 'tenant_id is required' });
+
+    const result = await emailService.searchEmails(tenant_id, q, {
+      from, date_from, date_to,
+      read_status: read_status === 'true' ? true : read_status === 'false' ? false : undefined,
+      folder
+    });
+    res.json(result);
+  } catch (error) {
+    console.error('Email search error:', error);
+    res.status(500).json({ error: 'Failed to search emails' });
+  }
+});
+
+// ── MOVE EMAIL TO FOLDER ──────────────────────────────────────────────────
+router.put('/email/:email_id/folder', async (req, res) => {
+  try {
+    const { folder } = req.body;
+    if (!folder) return res.status(400).json({ error: 'folder is required' });
+
+    const result = await emailService.moveEmailToFolder(req.params.email_id, folder);
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    console.error('Move email error:', error);
+    res.status(500).json({ error: 'Failed to move email' });
+  }
+});
+
+// ── ADD LABEL TO EMAIL ────────────────────────────────────────────────────
+router.post('/email/:email_id/labels', async (req, res) => {
+  try {
+    const { label } = req.body;
+    if (!label) return res.status(400).json({ error: 'label is required' });
+
+    const result = await emailService.addLabelToEmail(req.params.email_id, label);
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    console.error('Add label error:', error);
+    res.status(500).json({ error: 'Failed to add label' });
+  }
+});
+
+// ── MARK EMAIL AS READ/UNREAD ─────────────────────────────────────────────
+router.put('/email/:email_id/read', async (req, res) => {
+  try {
+    const { read_status } = req.body;
+    if (read_status === undefined) return res.status(400).json({ error: 'read_status is required' });
+
+    const result = await emailService.markEmailReadStatus(req.params.email_id, read_status);
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    console.error('Mark read error:', error);
+    res.status(500).json({ error: 'Failed to mark email' });
+  }
+});
+
+// ── SCHEDULE EMAIL ────────────────────────────────────────────────────────
+router.post('/email/schedule', async (req, res) => {
+  try {
+    const { tenant_id, to, subject, html, text, scheduled_at } = req.body;
+    if (!tenant_id || !to || !subject || !scheduled_at) {
+      return res.status(400).json({ error: 'tenant_id, to, subject, and scheduled_at are required' });
+    }
+
+    const result = await emailService.scheduleEmail(tenant_id, to, subject, html, text, scheduled_at);
+    res.status(result.success ? 200 : 400).json(result);
+  } catch (error) {
+    console.error('Schedule email error:', error);
+    res.status(500).json({ error: 'Failed to schedule email' });
   }
 });
 
