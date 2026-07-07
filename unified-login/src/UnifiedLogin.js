@@ -15,7 +15,25 @@ function UnifiedLogin() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const ssoToken = params.get('sso_token');
-    if (ssoToken) {
+    const sso = params.get('sso');
+    const autoNav = params.get('autoNav') || 'dashboard';
+    const tenant = params.get('tenant') || 'demo';
+
+    if (sso) {
+      // PEMS SSO: decode base64 token directly, no API call needed
+      try {
+        const decoded = atob(sso);
+        const parts = decoded.split(':');
+        if (parts.length >= 3) {
+          const email = parts[0];
+          const fullName = parts[2];
+          localStorage.setItem('user_data', JSON.stringify({ email, full_name: fullName || email, id: btoa(email) }));
+          localStorage.setItem('webmail_token', sso);
+          localStorage.setItem('user_role', 'user');
+          window.location.href = `/dashboard/webmail?autoNav=${autoNav}&tenant=${tenant}&embed=true`;
+        }
+      } catch (e) {}
+    } else if (ssoToken) {
       handleSSOLogin(ssoToken);
     }
   }, []);
