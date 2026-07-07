@@ -1,96 +1,27 @@
-const bcrypt = require('bcryptjs');
-const crypto = require('crypto');
-const SaasService = require('../services/saasService');
-const { timingSafeCompare } = require('./security');
+const jwt = require('jsonwebtoken');
 
-const authenticate = async (req, res, next) => {
+const authMiddleware = (req, res, next) => {
   try {
-    const apiKey = req.headers['x-api-key'];
-    
-    if (!apiKey) {
-      return res.status(401).json({
-        success: false,
-        error: 'API key is required'
-      });
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Unauthorized', message: 'No authorization token provided' });
     }
-
-    // Find SaaS application by API key
-    const saasApps = await SaasService.findAll();
-    let authenticatedSaas = null;
-
-    for (const saas of saasApps) {
-      const isValid = await bcrypt.compare(apiKey, saas.api_key);
-      if (isValid) {
-        authenticatedSaas = saas;
-        break;
-      }
+    const token = authHeader.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ error: 'Unauthorized', message: 'Invalid authorization header format' });
     }
-
-    if (!authenticatedSaas) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid API key'
-      });
-    }
-
-    if (authenticatedSaas.status !== 'active') {
-      return res.status(403).json({
-        success: false,
-        error: 'SaaS application is not active'
-      });
-    }
-
-    req.saas = authenticatedSaas;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = { id: decoded.id, email: decoded.email, tenant_id: decoded.tenant_id, full_name: decoded.full_name, role: decoded.role };
     next();
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: 'Authentication failed'
-    });
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Unauthorized', message: 'Token expired' });
+    }
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ error: 'Unauthorized', message: 'Invalid token' });
+    }
+    res.status(401).json({ error: 'Unauthorized', message: 'Authentication failed' });
   }
 };
 
-// Token-based authentication (secure)
-const authenticateToken = (req, res, next) => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  const validTokens = {
-    [process.env.TEST_TOKEN || 'test_token']: { id: 1, tenant_id: 1, role: 'admin' },
-    [process.env.TENANT_ADMIN_TOKEN || 'tenant_admin_token']: { id: 2, tenant_id: 1, role: 'admin' },
-    [process.env.SUPER_ADMIN_TOKEN || 'super_admin_token']: { id: 3, tenant_id: null, role: 'super_admin' }
-  };
-  
-  if (!token) {
-    return res.status(401).json({ error: 'Token required' });
-  }
-  
-  const user = validTokens[token];
-  if (user) {
-    req.user = user;
-    next();
-  } else {
-    res.status(401).json({ error: 'Invalid token' });
-  }
-};
-
-// Require tenant admin role
-const requireTenantAdmin = (req, res, next) => {
-  if (req.user && req.user.role === 'admin') {
-    next();
-  } else {
-    res.status(403).json({ error: 'Tenant admin access required' });
-  }
-};
-
-// Require super admin role
-const requireSuperAdmin = (req, res, next) => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  const superAdminToken = process.env.SUPER_ADMIN_TOKEN || 'super_admin_token';
-  
-  if (token && timingSafeCompare(token, superAdminToken)) {
-    next();
-  } else {
-    res.status(403).json({ error: 'Super admin access required' });
-  }
-};
-
-module.exports = { authenticate, authenticateToken, requireTenantAdmin, requireSuperAdmin };
+module.exports = authMiddleware;

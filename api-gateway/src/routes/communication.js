@@ -1,4 +1,8 @@
 const express = require('express');
+const auth = require('../middleware/auth');
+const tenantCheck = require('../middleware/tenantCheck');
+const rateLimit = require('../middleware/rateLimit');
+const inputValidation = require('../middleware/inputValidation');
 const router = express.Router();
 const { Pool } = require('pg');
 
@@ -9,6 +13,10 @@ const pool = new Pool({
   user: process.env.DB_USER,
   password: String(process.env.DB_PASSWORD)
 });
+
+router.use(auth);
+router.use(rateLimit);
+router.use(inputValidation);
 
 // Email Management Routes
 router.post('/email/send', async (req, res) => {
