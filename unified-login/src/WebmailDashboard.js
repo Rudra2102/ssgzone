@@ -130,7 +130,7 @@ function WebmailDashboard() {
   ];
 
   return (
-    <div style={{ display: 'flex', height: '100vh', background: '#f8fafc', fontFamily: 'Inter, sans-serif', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', height: '100%', background: '#f8fafc', fontFamily: 'Inter, sans-serif', overflow: 'hidden' }}>
 
       {/* Sidebar */}
       <div style={{ width: sidebarCollapsed ? 60 : 220, background: 'white', borderRight: '1px solid #e5e7eb', display: 'flex', flexDirection: 'column', flexShrink: 0, transition: 'width 0.2s', overflow: 'hidden' }}>
