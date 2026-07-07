@@ -26,3 +26,10 @@ const authMiddleware = (req, res, next) => {
 
 module.exports = authMiddleware;
 module.exports.authenticate = authMiddleware;
+module.exports.authenticateToken = authMiddleware;
+module.exports.requireTenantAdmin = (req, res, next) => {
+  if (req.user?.role !== 'admin' && req.user?.role !== 'tenant_admin') {
+    return res.status(403).json({ error: 'Forbidden', message: 'Admin access required' });
+  }
+  next();
+};
