@@ -1,0 +1,121 @@
+      case 'dashboard':
+        return (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+              <div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: colors.text }}>Welcome back, Super Admin! 👋</div>
+                <div style={{ fontSize: 13, color: colors.textMuted, marginTop: 4 }}>Here's what's happening with your mail platform today.</div>
+              </div>
+              <div style={{ fontSize: 12, color: colors.textMuted, background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 8, padding: '8px 14px' }}>
+                📅 May 16 - May 22, 2026
+              </div>
+            </div>
+            
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginBottom: 24 }}>
+              <EnhancedMetricCard 
+                title="Emails Sent" 
+                value={12453} 
+                icon="✉️" 
+                trend="vs last 7 days"
+                trendPercent={12.5}
+                bgColor="#eef2ff"
+                borderColor="#667eea"
+              />
+              <EnhancedMetricCard 
+                title="Delivery Rate" 
+                value={98.7} 
+                icon="📤" 
+                trend="vs last 7 days"
+                trendPercent={2.3}
+                bgColor="#d1fae5"
+                borderColor="#10b981"
+              />
+              <EnhancedMetricCard 
+                title="Active Tenants" 
+                value={24} 
+                icon="🏢" 
+                trend="Real-time"
+                trendPercent={14.3}
+                bgColor="#cffafe"
+                borderColor="#06b6d4"
+              />
+              <EnhancedMetricCard 
+                title="Total Users" 
+                value={1245} 
+                icon="👥" 
+                trend="Real-time"
+                trendPercent={8.7}
+                bgColor="#fef3c7"
+                borderColor="#f59e0b"
+              />
+              <EnhancedMetricCard 
+                title="Emails Today" 
+                value={2345} 
+                icon="📧" 
+                trend="vs yesterday"
+                trendPercent={-8.1}
+                bgColor="#ede9fe"
+                borderColor="#8b5cf6"
+              />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+              <EmailOverview stats={{
+                sent: 12453,
+                received: 12278,
+                failed: 6521,
+                bounced: 1245,
+                spam: 175,
+                deliveryRate: 98.5,
+                chartData: [
+                  { sent: 2000, received: 1800, failed: 100 },
+                  { sent: 2100, received: 1900, failed: 120 },
+                  { sent: 1900, received: 1700, failed: 90 },
+                  { sent: 2200, received: 2000, failed: 130 },
+                  { sent: 2300, received: 2100, failed: 140 },
+                  { sent: 2150, received: 1950, failed: 110 },
+                  { sent: 2400, received: 2200, failed: 150 }
+                ]
+              }} />
+              <EmailHealthMetrics stats={{
+                uptime: 99.9,
+                avgDeliveryTime: 1.2,
+                spamScore: 0.8,
+                dkimStatus: 'verified',
+                spfStatus: 'verified',
+                dmarcStatus: 'verified'
+              }} />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+              <SystemActivity activities={[
+                { type: 'email_sent', title: 'Bulk Email Campaign', description: 'Sent to 500 users', timestamp: new Date(Date.now() - 5*60000) },
+                { type: 'user_created', title: 'New User Created', description: 'pradeep.singh@nabc.lms.ssgzone.in', timestamp: new Date(Date.now() - 15*60000) },
+                { type: 'tenant_created', title: 'New Tenant', description: 'NABC Institute', timestamp: new Date(Date.now() - 30*60000) },
+                { type: 'settings_changed', title: 'Settings Updated', description: 'Branding configuration changed', timestamp: new Date(Date.now() - 60*60000) },
+                { type: 'login', title: 'Admin Login', description: 'Super Admin logged in', timestamp: new Date(Date.now() - 120*60000) }
+              ]} />
+              <StorageUsage stats={{
+                used: 320.8,
+                total: 1000,
+                percentage: 32,
+                breakdown: {
+                  emails: 300,
+                  attachments: 12,
+                  backups: 3,
+                  other: 0.2
+                }
+              }} />
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 20 }}>
+              <div>
+                <TopTenants />
+                <RecentUsers />
+              </div>
+              <div>
+                <QuickActions />
+              </div>
+            </div>
+          </div>
+        );

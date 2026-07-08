@@ -28,35 +28,25 @@
 }
 
 .storage-main {
+  display: flex;
+  justify-content: center;
   margin-bottom: 20px;
 }
 
-.storage-bar-container {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.circular-chart {
+  width: 150px;
+  height: 150px;
 }
 
-.storage-bar {
-  flex: 1;
-  height: 12px;
-  background: #ecf0f1;
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.storage-fill {
+.progress-ring {
+  width: 100%;
   height: 100%;
-  border-radius: 6px;
-  transition: width 0.3s ease;
+  transform: rotate(-90deg);
+  transform-origin: 50% 50%;
 }
 
-.storage-percentage {
-  font-size: 14px;
-  font-weight: 700;
-  color: #2c3e50;
-  min-width: 45px;
-  text-align: right;
+.progress-circle {
+  transition: stroke-dashoffset 0.35s;
 }
 
 .storage-breakdown {

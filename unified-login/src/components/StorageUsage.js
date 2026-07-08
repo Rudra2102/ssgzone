@@ -20,6 +20,10 @@ const StorageUsage = ({ stats = {} }) => {
     return '#e74c3c';
   };
 
+  // Circular progress chart
+  const circumference = 2 * Math.PI * 45;
+  const strokeDashoffset = circumference - (percentage / 100) * circumference;
+
   return (
     <div className="storage-usage">
       <div className="storage-header">
@@ -28,17 +32,35 @@ const StorageUsage = ({ stats = {} }) => {
       </div>
 
       <div className="storage-main">
-        <div className="storage-bar-container">
-          <div className="storage-bar">
-            <div 
-              className="storage-fill" 
-              style={{ 
-                width: `${percentage}%`,
-                background: getStorageColor(percentage)
-              }}
-            ></div>
-          </div>
-          <div className="storage-percentage">{percentage.toFixed(1)}%</div>
+        <div className="circular-chart">
+          <svg viewBox="0 0 120 120" className="progress-ring">
+            <circle
+              cx="60"
+              cy="60"
+              r="45"
+              fill="none"
+              stroke="#ecf0f1"
+              strokeWidth="8"
+            />
+            <circle
+              cx="60"
+              cy="60"
+              r="45"
+              fill="none"
+              stroke={getStorageColor(percentage)}
+              strokeWidth="8"
+              strokeDasharray={circumference}
+              strokeDashoffset={strokeDashoffset}
+              strokeLinecap="round"
+              className="progress-circle"
+            />
+            <text x="60" y="55" textAnchor="middle" fontSize="24" fontWeight="700" fill="#2c3e50">
+              {percentage.toFixed(1)}%
+            </text>
+            <text x="60" y="75" textAnchor="middle" fontSize="12" fill="#7f8c8d">
+              Used
+            </text>
+          </svg>
         </div>
       </div>
 

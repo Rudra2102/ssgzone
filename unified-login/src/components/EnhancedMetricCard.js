@@ -8,14 +8,16 @@ const EnhancedMetricCard = ({
   trendPercent, 
   icon, 
   subtitle,
-  sparkData = []
+  sparkData = [],
+  bgColor = '#eef2ff',
+  borderColor = '#667eea'
 }) => {
   const isPositive = trendPercent >= 0;
   
   return (
-    <div className="enhanced-metric-card">
+    <div className="enhanced-metric-card" style={{ borderLeftColor: borderColor, backgroundColor: bgColor }}>
       <div className="metric-header">
-        <div className="metric-icon">{icon}</div>
+        <div className="metric-icon" style={{ fontSize: '32px' }}>{icon}</div>
         <div className="metric-title-section">
           <h3>{title}</h3>
           {subtitle && <p className="metric-subtitle">{subtitle}</p>}
