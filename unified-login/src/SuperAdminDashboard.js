@@ -257,20 +257,32 @@ function SuperAdminDashboard() {
   };
 
   const sidebarNav = [
-    { section: 'APPLICATIONS', items: [{ id: 'applications', label: 'Applications', icon: '▦' }] },
-    { section: 'COMMUNICATION', items: [
-      { id: 'compose', label: 'Compose', icon: '✏' },
-      { id: 'email', label: 'Sent Emails', icon: '📤' },
-      { id: 'templates', label: 'Templates', icon: '📄' },
+    { section: '', items: [{ id: 'dashboard', label: 'Dashboard', icon: '📊' }] },
+    { section: 'EMAIL', items: [
+      { id: 'email', label: 'Email', icon: '📧' },
+      { id: 'compose', label: 'Campaigns', icon: '📢' },
+      { id: 'templates', label: 'Automations', icon: '⚙' },
+      { id: 'scheduled', label: 'Scheduled', icon: '⏰' },
+      { id: 'drafts', label: 'Drafts', icon: '📝' },
+      { id: 'trash', label: 'Trash', icon: '🗑' },
+      { id: 'spam', label: 'Spam', icon: '⛔' },
     ]},
-    { section: 'USER MANAGEMENT', items: [
-      { id: 'users', label: 'Users', icon: '👥' },
-      { id: 'admins', label: 'Platform Admins', icon: '🛡' },
+    { section: 'MANAGEMENT', items: [
+      { id: 'applications', label: 'Applications', icon: '▦' },
       { id: 'tenants', label: 'Tenants', icon: '🏢' },
+      { id: 'users', label: 'Users', icon: '👥' },
       { id: 'mailboxes', label: 'Mailboxes', icon: '📬' },
+      { id: 'admins', label: 'Roles & Permissions', icon: '🛡' },
+    ]},
+    { section: 'ANALYTICS', items: [
+      { id: 'reports', label: 'Reports', icon: '📈' },
+      { id: 'analytics', label: 'Email Analytics', icon: '📊' },
     ]},
     { section: 'SYSTEM', items: [
-      { id: 'settings', label: 'Settings & Branding', icon: '⚙' },
+      { id: 'system-config', label: 'System Config', icon: '⚙' },
+      { id: 'security', label: 'Security & Logs', icon: '🔐' },
+      { id: 'audit', label: 'Audit Logs', icon: '📋' },
+      { id: 'settings', label: 'Settings & Branding', icon: '🎨' },
     ]},
   ];
 
@@ -412,22 +424,19 @@ function SuperAdminDashboard() {
   const QuickActions = () => (
     <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 20, marginBottom: 20 }}>
       <div style={{ fontWeight: 700, fontSize: 15, color: colors.text, marginBottom: 16 }}>Quick Actions</div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8 }}>
         {[
           { label: 'Compose Email', icon: '✏', section: 'compose' },
-          { label: 'Create Campaign', icon: '📢', section: 'campaigns' },
+          { label: 'Create Campaign', icon: '📢', section: 'compose' },
           { label: 'Add Tenant', icon: '🏢', action: () => setOpenTenantDialog(true) },
-          { label: 'Add User', icon: '👤', section: 'users' },
           { label: 'Create Template', icon: '📄', section: 'templates' },
           { label: 'View Reports', icon: '📊', section: 'reports' },
-          { label: 'System Settings', icon: '⚙', section: 'system-config' },
-          { label: 'Security & Logs', icon: '🛡', section: 'security' },
-          { label: 'Audit Logs', icon: '📋', section: 'audit' },
+          { label: 'System Settings', icon: '⚙', section: 'settings' },
         ].map((a, i) => (
-          <div key={i} onClick={a.action || (() => setActiveSection(a.section))}
-            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderRadius: 8, border: `1px solid ${colors.border}`, cursor: 'pointer', fontSize: 12, color: colors.text, fontWeight: 500, background: colors.bg }}>
+          <button key={i} onClick={a.action || (() => setActiveSection(a.section))}
+            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 8, border: `1px solid ${colors.border}`, cursor: 'pointer', fontSize: 12, color: colors.text, fontWeight: 500, background: colors.bg, textAlign: 'left' }}>
             <span style={{ fontSize: 16 }}>{a.icon}</span>{a.label}
-          </div>
+          </button>
         ))}
       </div>
     </div>
@@ -458,6 +467,27 @@ function SuperAdminDashboard() {
             </tr>
           ))}
           {tenants.length === 0 && <tr><td colSpan={3} style={{ padding: 20, textAlign: 'center', color: colors.textMuted }}>No tenants found</td></tr>}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  const RecentCampaigns = () => (
+    <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 20, marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div style={{ fontWeight: 700, fontSize: 15, color: colors.text }}>Recent Campaigns</div>
+        <span onClick={() => setActiveSection('compose')} style={{ fontSize: 12, color: colors.primary, cursor: 'pointer' }}>View All</span>
+      </div>
+      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+        <thead>
+          <tr style={{ borderBottom: `1px solid ${colors.border}` }}>
+            {['Campaign', 'Recipients', 'Sent', 'Status'].map(h => (
+              <th key={h} style={{ textAlign: 'left', padding: '8px 10px', color: colors.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {[].length === 0 && <tr><td colSpan={4} style={{ padding: 20, textAlign: 'center', color: colors.textMuted }}>No campaigns yet</td></tr>}
         </tbody>
       </table>
     </div>
@@ -2195,31 +2225,32 @@ function SuperAdminDashboard() {
                 <div style={{ fontSize: 13, color: colors.textMuted, marginTop: 4 }}>Here's what's happening with your mail platform today.</div>
               </div>
               <div style={{ fontSize: 12, color: colors.textMuted, background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 8, padding: '8px 14px' }}>
-                📅 May 16 - May 22, 2026
+                📅 {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(Date.now() + 6*24*60*60*1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
               </div>
             </div>
             
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginBottom: 24 }}>
-              <EnhancedMetricCard title="Emails Sent" value={12453} icon="✉️" trend="vs last 7 days" trendPercent={12.5} bgColor="#eef2ff" borderColor="#667eea" />
-              <EnhancedMetricCard title="Delivery Rate" value={98.7} icon="📤" trend="vs last 7 days" trendPercent={2.3} bgColor="#d1fae5" borderColor="#10b981" />
-              <EnhancedMetricCard title="Active Tenants" value={24} icon="🏢" trend="Real-time" trendPercent={14.3} bgColor="#cffafe" borderColor="#06b6d4" />
-              <EnhancedMetricCard title="Total Users" value={1245} icon="👥" trend="Real-time" trendPercent={8.7} bgColor="#fef3c7" borderColor="#f59e0b" />
-              <EnhancedMetricCard title="Emails Today" value={2345} icon="📧" trend="vs yesterday" trendPercent={-8.1} bgColor="#ede9fe" borderColor="#8b5cf6" />
+              <EnhancedMetricCard title="Emails Sent" value={stats.emailsSent || 0} icon="✉️" trend="vs last 7 days" trendPercent={stats.emailsSentTrend || 0} bgColor="#eef2ff" borderColor="#667eea" />
+              <EnhancedMetricCard title="Delivery Rate" value={(stats.deliveryRate || 0).toFixed(1)} icon="📤" trend="vs last 7 days" trendPercent={stats.deliveryRateTrend || 0} bgColor="#d1fae5" borderColor="#10b981" />
+              <EnhancedMetricCard title="Active Tenants" value={stats.totalTenants || 0} icon="🏢" trend="Real-time" trendPercent={stats.tenantsTrend || 0} bgColor="#cffafe" borderColor="#06b6d4" />
+              <EnhancedMetricCard title="Total Users" value={stats.totalUsers || 0} icon="👥" trend="Real-time" trendPercent={stats.usersTrend || 0} bgColor="#fef3c7" borderColor="#f59e0b" />
+              <EnhancedMetricCard title="Emails Today" value={stats.emailsToday || 0} icon="📧" trend="vs yesterday" trendPercent={stats.emailsTodayTrend || 0} bgColor="#ede9fe" borderColor="#8b5cf6" />
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
-              <EmailOverview stats={{ sent: 12453, received: 12278, failed: 6521, bounced: 1245, spam: 175, deliveryRate: 98.5, chartData: [{ sent: 2000, received: 1800, failed: 100 }, { sent: 2100, received: 1900, failed: 120 }, { sent: 1900, received: 1700, failed: 90 }, { sent: 2200, received: 2000, failed: 130 }, { sent: 2300, received: 2100, failed: 140 }, { sent: 2150, received: 1950, failed: 110 }, { sent: 2400, received: 2200, failed: 150 }] }} />
-              <EmailHealthMetrics stats={{ uptime: 99.9, avgDeliveryTime: 1.2, spamScore: 0.8, dkimStatus: 'verified', spfStatus: 'verified', dmarcStatus: 'verified' }} />
+              <EmailOverview stats={{ sent: stats.emailsSent || 0, received: stats.emailsReceived || 0, failed: stats.emailsFailed || 0, bounced: stats.emailsBounced || 0, spam: stats.emailsSpam || 0, deliveryRate: stats.deliveryRate || 0, chartData: stats.chartData || [] }} />
+              <EmailHealthMetrics stats={{ uptime: stats.uptime || 99.9, avgDeliveryTime: stats.avgDeliveryTime || 1.2, spamScore: stats.spamScore || 0.8, dkimStatus: stats.dkimStatus || 'verified', spfStatus: stats.spfStatus || 'verified', dmarcStatus: stats.dmarcStatus || 'verified' }} />
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
-              <SystemActivity activities={[{ type: 'email_sent', title: 'Bulk Email Campaign', description: 'Sent to 500 users', timestamp: new Date(Date.now() - 5*60000) }, { type: 'user_created', title: 'New User Created', description: 'pradeep.singh@nabc.lms.ssgzone.in', timestamp: new Date(Date.now() - 15*60000) }, { type: 'tenant_created', title: 'New Tenant', description: 'NABC Institute', timestamp: new Date(Date.now() - 30*60000) }, { type: 'settings_changed', title: 'Settings Updated', description: 'Branding configuration changed', timestamp: new Date(Date.now() - 60*60000) }, { type: 'login', title: 'Admin Login', description: 'Super Admin logged in', timestamp: new Date(Date.now() - 120*60000) }]} />
-              <StorageUsage stats={{ used: 320.8, total: 1000, percentage: 32, breakdown: { emails: 300, attachments: 12, backups: 3, other: 0.2 } }} />
+              <SystemActivity activities={stats.activities || []} />
+              <StorageUsage stats={{ used: stats.storageUsed || 0, total: stats.storageTotal || 1000, percentage: stats.storagePercentage || 0, breakdown: stats.storageBreakdown || {} }} />
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 20 }}>
               <div>
                 <TopTenants />
+                <RecentCampaigns />
                 <RecentUsers />
               </div>
               <div>
