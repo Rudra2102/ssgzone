@@ -1,0 +1,148 @@
+.email-overview {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.overview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #ecf0f1;
+}
+
+.overview-header h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #2c3e50;
+  font-weight: 600;
+}
+
+.overview-period {
+  font-size: 12px;
+  color: #95a5a6;
+  background: #f8f9fa;
+  padding: 4px 12px;
+  border-radius: 20px;
+}
+
+.overview-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #7f8c8d;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stat-value {
+  font-size: 20px;
+  font-weight: 700;
+  color: #2c3e50;
+}
+
+.stat-value.sent {
+  color: #27ae60;
+}
+
+.stat-value.received {
+  color: #3498db;
+}
+
+.stat-value.failed {
+  color: #e74c3c;
+}
+
+.stat-value.bounced {
+  color: #f39c12;
+}
+
+.stat-value.spam {
+  color: #9b59b6;
+}
+
+.stat-bar {
+  height: 4px;
+  background: #ecf0f1;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.bar-fill.sent {
+  background: #27ae60;
+}
+
+.bar-fill.received {
+  background: #3498db;
+}
+
+.bar-fill.failed {
+  background: #e74c3c;
+}
+
+.bar-fill.bounced {
+  background: #f39c12;
+}
+
+.bar-fill.spam {
+  background: #9b59b6;
+}
+
+.overview-footer {
+  padding-top: 12px;
+  border-top: 1px solid #ecf0f1;
+}
+
+.delivery-rate {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.rate-label {
+  font-size: 12px;
+  color: #7f8c8d;
+  font-weight: 600;
+}
+
+.rate-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: #27ae60;
+}
+
+.rate-bar {
+  height: 6px;
+  background: #ecf0f1;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.rate-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #27ae60, #2ecc71);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}

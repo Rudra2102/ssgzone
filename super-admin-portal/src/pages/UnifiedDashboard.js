@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import usePermissions from '../components/usePermissions';
 import PermissionWrapper from '../components/PermissionWrapper';
-import MetricCard from '../components/MetricCard';
+import EnhancedMetricCard from '../components/EnhancedMetricCard';
+import EmailOverview from '../components/EmailOverview';
+import SystemActivity from '../components/SystemActivity';
+import EmailHealthMetrics from '../components/EmailHealthMetrics';
+import StorageUsage from '../components/StorageUsage';
 import TenantTable from '../components/TenantTable';
 import UserTable from '../components/UserTable';
 import QuickActions from '../components/QuickActions';
@@ -16,10 +20,15 @@ const UnifiedDashboard = () => {
     emailsToday: 0,
     platformAdmins: 0,
     ownTenants: 0,
-    ownUsers: 0
+    ownUsers: 0,
+    emailStats: { sent: 0, received: 0, failed: 0, bounced: 0, spam: 0, deliveryRate: 98.5 },
+    healthMetrics: { uptime: 99.9, avgDeliveryTime: 2.3, spamScore: 0.8, dkimStatus: 'valid', spfStatus: 'valid', dmarcStatus: 'valid', tlsEnabled: true, apiHealth: 'healthy' },
+    storageUsage: { used: 45.2, total: 100, percentage: 45.2, breakdown: { emails: 30, attachments: 12, backups: 3, other: 0.2 } },
+    trends: { emailsTrend: 12, usersTrend: -5, tenantsTrend: 8 }
   });
   const [topTenants, setTopTenants] = useState([]);
   const [recentUsers, setRecentUsers] = useState([]);
+  const [activities, setActivities] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -31,7 +40,6 @@ const UnifiedDashboard = () => {
       setLoading(true);
       const token = localStorage.getItem('token');
       
-      // Fetch metrics based on role
       let metricsEndpoint = '/api/v1/super-admin/dashboard/metrics';
       if (isAdmin) metricsEndpoint = '/api/v1/admin/dashboard/metrics';
       if (isTenant) metricsEndpoint = '/api/v1/tenant/dashboard/metrics';
@@ -41,9 +49,8 @@ const UnifiedDashboard = () => {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       const metricsData = await metricsRes.json();
-      setMetrics(metricsData.data);
+      setMetrics(prev => ({ ...prev, ...metricsData.data }));
 
-      // Fetch tenants/users based on role
       if (isSuperAdmin || isAdmin) {
         const tenantsRes = await fetch(
           isSuperAdmin ? '/api/v1/super-admin/tenants?limit=5' : '/api/v1/admin/tenants?limit=5',
@@ -63,6 +70,13 @@ const UnifiedDashboard = () => {
         const usersData = await usersRes.json();
         setRecentUsers(usersData.data);
       }
+
+      const activitiesRes = await fetch(
+        '/api/v1/dashboard/activities?limit=8',
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      const activitiesData = await activitiesRes.json();
+      setActivities(activitiesData.data || []);
 
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
@@ -102,49 +116,67 @@ const UnifiedDashboard = () => {
         <p>{getSubtitle()}</p>
       </div>
 
-      {/* Metrics Cards - Role-based */}
+      {/* Enhanced Metrics Cards - Role-based */}
       <div className="metrics-grid">
         <PermissionWrapper module="dashboard" action="viewAllMetrics">
-          <MetricCard 
+          <EnhancedMetricCard 
             title="Total SaaS Apps" 
             value={metrics.totalSaasApps}
+            trendPercent={metrics.trends?.appsTrend || 0}
             icon="📊"
           />
         </PermissionWrapper>
 
         <PermissionWrapper module="dashboard" action="viewAllTenants">
-          <MetricCard 
+          <EnhancedMetricCard 
             title="Active Tenants" 
             value={metrics.activeTenants}
-            subtitle="Real-time"
+            trendPercent={metrics.trends?.tenantsTrend || 0}
             icon="🏢"
+            subtitle="Real-time"
           />
         </PermissionWrapper>
 
         <PermissionWrapper module="dashboard" actions={['viewAllUsers', 'viewOwnUsers']} requireAll={false}>
-          <MetricCard 
+          <EnhancedMetricCard 
             title={isSuperAdmin ? "Total Users" : "Your Users"}
             value={metrics.totalUsers || metrics.ownUsers}
-            subtitle="Real-time"
+            trendPercent={metrics.trends?.usersTrend || 0}
             icon="👥"
+            subtitle="Real-time"
           />
         </PermissionWrapper>
 
         <PermissionWrapper module="email" action="compose">
-          <MetricCard 
+          <EnhancedMetricCard 
             title="Emails Today" 
             value={metrics.emailsToday}
+            trendPercent={metrics.trends?.emailsTrend || 0}
             icon="📧"
           />
         </PermissionWrapper>
 
         <PermissionWrapper module="dashboard" action="viewAllAdmins">
-          <MetricCard 
+          <EnhancedMetricCard 
             title="Platform Admins" 
             value={metrics.platformAdmins}
             icon="🛡️"
           />
         </PermissionWrapper>
+      </div>
+
+      {/* Email Overview & Health Metrics */}
+      <div className="dashboard-grid-2col">
+        <PermissionWrapper module="email" action="compose">
+          <EmailOverview stats={metrics.emailStats} />
+        </PermissionWrapper>
+        <EmailHealthMetrics metrics={metrics.healthMetrics} />
+      </div>
+
+      {/* Storage & System Activity */}
+      <div className="dashboard-grid-2col">
+        <StorageUsage storage={metrics.storageUsage} />
+        <SystemActivity activities={activities} />
       </div>
 
       {/* Main Content Grid */}
