@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS activity_logs (
   title VARCHAR(255) NOT NULL,
   description TEXT,
   user_id INTEGER REFERENCES users(id),
-  tenant_id INTEGER REFERENCES tenant_companies(id),
+  tenant_id UUID REFERENCES tenant_companies(id),
   saas_app_id INTEGER REFERENCES saas_applications(id),
   action_details JSONB,
   ip_address INET,
