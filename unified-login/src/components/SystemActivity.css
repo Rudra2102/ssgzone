@@ -1,0 +1,141 @@
+.system-activity {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.activity-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #ecf0f1;
+}
+
+.activity-header h3 {
+  margin: 0;
+  font-size: 16px;
+  color: #2c3e50;
+  font-weight: 600;
+}
+
+.view-all-link {
+  color: #3498db;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 600;
+  transition: color 0.3s;
+}
+
+.view-all-link:hover {
+  color: #2980b9;
+}
+
+.activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.activity-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.activity-list::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.activity-list::-webkit-scrollbar-thumb {
+  background: #bdc3c7;
+  border-radius: 3px;
+}
+
+.activity-list::-webkit-scrollbar-thumb:hover {
+  background: #95a5a6;
+}
+
+.activity-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  border-left: 3px solid #bdc3c7;
+  transition: all 0.3s ease;
+}
+
+.activity-item:hover {
+  background: #f8f9fa;
+}
+
+.activity-item.success {
+  border-left-color: #27ae60;
+  background: rgba(39, 174, 96, 0.05);
+}
+
+.activity-item.danger {
+  border-left-color: #e74c3c;
+  background: rgba(231, 76, 60, 0.05);
+}
+
+.activity-item.warning {
+  border-left-color: #f39c12;
+  background: rgba(243, 156, 18, 0.05);
+}
+
+.activity-item.info {
+  border-left-color: #3498db;
+  background: rgba(52, 152, 219, 0.05);
+}
+
+.activity-item.default {
+  border-left-color: #95a5a6;
+  background: rgba(149, 165, 166, 0.05);
+}
+
+.activity-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+
+.activity-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.activity-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #2c3e50;
+  margin-bottom: 2px;
+}
+
+.activity-description {
+  font-size: 12px;
+  color: #7f8c8d;
+  line-height: 1.4;
+}
+
+.activity-time {
+  font-size: 11px;
+  color: #95a5a6;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: #95a5a6;
+}
+
+.empty-state p {
+  margin: 0;
+  font-size: 14px;
+}

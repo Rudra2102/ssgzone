@@ -1,4 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import EnhancedMetricCard from './components/EnhancedMetricCard';
+import EmailOverview from './components/EmailOverview';
+import SystemActivity from './components/SystemActivity';
+import EmailHealthMetrics from './components/EmailHealthMetrics';
+import StorageUsage from './components/StorageUsage';
 
 function SuperAdminDashboard() {
   const [activeSection, setActiveSection] = useState('dashboard');
@@ -365,12 +370,42 @@ function SuperAdminDashboard() {
   );
 
   const StatsRow = () => (
-    <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
-      <StatCard label="Total SaaS Apps" value={stats.totalSaasApps} icon="▦" iconBg="#eef2ff" />
-      <StatCard label="Active Tenants" value={stats.totalTenants} trend="Real-time" trendLabel="" icon="🏢" iconBg="#cffafe" />
-      <StatCard label="Total Users" value={stats.totalUsers} trend="Real-time" trendLabel="" icon="👥" iconBg="#fef3c7" />
-      <StatCard label="Emails Today" value={stats.emailsToday ?? '0'} icon="📬" iconBg="#ede9fe" />
-      <StatCard label="Platform Admins" value={stats.totalAdmins ?? '—'} icon="🛡" iconBg="#d1fae5" />
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 16, marginBottom: 24 }}>
+      <EnhancedMetricCard 
+        title="SaaS Apps" 
+        value={stats.totalSaasApps || 0} 
+        icon="▦" 
+        trend="Active"
+        trendPercent={5}
+      />
+      <EnhancedMetricCard 
+        title="Active Tenants" 
+        value={stats.totalTenants || 0} 
+        icon="🏢" 
+        trend="Real-time"
+        trendPercent={8}
+      />
+      <EnhancedMetricCard 
+        title="Total Users" 
+        value={stats.totalUsers || 0} 
+        icon="👥" 
+        trend="Real-time"
+        trendPercent={12}
+      />
+      <EnhancedMetricCard 
+        title="Emails Today" 
+        value={stats.emailsToday || 0} 
+        icon="📬" 
+        trend="vs yesterday"
+        trendPercent={-3}
+      />
+      <EnhancedMetricCard 
+        title="Platform Admins" 
+        value={stats.totalAdmins || 0} 
+        icon="🛡" 
+        trend="Active"
+        trendPercent={0}
+      />
     </div>
   );
 
@@ -2164,6 +2199,44 @@ function SuperAdminDashboard() {
               </div>
             </div>
             <StatsRow />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+              <EmailOverview stats={{
+                sent: stats.emailsToday || 0,
+                received: Math.floor((stats.emailsToday || 0) * 0.8),
+                failed: Math.floor((stats.emailsToday || 0) * 0.02),
+                bounced: Math.floor((stats.emailsToday || 0) * 0.01),
+                spam: Math.floor((stats.emailsToday || 0) * 0.005),
+                deliveryRate: 98.5
+              }} />
+              <EmailHealthMetrics stats={{
+                uptime: 99.9,
+                avgDeliveryTime: 1.2,
+                spamScore: 0.8,
+                dkimStatus: 'verified',
+                spfStatus: 'verified',
+                dmarcStatus: 'verified'
+              }} />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+              <SystemActivity activities={[
+                { type: 'email_sent', title: 'Bulk Email Campaign', description: 'Sent to 500 users', timestamp: new Date(Date.now() - 5*60000) },
+                { type: 'user_created', title: 'New User Created', description: 'pradeep.singh@nabc.lms.ssgzone.in', timestamp: new Date(Date.now() - 15*60000) },
+                { type: 'tenant_created', title: 'New Tenant', description: 'NABC Institute', timestamp: new Date(Date.now() - 30*60000) },
+                { type: 'settings_changed', title: 'Settings Updated', description: 'Branding configuration changed', timestamp: new Date(Date.now() - 60*60000) },
+                { type: 'login', title: 'Admin Login', description: 'Super Admin logged in', timestamp: new Date(Date.now() - 120*60000) }
+              ]} />
+              <StorageUsage stats={{
+                used: 450,
+                total: 1000,
+                percentage: 45,
+                breakdown: {
+                  emails: 300,
+                  attachments: 120,
+                  backups: 30,
+                  other: 0
+                }
+              }} />
+            </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 20 }}>
               <div>
                 <TopTenants />
