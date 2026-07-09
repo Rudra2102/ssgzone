@@ -1,163 +1,225 @@
-const { Client } = require('@elastic/elasticsearch');
+const db = require('../utils/database');
 
 class SearchService {
-  constructor() {
-    this.client = new Client({
-      node: process.env.ELASTICSEARCH_URL || 'http://localhost:9200'
-    });
-    this.indexPrefix = 'ssghub-emails';
+  /**
+   * Index email for full-text search
+   */
+  async indexEmail(emailId, tenantId, subject, body, sender, recipients) {
+    try {
+      const result = await db.query(
+        `INSERT INTO email_search_index (email_id, tenant_id, subject_text, body_text, sender_email, recipient_emails)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (email_id) DO UPDATE SET
+           subject_text = $3,
+           body_text = $4,
+           sender_email = $5,
+           recipient_emails = $6,
+           updated_at = CURRENT_TIMESTAMP
+         RETURNING id`,
+        [emailId, tenantId, subject, body, sender, recipients]
+      );
+      
+      return { success: true, indexed_id: result.rows[0].id };
+    } catch (error) {
+      console.error('Error indexing email:', error);
+      throw error;
+    }
   }
 
-  getIndexName(tenantId) {
-    return `${this.indexPrefix}-${tenantId}`;
-  }
-
-  async indexEmail(tenantId, email) {
-    const index = this.getIndexName(tenantId);
-    
-    await this.client.index({
-      index,
-      id: email.id,
-      body: {
-        subject: email.subject,
-        from: email.from,
-        to: email.to,
-        cc: email.cc,
-        bcc: email.bcc,
-        body: email.body,
-        html_body: email.html_body,
-        date: email.date,
-        folder: email.folder,
-        flags: email.flags,
-        attachments: email.attachments?.map(att => ({
-          filename: att.filename,
-          content_type: att.content_type
-        })) || [],
-        tenant_id: tenantId,
-        indexed_at: new Date()
+  /**
+   * Search emails by query
+   */
+  async searchEmails(tenantId, query, limit = 20, offset = 0) {
+    try {
+      if (!query || query.trim().length === 0) {
+        return { success: true, results: [], total: 0 };
       }
-    });
+
+      // Get search results
+      const result = await db.query(
+        `SELECT * FROM search_emails($1, $2, $3, $4)`,
+        [tenantId, query, limit, offset]
+      );
+
+      // Get total count
+      const countResult = await db.query(
+        `SELECT COUNT(*) as total FROM email_search_index esi
+         WHERE esi.tenant_id = $1
+         AND esi.search_vector @@ plainto_tsquery('english', $2)`,
+        [tenantId, query]
+      );
+
+      return {
+        success: true,
+        results: result.rows,
+        total: parseInt(countResult.rows[0].total),
+        limit,
+        offset
+      };
+    } catch (error) {
+      console.error('Error searching emails:', error);
+      throw error;
+    }
   }
 
-  async searchEmails(tenantId, query, options = {}) {
-    const index = this.getIndexName(tenantId);
-    const { from = 0, size = 20, folder, dateRange, hasAttachments } = options;
+  /**
+   * Advanced search with filters
+   */
+  async searchEmailsAdvanced(tenantId, query, filters = {}) {
+    try {
+      const {
+        fromDate = null,
+        toDate = null,
+        sender = null,
+        limit = 20,
+        offset = 0
+      } = filters;
 
-    const must = [];
-    const filter = [{ term: { tenant_id: tenantId } }];
+      if (!query || query.trim().length === 0) {
+        return { success: true, results: [], total: 0 };
+      }
 
-    if (query) {
-      must.push({
-        multi_match: {
-          query,
-          fields: ['subject^3', 'from^2', 'to^2', 'body', 'html_body'],
-          type: 'best_fields',
-          fuzziness: 'AUTO'
-        }
-      });
+      // Get search results
+      const result = await db.query(
+        `SELECT * FROM search_emails_advanced($1, $2, $3, $4, $5, $6, $7)`,
+        [tenantId, query, fromDate, toDate, sender, limit, offset]
+      );
+
+      // Get total count
+      const countResult = await db.query(
+        `SELECT COUNT(*) as total FROM email_search_index esi
+         WHERE esi.tenant_id = $1
+         AND esi.search_vector @@ plainto_tsquery('english', $2)
+         AND ($3::TIMESTAMP IS NULL OR esi.created_at >= $3)
+         AND ($4::TIMESTAMP IS NULL OR esi.created_at <= $4)
+         AND ($5::VARCHAR IS NULL OR esi.sender_email ILIKE $5)`,
+        [tenantId, query, fromDate, toDate, sender]
+      );
+
+      return {
+        success: true,
+        results: result.rows,
+        total: parseInt(countResult.rows[0].total),
+        limit,
+        offset
+      };
+    } catch (error) {
+      console.error('Error in advanced search:', error);
+      throw error;
     }
+  }
 
-    if (folder) {
-      filter.push({ term: { folder } });
+  /**
+   * Remove email from search index
+   */
+  async removeFromIndex(emailId, tenantId) {
+    try {
+      const result = await db.query(
+        `DELETE FROM email_search_index WHERE email_id = $1 AND tenant_id = $2`,
+        [emailId, tenantId]
+      );
+
+      return { success: true, deleted: result.rowCount };
+    } catch (error) {
+      console.error('Error removing from index:', error);
+      throw error;
     }
+  }
 
-    if (dateRange) {
-      filter.push({
-        range: {
-          date: {
-            gte: dateRange.from,
-            lte: dateRange.to
+  /**
+   * Update indexed email
+   */
+  async updateIndex(emailId, tenantId, subject, body, sender, recipients) {
+    try {
+      const result = await db.query(
+        `UPDATE email_search_index 
+         SET subject_text = $3, body_text = $4, sender_email = $5, recipient_emails = $6
+         WHERE email_id = $1 AND tenant_id = $2
+         RETURNING id`,
+        [emailId, tenantId, subject, body, sender, recipients]
+      );
+
+      if (result.rows.length === 0) {
+        return { success: false, message: 'Email not found in index' };
+      }
+
+      return { success: true, updated_id: result.rows[0].id };
+    } catch (error) {
+      console.error('Error updating index:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get search statistics for tenant
+   */
+  async getSearchStats(tenantId) {
+    try {
+      const result = await db.query(
+        `SELECT * FROM email_search_stats WHERE tenant_id = $1`,
+        [tenantId]
+      );
+
+      if (result.rows.length === 0) {
+        return {
+          success: true,
+          stats: {
+            indexed_emails: 0,
+            unique_senders: 0,
+            oldest_email: null,
+            newest_email: null
           }
-        }
-      });
-    }
-
-    if (hasAttachments) {
-      filter.push({
-        range: {
-          'attachments.filename': { gt: 0 }
-        }
-      });
-    }
-
-    const searchBody = {
-      query: {
-        bool: {
-          must: must.length > 0 ? must : [{ match_all: {} }],
-          filter
-        }
-      },
-      sort: [{ date: { order: 'desc' } }],
-      from,
-      size,
-      highlight: {
-        fields: {
-          subject: {},
-          body: {},
-          html_body: {}
-        }
+        };
       }
-    };
 
-    const result = await this.client.search({
-      index,
-      body: searchBody
-    });
-
-    return {
-      total: result.body.hits.total.value,
-      emails: result.body.hits.hits.map(hit => ({
-        ...hit._source,
-        highlights: hit.highlight
-      }))
-    };
+      return { success: true, stats: result.rows[0] };
+    } catch (error) {
+      console.error('Error getting search stats:', error);
+      throw error;
+    }
   }
 
-  async deleteEmail(tenantId, emailId) {
-    const index = this.getIndexName(tenantId);
-    
-    await this.client.delete({
-      index,
-      id: emailId
-    });
-  }
-
-  async createTenantIndex(tenantId) {
-    const index = this.getIndexName(tenantId);
-    
-    const mapping = {
-      properties: {
-        subject: { type: 'text', analyzer: 'standard' },
-        from: { type: 'keyword' },
-        to: { type: 'keyword' },
-        cc: { type: 'keyword' },
-        bcc: { type: 'keyword' },
-        body: { type: 'text', analyzer: 'standard' },
-        html_body: { type: 'text', analyzer: 'standard' },
-        date: { type: 'date' },
-        folder: { type: 'keyword' },
-        flags: { type: 'keyword' },
-        attachments: {
-          type: 'nested',
-          properties: {
-            filename: { type: 'text' },
-            content_type: { type: 'keyword' }
-          }
-        },
-        tenant_id: { type: 'integer' },
-        indexed_at: { type: 'date' }
+  /**
+   * Bulk index emails
+   */
+  async bulkIndexEmails(tenantId, emails) {
+    try {
+      const results = [];
+      
+      for (const email of emails) {
+        const result = await this.indexEmail(
+          email.id,
+          tenantId,
+          email.subject,
+          email.body,
+          email.sender,
+          email.recipients
+        );
+        results.push(result);
       }
-    };
 
-    await this.client.indices.create({
-      index,
-      body: { mappings: mapping }
-    });
+      return { success: true, indexed: results.length, results };
+    } catch (error) {
+      console.error('Error bulk indexing:', error);
+      throw error;
+    }
   }
 
-  async deleteTenantIndex(tenantId) {
-    const index = this.getIndexName(tenantId);
-    await this.client.indices.delete({ index });
+  /**
+   * Clear all indexes for tenant (use with caution)
+   */
+  async clearTenantIndex(tenantId) {
+    try {
+      const result = await db.query(
+        `DELETE FROM email_search_index WHERE tenant_id = $1`,
+        [tenantId]
+      );
+
+      return { success: true, deleted: result.rowCount };
+    } catch (error) {
+      console.error('Error clearing index:', error);
+      throw error;
+    }
   }
 }
 
