@@ -5,7 +5,6 @@ const { v4: uuidv4 } = require('uuid');
 const storageService = require('../services/storageService');
 const { authenticateToken } = require('../middleware/auth');
 const { validateTenant } = require('../middleware/tenantCheck');
-const { errorHandler } = require('../middleware/errorHandler');
 const db = require('../utils/database');
 
 // Configure multer for file uploads

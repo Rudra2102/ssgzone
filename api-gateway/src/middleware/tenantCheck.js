@@ -14,4 +14,17 @@ const tenantCheckMiddleware = (req, res, next) => {
   }
 };
 
+const validateTenant = (req, res, next) => {
+  try {
+    if (!req.user || !req.user.tenant_id) {
+      return res.status(401).json({ error: 'Unauthorized', message: 'Tenant information not found' });
+    }
+    req.tenant = { id: req.user.tenant_id };
+    next();
+  } catch (error) {
+    res.status(403).json({ error: 'Forbidden', message: 'Tenant validation failed' });
+  }
+};
+
 module.exports = tenantCheckMiddleware;
+module.exports.validateTenant = validateTenant;
