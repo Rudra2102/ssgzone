@@ -407,125 +407,175 @@ pm2 restart ssgzone-api
 
 ---
 
-## Phase 2: Elasticsearch Integration (Search & Indexing)
+## Phase 2: Search & Indexing (PostgreSQL Full-Text Search)
 
-### 2.1 Elasticsearch Installation
+### 2.1 Decision: PostgreSQL FTS Instead of Elasticsearch
 
-**Status**: ⏳ TO BE DONE
+**Status**: ✅ DECIDED
 
-**Installation Details**:
+**Reason for Change**:
+- Production server memory constraint (3.8Gi available, Elasticsearch needs 2Gi+)
+- PostgreSQL already in use
+- Full-text search sufficient for email search
+- Cost-effective (₹0)
+- Easier maintenance
+
+**Architecture**:
 ```
-Location: /home/ssgzone/elasticsearch/
-Version: 8.x (latest)
-Data: /home/ssgzone/elasticsearch/data
-Config: /etc/elasticsearch/elasticsearch.yml
-Service: /etc/systemd/system/elasticsearch.service
-```
-
-**Ports**:
-```
-API Port: 9200
-Node Communication: 9300
+Emails → PostgreSQL FTS Index → Search API
 ```
 
-**Installation Steps**:
-
-1. **Download Elasticsearch**
-```bash
-cd /home/ssgzone/elasticsearch
-wget https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-8.x.x-linux-x86_64.tar.gz
-tar -xzf elasticsearch-8.x.x-linux-x86_64.tar.gz
-```
-
-2. **Create systemd service**
-```bash
-cat > /etc/systemd/system/elasticsearch.service << 'EOF'
-[Unit]
-Description=Elasticsearch
-After=network.target
-
-[Service]
-Type=simple
-User=elasticsearch
-WorkingDirectory=/home/ssgzone/elasticsearch
-ExecStart=/home/ssgzone/elasticsearch/bin/elasticsearch
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable elasticsearch
-systemctl start elasticsearch
-```
-
-3. **Verify installation**
-```bash
-curl http://localhost:9200
-```
-
-### 2.2 Environment Configuration
-
-**File**: `/opt/ssgzone/.env`
-
-**Required Changes**:
-```env
-# Elasticsearch Configuration
-ELASTICSEARCH_HOST=localhost
-ELASTICSEARCH_PORT=9200
-ELASTICSEARCH_INDEX_EMAILS=ssgzone-emails
-ELASTICSEARCH_INDEX_ATTACHMENTS=ssgzone-attachments
-```
-
-### 2.3 Node.js Dependencies
-
-**Required Package**:
-```bash
-cd /opt/ssgzone/api-gateway
-npm install @elastic/elasticsearch
-```
-
-### 2.4 Search Service
-
-**File**: `/opt/ssgzone/api-gateway/src/services/searchService.js` (NEW)
-
-**Purpose**: Elasticsearch client and indexing operations
-
-**Features**:
-- Index emails and attachments
-- Full-text search
-- Faceted search
-- Relevance ranking
-- Tenant isolation
-
-### 2.5 Database Migration
+### 2.2 Database Schema
 
 **File**: `/opt/ssgzone/database/migrations/28_search_index_schema.sql`
 
-**Purpose**: Add search_index table to track indexed documents
+**Purpose**: Add full-text search indexes and functions
 
-### 2.6 API Endpoints
+**Components**:
+1. `email_search_index` table - Denormalized search data
+2. GIN indexes for fast full-text search
+3. Search functions for ranking and relevance
+4. Trigger for automatic index updates
+
+**SQL**:
+```sql
+-- Full-text search index table
+CREATE TABLE IF NOT EXISTS email_search_index (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email_id UUID NOT NULL REFERENCES email_logs(id) ON DELETE CASCADE,
+  tenant_id UUID NOT NULL REFERENCES tenant_companies(id) ON DELETE CASCADE,
+  subject_text VARCHAR(500),
+  body_text TEXT,
+  sender_email VARCHAR(255),
+  recipient_emails TEXT,
+  search_vector tsvector,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  
+  CONSTRAINT fk_email_search_tenant FOREIGN KEY (tenant_id) REFERENCES tenant_companies(id) ON DELETE CASCADE
+);
+
+-- GIN index for full-text search
+CREATE INDEX IF NOT EXISTS idx_email_search_vector ON email_search_index USING GIN(search_vector);
+CREATE INDEX IF NOT EXISTS idx_email_search_tenant ON email_search_index(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_email_search_created ON email_search_index(created_at);
+
+-- Function to update search vector
+CREATE OR REPLACE FUNCTION update_email_search_vector()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.search_vector := 
+    setweight(to_tsvector('english', COALESCE(NEW.subject_text, '')), 'A') ||
+    setweight(to_tsvector('english', COALESCE(NEW.body_text, '')), 'B') ||
+    setweight(to_tsvector('english', COALESCE(NEW.sender_email, '')), 'C') ||
+    setweight(to_tsvector('english', COALESCE(NEW.recipient_emails, '')), 'C');
+  NEW.updated_at := CURRENT_TIMESTAMP;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger to update search vector on insert/update
+DROP TRIGGER IF EXISTS email_search_vector_trigger ON email_search_index;
+CREATE TRIGGER email_search_vector_trigger
+BEFORE INSERT OR UPDATE ON email_search_index
+FOR EACH ROW EXECUTE FUNCTION update_email_search_vector();
+
+-- Search function with ranking
+CREATE OR REPLACE FUNCTION search_emails(
+  p_tenant_id UUID,
+  p_query TEXT,
+  p_limit INT DEFAULT 20,
+  p_offset INT DEFAULT 0
+)
+RETURNS TABLE (
+  email_id UUID,
+  subject VARCHAR,
+  sender VARCHAR,
+  rank FLOAT,
+  created_at TIMESTAMP
+) AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    esi.email_id,
+    esi.subject_text,
+    esi.sender_email,
+    ts_rank(esi.search_vector, plainto_tsquery('english', p_query))::FLOAT,
+    esi.created_at
+  FROM email_search_index esi
+  WHERE esi.tenant_id = p_tenant_id
+    AND esi.search_vector @@ plainto_tsquery('english', p_query)
+  ORDER BY ts_rank(esi.search_vector, plainto_tsquery('english', p_query)) DESC
+  LIMIT p_limit
+  OFFSET p_offset;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+### 2.3 Search Service
+
+**File**: `/opt/ssgzone/api-gateway/src/services/searchService.js` (NEW)
+
+**Purpose**: PostgreSQL FTS operations
+
+**Methods**:
+- `indexEmail()` - Add email to search index
+- `searchEmails()` - Search with ranking
+- `deleteIndex()` - Remove from index
+- `updateIndex()` - Update indexed email
+
+### 2.4 API Endpoints
 
 **Endpoints**:
 ```
-POST /api/v1/search/index - Index email
-GET /api/v1/search/emails - Search emails
-GET /api/v1/search/attachments - Search attachments
-DELETE /api/v1/search/index/:email_id - Remove from index
+GET /api/v1/search/emails?q=query&limit=20&offset=0
+  - Search emails by query
+  - Returns: [{ email_id, subject, sender, rank, created_at }]
+
+POST /api/v1/search/index
+  - Index new email
+  - Body: { email_id, subject, body, sender, recipients }
+
+DELETE /api/v1/search/index/:email_id
+  - Remove from index
+
+PUT /api/v1/search/index/:email_id
+  - Update indexed email
 ```
 
-### 2.7 Implementation Steps
+### 2.5 Implementation Steps
 
-1. Check available ports on production server
+1. Create database migration (28_search_index_schema.sql)
+2. Create searchService.js
+3. Create search routes
+4. Update server.js with search routes
+5. Run database migration
+6. Restart API Gateway
+7. Test search functionality
+
+### 2.6 Performance Characteristics
+
+**Advantages**:
+- No extra infrastructure
+- Fast GIN index searches
+- Ranking support
+- Tenant isolation built-in
+- Cost: ₹0
+
+**Limitations**:
+- Single-node search (no distributed)
+- Suitable for moderate load (< 1M emails)
+- No advanced features like facets
+
+### 2.7 Future Migration Path
+
+If search performance becomes bottleneck:
+1. Upgrade server memory
 2. Install Elasticsearch
-3. Update `.env` with Elasticsearch config
-4. Create searchService.js
-5. Create search routes
-6. Run database migration
-7. Restart API Gateway
-8. Test search functionality
+3. Migrate to Elasticsearch with dual indexing
+4. Deprecate PostgreSQL FTS
+
+---
 
 ---
 
