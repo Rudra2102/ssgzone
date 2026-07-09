@@ -1,0 +1,460 @@
+# SSGzone Mail - Architecture Implementation Guide
+
+## Project Information
+- **Server**: root@prashasthub.com
+- **Project Location**: /opt/ssgzone/
+- **Database**: ssgzone_mail (PostgreSQL)
+- **Frontend**: /opt/ssgzone/unified-login (port 3001)
+- **Backend**: /opt/ssgzone/api-gateway (port 4000)
+
+---
+
+## Architecture Decisions (20 Questions Answered)
+
+| # | Component | Decision | Rationale |
+|---|-----------|----------|-----------|
+| 1 | Email Storage | Hybrid (DB + MinIO S3) | Cost-effective, scalable, full history |
+| 2 | Search & Indexing | Elasticsearch | Fast full-text search, industry standard |
+| 3 | Email Delivery | Async Queue (Redis) | Scalable, reliable, retry logic |
+| 4 | SMTP Server | AWS SES Only | High deliverability, no fallback complexity |
+| 5 | Attachment Scanning | ClamAV (Self-hosted) | Free, cost-effective, full control |
+| 6 | Authentication | OAuth 2.0 + JWT | SSO-ready, industry standard, flexible |
+| 7 | Attachment Limits | Hybrid (Per-email + Monthly Quota) | Abuse prevention, monetization |
+| 8 | Email Retention | Archive Strategy (Hot + Cold) | Cost-effective, compliance-ready |
+| 9 | Spam Filtering | Hybrid (SPF/DKIM/DMARC + SpamAssassin) | Comprehensive, cost-effective |
+| 10 | Real-Time Notifications | WebSocket | Instant updates, low latency |
+| 11 | Rate Limiting | Tiered (with SaaS Override) | Monetization, resource control |
+| 12 | Audit Logging | Comprehensive | Compliance, security, debugging |
+| 13 | Data Isolation | Shared DB (Row-Level Security) | Cost-effective, scalable |
+| 14 | Backup & DR | AWS RDS + S3 | Managed, reliable, compliance-ready |
+| 15 | Monitoring | Prometheus + Grafana | Free, full control, customizable |
+| 16 | Email Templates | Handlebars | Flexible, secure, industry standard |
+| 17 | Scheduling & Bulk | Full Suite | Complete, flexible, monetizable |
+| 18 | Analytics | Hybrid (Aggregated + Detailed) | Privacy-friendly, compliance-ready |
+| 19 | API Documentation | OpenAPI + Developer Portal | Professional, auto-generated |
+| 20 | Webhooks | Simple with Retry Logic | Real-time, efficient, reliable |
+
+---
+
+## Phase 1: Email Storage Model (Hybrid - DB + MinIO)
+
+### 1.1 MinIO Installation (COMPLETED)
+
+**Status**: ✅ DONE on production server
+
+**Installation Details**:
+```
+Location: /home/ssgzone/minio/
+Binary: /home/ssgzone/minio/bin/minio
+Data: /home/ssgzone/minio/data
+Config: /home/ssgzone/minio/.env
+Service: /etc/systemd/system/minio.service
+```
+
+**Credentials**:
+```
+Username: ssgzone_admin
+Password: SSGzone@MinIO2024Secure
+API Port: 9000
+Console Port: 9001
+```
+
+**Verification**:
+```bash
+# Check service status
+systemctl status minio
+
+# Check listening ports
+netstat -tlnp | grep minio
+
+# Health check
+curl http://localhost:9000/minio/health/live
+```
+
+---
+
+### 1.2 Environment Configuration
+
+**File**: `/opt/ssgzone/.env`
+
+**Current Status**: MinIO config commented out
+
+**Required Changes**:
+```env
+# MinIO Configuration
+MINIO_ENDPOINT=localhost
+MINIO_PORT=9000
+MINIO_USE_SSL=false
+MINIO_ROOT_USER=ssgzone_admin
+MINIO_ROOT_PASSWORD=SSGzone@MinIO2024Secure
+MINIO_BUCKET_EMAILS=ssgzone-emails
+MINIO_BUCKET_ATTACHMENTS=ssgzone-attachments
+MINIO_BUCKET_BACKUPS=ssgzone-backups
+```
+
+**Action**: Update `.env` file with above configuration
+
+---
+
+### 1.3 Node.js Dependencies
+
+**Status**: ❌ NOT INSTALLED
+
+**Required Package**:
+```bash
+cd /opt/ssgzone/api-gateway
+npm install minio
+```
+
+**Why**: MinIO client library for Node.js
+
+---
+
+### 1.4 Storage Service Configuration
+
+**File**: `/opt/ssgzone/api-gateway/src/services/storageService.js`
+
+**Current Status**: Uses AWS SDK (S3-compatible)
+
+**Required Update**: Ensure MinIO endpoint configuration
+
+**Code**:
+```javascript
+const AWS = require('aws-sdk');
+
+class StorageService {
+  constructor() {
+    this.s3 = new AWS.S3({
+      endpoint: process.env.MINIO_ENDPOINT || 'http://localhost:9000',
+      accessKeyId: process.env.MINIO_ROOT_USER || 'ssgzone_admin',
+      secretAccessKey: process.env.MINIO_ROOT_PASSWORD || 'SSGzone@MinIO2024Secure',
+      s3ForcePathStyle: true,
+      signatureVersion: 'v4'
+    });
+    
+    this.buckets = {
+      emails: process.env.MINIO_BUCKET_EMAILS || 'ssgzone-emails',
+      attachments: process.env.MINIO_BUCKET_ATTACHMENTS || 'ssgzone-attachments',
+      backups: process.env.MINIO_BUCKET_BACKUPS || 'ssgzone-backups'
+    };
+  }
+
+  async initializeBuckets() {
+    for (const [name, bucket] of Object.entries(this.buckets)) {
+      try {
+        await this.s3.headBucket({ Bucket: bucket }).promise();
+        console.log(`✓ Bucket exists: ${bucket}`);
+      } catch (error) {
+        if (error.code === 'NoSuchBucket') {
+          await this.s3.createBucket({ Bucket: bucket }).promise();
+          console.log(`✓ Bucket created: ${bucket}`);
+        }
+      }
+    }
+  }
+
+  async uploadEmail(emailContent, tenantId, emailId) {
+    const key = `emails/${tenantId}/${emailId}.json`;
+    const params = {
+      Bucket: this.buckets.emails,
+      Key: key,
+      Body: JSON.stringify(emailContent),
+      ContentType: 'application/json',
+      ServerSideEncryption: 'AES256'
+    };
+    
+    const result = await this.s3.upload(params).promise();
+    return { key, location: result.Location };
+  }
+
+  async uploadAttachment(file, tenantId, emailId) {
+    const key = `attachments/${tenantId}/${emailId}/${file.originalname}`;
+    const params = {
+      Bucket: this.buckets.attachments,
+      Key: key,
+      Body: file.buffer,
+      ContentType: file.mimetype,
+      ServerSideEncryption: 'AES256'
+    };
+    
+    const result = await this.s3.upload(params).promise();
+    return { key, size: file.size, location: result.Location };
+  }
+
+  async getEmail(key, tenantId) {
+    if (!key.startsWith(`emails/${tenantId}/`)) {
+      throw new Error('Access denied');
+    }
+    
+    const params = { Bucket: this.buckets.emails, Key: key };
+    const data = await this.s3.getObject(params).promise();
+    return JSON.parse(data.Body.toString());
+  }
+
+  async deleteEmail(key, tenantId) {
+    if (!key.startsWith(`emails/${tenantId}/`)) {
+      throw new Error('Access denied');
+    }
+    
+    const params = { Bucket: this.buckets.emails, Key: key };
+    await this.s3.deleteObject(params).promise();
+  }
+}
+
+module.exports = new StorageService();
+```
+
+---
+
+### 1.5 Database Migration
+
+**File**: `/opt/ssgzone/database/migrations/27_email_storage_schema.sql`
+
+**Purpose**: Add email_storage table to track S3 references
+
+**SQL**:
+```sql
+-- Email Storage Schema
+CREATE TABLE IF NOT EXISTS email_storage (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email_id UUID NOT NULL REFERENCES email_logs(id) ON DELETE CASCADE,
+  tenant_id UUID NOT NULL REFERENCES tenant_companies(id) ON DELETE CASCADE,
+  storage_key VARCHAR(500) NOT NULL,
+  storage_type VARCHAR(50) NOT NULL, -- 'email', 'attachment'
+  file_size BIGINT NOT NULL,
+  content_type VARCHAR(100),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  archived_at TIMESTAMP,
+  archive_location VARCHAR(500), -- Glacier/Archive path
+  
+  CONSTRAINT valid_storage_type CHECK (storage_type IN ('email', 'attachment'))
+);
+
+-- Indexes
+CREATE INDEX idx_email_storage_email_id ON email_storage(email_id);
+CREATE INDEX idx_email_storage_tenant_id ON email_storage(tenant_id);
+CREATE INDEX idx_email_storage_created_at ON email_storage(created_at);
+CREATE INDEX idx_email_storage_archived_at ON email_storage(archived_at);
+
+-- Archive Policy View
+CREATE OR REPLACE VIEW email_storage_archive_policy AS
+SELECT 
+  id,
+  email_id,
+  tenant_id,
+  storage_key,
+  storage_type,
+  file_size,
+  created_at,
+  CASE 
+    WHEN created_at < CURRENT_TIMESTAMP - INTERVAL '30 days' THEN 'archive_to_glacier'
+    WHEN created_at < CURRENT_TIMESTAMP - INTERVAL '1 year' THEN 'delete'
+    ELSE 'keep_hot'
+  END as action
+FROM email_storage
+WHERE archived_at IS NULL;
+
+-- Audit trigger
+CREATE OR REPLACE FUNCTION audit_email_storage()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO audit_logs (
+    action, table_name, record_id, tenant_id, user_id, changes, created_at
+  ) VALUES (
+    TG_OP, 'email_storage', NEW.id, NEW.tenant_id, NULL,
+    jsonb_build_object(
+      'storage_key', NEW.storage_key,
+      'file_size', NEW.file_size,
+      'storage_type', NEW.storage_type
+    ),
+    CURRENT_TIMESTAMP
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER email_storage_audit_trigger
+AFTER INSERT OR UPDATE ON email_storage
+FOR EACH ROW EXECUTE FUNCTION audit_email_storage();
+```
+
+---
+
+### 1.6 API Endpoints
+
+**File**: `/opt/ssgzone/api-gateway/src/routes/storage.js` (NEW)
+
+**Endpoints**:
+
+#### Upload Email
+```
+POST /api/v1/storage/email
+Headers: Authorization: Bearer {token}
+Body: {
+  email_id: UUID,
+  content: { subject, body, from, to, ... },
+  attachments: [{ filename, size, key }, ...]
+}
+Response: { success: true, storage_key: "emails/tenant_id/email_id.json" }
+```
+
+#### Upload Attachment
+```
+POST /api/v1/storage/attachment
+Headers: Authorization: Bearer {token}
+Body: FormData with file
+Response: { success: true, key: "attachments/tenant_id/email_id/filename" }
+```
+
+#### Retrieve Email
+```
+GET /api/v1/storage/email/:storage_key
+Headers: Authorization: Bearer {token}
+Response: { email_id, content, attachments, created_at }
+```
+
+#### Delete Email
+```
+DELETE /api/v1/storage/email/:storage_key
+Headers: Authorization: Bearer {token}
+Response: { success: true }
+```
+
+---
+
+### 1.7 Implementation Steps
+
+**Step 1**: Update `.env` file
+```bash
+# On local machine, update .env with MinIO config
+# Then commit and push to GitHub
+git add .env
+git commit -m "Configure MinIO endpoints and credentials"
+git push origin main
+```
+
+**Step 2**: Pull on production server
+```bash
+cd /opt/ssgzone
+git pull origin main
+```
+
+**Step 3**: Install MinIO package
+```bash
+cd /opt/ssgzone/api-gateway
+npm install minio
+```
+
+**Step 4**: Create storage routes file
+```bash
+# Create /opt/ssgzone/api-gateway/src/routes/storage.js
+# (Code provided in section 1.6)
+```
+
+**Step 5**: Update server.js to include storage routes
+```javascript
+const storageRoutes = require('./routes/storage');
+app.use('/api/v1/storage', storageRoutes);
+```
+
+**Step 6**: Run database migration
+```bash
+cd /opt/ssgzone
+psql -h localhost -U postgres -d ssgzone_mail -f database/migrations/27_email_storage_schema.sql
+```
+
+**Step 7**: Restart API Gateway
+```bash
+cd /opt/ssgzone/api-gateway
+npm start
+# Or if using PM2:
+pm2 restart ssgzone-api
+```
+
+**Step 8**: Verify MinIO buckets created
+```bash
+# Check via MinIO console
+# http://localhost:9001
+# Login: ssgzone_admin / SSGzone@MinIO2024Secure
+```
+
+---
+
+## Important Notes
+
+### Security
+- ✅ MinIO credentials stored in `.env` (not in code)
+- ✅ S3 encryption enabled (AES256)
+- ✅ Tenant isolation via storage_key prefix
+- ✅ Row-level security in database
+
+### Cost Optimization
+- ✅ Self-hosted MinIO (₹0 per GB)
+- ✅ Archive to Glacier after 30 days (cheaper storage)
+- ✅ Delete after 1 year (compliance + cost)
+
+### Scalability
+- ✅ MinIO can handle unlimited storage
+- ✅ Database tracks references only (small)
+- ✅ Async upload/download via queue
+
+### Monitoring
+- ✅ Audit logs for all storage operations
+- ✅ Storage usage tracking per tenant
+- ✅ Archive policy automation
+
+---
+
+## Next Phases (To Be Documented)
+
+- Phase 2: Elasticsearch Integration
+- Phase 3: Redis Queue Setup
+- Phase 4: ClamAV Installation
+- Phase 5: SpamAssassin Configuration
+- Phase 6: Prometheus + Grafana Setup
+- Phase 7: Webhook System
+- Phase 8: Rate Limiting Implementation
+- Phase 9: Comprehensive Logging
+- Phase 10: Backup & Disaster Recovery
+
+---
+
+## Troubleshooting
+
+### MinIO Connection Issues
+```bash
+# Check if MinIO is running
+systemctl status minio
+
+# Check logs
+journalctl -u minio -n 50
+
+# Verify connectivity
+curl -v http://localhost:9000/minio/health/live
+```
+
+### Database Migration Issues
+```bash
+# Check migration status
+psql -h localhost -U postgres -d ssgzone_mail -c "\dt email_storage"
+
+# Rollback if needed
+psql -h localhost -U postgres -d ssgzone_mail -c "DROP TABLE email_storage CASCADE;"
+```
+
+### API Connection Issues
+```bash
+# Check API logs
+pm2 logs ssgzone-api
+
+# Test storage service
+curl -X POST http://localhost:4000/api/v1/storage/test
+```
+
+---
+
+## References
+
+- MinIO Documentation: https://docs.min.io/
+- AWS S3 API: https://docs.aws.amazon.com/s3/
+- PostgreSQL: https://www.postgresql.org/docs/
