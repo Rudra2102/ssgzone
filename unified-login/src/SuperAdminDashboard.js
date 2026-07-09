@@ -62,16 +62,16 @@ function SuperAdminDashboard() {
 
   const fetchAll = async () => {
     try {
-      const [statsRes, appsRes, tenantsRes, usersRes] = await Promise.all([
-        fetch(`${API}/dashboard/stats`, { headers: authHeaders }),
+      const [metricsRes, appsRes, tenantsRes, usersRes] = await Promise.all([
+        fetch('https://api.ssgzone.in/api/v1/dashboard/metrics', { headers: authHeaders }),
         fetch(`${API}/saas-apps`, { headers: authHeaders }),
         fetch(`${API}/tenants`, { headers: authHeaders }),
         fetch(`${API}/users?limit=5`, { headers: authHeaders })
       ]);
-      const [statsData, appsData, tenantsData, usersData] = await Promise.all([
-        statsRes.json(), appsRes.json(), tenantsRes.json(), usersRes.json()
+      const [metricsData, appsData, tenantsData, usersData] = await Promise.all([
+        metricsRes.json(), appsRes.json(), tenantsRes.json(), usersRes.json()
       ]);
-      if (statsData.success) setStats(statsData.data);
+      if (metricsData.success) setStats(metricsData.data);
       if (appsData.success) setSaasApps(appsData.data);
       if (tenantsData.success) setTenants(tenantsData.data);
       if (usersData.success) { setUsers(usersData.data); setUsersTotal(usersData.total); }
@@ -2239,7 +2239,7 @@ function SuperAdminDashboard() {
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
               <EmailOverview stats={{ sent: stats.emailsSent || 0, received: stats.emailsReceived || 0, failed: stats.emailsFailed || 0, bounced: stats.emailsBounced || 0, spam: stats.emailsSpam || 0, deliveryRate: stats.deliveryRate || 0, chartData: stats.chartData || [] }} />
-              <EmailHealthMetrics stats={{ uptime: stats.uptime || 99.9, avgDeliveryTime: stats.avgDeliveryTime || 1.2, spamScore: stats.spamScore || 0.8, dkimStatus: stats.dkimStatus || 'verified', spfStatus: stats.spfStatus || 'verified', dmarcStatus: stats.dmarcStatus || 'verified' }} />
+              <EmailHealthMetrics stats={stats.healthMetrics || { uptime: 0, avgDeliveryTime: 0, spamScore: 0, dkimStatus: 'pending', spfStatus: 'pending', dmarcStatus: 'pending', tlsEnabled: false, apiHealth: 'checking' }} />
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
