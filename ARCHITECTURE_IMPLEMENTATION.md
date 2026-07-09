@@ -405,9 +405,132 @@ pm2 restart ssgzone-api
 
 ---
 
+---
+
+## Phase 2: Elasticsearch Integration (Search & Indexing)
+
+### 2.1 Elasticsearch Installation
+
+**Status**: ⏳ TO BE DONE
+
+**Installation Details**:
+```
+Location: /home/ssgzone/elasticsearch/
+Version: 8.x (latest)
+Data: /home/ssgzone/elasticsearch/data
+Config: /etc/elasticsearch/elasticsearch.yml
+Service: /etc/systemd/system/elasticsearch.service
+```
+
+**Ports**:
+```
+API Port: 9200
+Node Communication: 9300
+```
+
+**Installation Steps**:
+
+1. **Download Elasticsearch**
+```bash
+cd /home/ssgzone/elasticsearch
+wget https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-8.x.x-linux-x86_64.tar.gz
+tar -xzf elasticsearch-8.x.x-linux-x86_64.tar.gz
+```
+
+2. **Create systemd service**
+```bash
+cat > /etc/systemd/system/elasticsearch.service << 'EOF'
+[Unit]
+Description=Elasticsearch
+After=network.target
+
+[Service]
+Type=simple
+User=elasticsearch
+WorkingDirectory=/home/ssgzone/elasticsearch
+ExecStart=/home/ssgzone/elasticsearch/bin/elasticsearch
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable elasticsearch
+systemctl start elasticsearch
+```
+
+3. **Verify installation**
+```bash
+curl http://localhost:9200
+```
+
+### 2.2 Environment Configuration
+
+**File**: `/opt/ssgzone/.env`
+
+**Required Changes**:
+```env
+# Elasticsearch Configuration
+ELASTICSEARCH_HOST=localhost
+ELASTICSEARCH_PORT=9200
+ELASTICSEARCH_INDEX_EMAILS=ssgzone-emails
+ELASTICSEARCH_INDEX_ATTACHMENTS=ssgzone-attachments
+```
+
+### 2.3 Node.js Dependencies
+
+**Required Package**:
+```bash
+cd /opt/ssgzone/api-gateway
+npm install @elastic/elasticsearch
+```
+
+### 2.4 Search Service
+
+**File**: `/opt/ssgzone/api-gateway/src/services/searchService.js` (NEW)
+
+**Purpose**: Elasticsearch client and indexing operations
+
+**Features**:
+- Index emails and attachments
+- Full-text search
+- Faceted search
+- Relevance ranking
+- Tenant isolation
+
+### 2.5 Database Migration
+
+**File**: `/opt/ssgzone/database/migrations/28_search_index_schema.sql`
+
+**Purpose**: Add search_index table to track indexed documents
+
+### 2.6 API Endpoints
+
+**Endpoints**:
+```
+POST /api/v1/search/index - Index email
+GET /api/v1/search/emails - Search emails
+GET /api/v1/search/attachments - Search attachments
+DELETE /api/v1/search/index/:email_id - Remove from index
+```
+
+### 2.7 Implementation Steps
+
+1. Check available ports on production server
+2. Install Elasticsearch
+3. Update `.env` with Elasticsearch config
+4. Create searchService.js
+5. Create search routes
+6. Run database migration
+7. Restart API Gateway
+8. Test search functionality
+
+---
+
 ## Next Phases (To Be Documented)
 
-- Phase 2: Elasticsearch Integration
 - Phase 3: Redis Queue Setup
 - Phase 4: ClamAV Installation
 - Phase 5: SpamAssassin Configuration
