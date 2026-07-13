@@ -924,9 +924,60 @@ POST /api/v1/audit/archive                  - Archive old logs (super-admin)
 
 ---
 
-## Next Phases (To Be Documented)
+---
 
-- Phase 10: Backup & Disaster Recovery
+## Phase 10: Backup & Disaster Recovery
+
+### 10.1 Status: ✅ IMPLEMENTED
+
+### 10.2 Architecture
+
+```
+Cron (2am daily) → pg_dump | gzip → MinIO ssgzone-backups/db/
+                                         → Auto-delete after 30 days
+```
+
+### 10.3 Files
+
+| File | Purpose |
+|------|---------|
+| `scripts/backup.sh` | Automated backup script |
+
+### 10.4 Production Setup
+
+```bash
+# Configure MinIO client alias
+/home/ssgzone/minio/bin/mc alias set ssgzone-local http://localhost:9000 ssgzone_admin SSGzone@MinIO2024Secure
+
+# Copy script to server
+cp /opt/ssgzone/scripts/backup.sh /opt/ssgzone/scripts/backup.sh
+chmod +x /opt/ssgzone/scripts/backup.sh
+
+# Add cron job (runs at 2am daily)
+echo '0 2 * * * root /opt/ssgzone/scripts/backup.sh' > /etc/cron.d/ssgzone-backup
+
+# Test manually
+/opt/ssgzone/scripts/backup.sh
+```
+
+### 10.5 Retention Policy
+
+- Daily backups retained for 30 days
+- Stored in MinIO: `ssgzone-backups/db/`
+- Logs: `/var/log/ssgzone-backup.log`
+
+### 10.6 Restore Procedure
+
+```bash
+# List available backups
+/home/ssgzone/minio/bin/mc ls ssgzone-local/ssgzone-backups/db/
+
+# Download backup
+/home/ssgzone/minio/bin/mc cp ssgzone-local/ssgzone-backups/db/ssgzone_mail_YYYYMMDD_HHMMSS.sql.gz /tmp/
+
+# Restore
+gunzip -c /tmp/ssgzone_mail_YYYYMMDD_HHMMSS.sql.gz | psql -h localhost -U postgres ssgzone_mail
+```
 
 ---
 
