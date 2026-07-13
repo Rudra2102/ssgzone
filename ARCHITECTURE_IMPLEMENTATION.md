@@ -690,7 +690,59 @@ MAX_SCAN_SIZE=104857600
 
 ## Next Phases (To Be Documented)
 
-- Phase 5: SpamAssassin Configuration
+---
+
+## Phase 5: SpamAssassin Integration
+
+### 5.1 Status: ✅ IMPLEMENTED
+
+**SpamAssassin on production**: Installed, started and enabled
+- Version: 3.4.6
+- Protocol: TCP `localhost:783` (spamd)
+- Threshold: 5.0 (configured in local.cf)
+- Bayes learning: enabled
+- DKIM whitelisting: enabled
+
+### 5.2 Architecture
+
+```
+POST /email/send → checkSpam(rawEmail) → spamd:783 → score < 5.0 → queue
+                                                      → score >= 5.0 → 422 rejected
+```
+
+### 5.3 Files
+
+| File | Purpose |
+|------|---------|
+| `api-gateway/src/services/spamService.js` | spamd TCP client + response parser |
+| `api-gateway/src/routes/communication.js` | Updated - spam check on send |
+
+### 5.4 Endpoints
+
+```
+POST /api/v1/communication/email/send       - Spam checked before queuing
+POST /api/v1/communication/email/spam-check - Standalone spam check
+```
+
+### 5.5 Behavior
+
+- Outbound emails checked before queuing
+- Score >= 5.0 → HTTP 422 with score details
+- spamd unavailable → fail open (warn, don't block)
+- Timeout: 15s
+
+### 5.6 Environment Variables
+
+```env
+SPAMD_HOST=localhost
+SPAMD_PORT=783
+SPAM_THRESHOLD=5.0
+```
+
+---
+
+## Next Phases (To Be Documented)
+
 - Phase 6: Prometheus + Grafana Setup
 - Phase 7: Webhook System
 - Phase 8: Rate Limiting Implementation

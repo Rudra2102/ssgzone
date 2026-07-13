@@ -5,6 +5,7 @@ const rateLimit = require('../middleware/rateLimit');
 const inputValidation = require('../middleware/inputValidation');
 const { startEmailScheduler } = require('../jobs/emailScheduler');
 const emailService = require('../services/emailService');
+const { checkSpam } = require('../services/spamService');
 const router = express.Router();
 const { Pool } = require('pg');
 
@@ -27,12 +28,19 @@ router.post('/email/send', async (req, res) => {
   try {
     const { tenant_id, from, to, subject, html, text, template, data } = req.body;
     
-    // Validate required fields
     if (!tenant_id || !to || !subject) {
       return res.status(400).json({ error: 'Missing required fields: tenant_id, to, subject' });
     }
 
-    // Insert email into queue
+    // Spam check on outbound email content
+    if (html || text) {
+      const rawEmail = `From: ${from}\r\nTo: ${to}\r\nSubject: ${subject}\r\n\r\n${text || html}`;
+      const spamResult = await checkSpam(rawEmail);
+      if (spamResult.isSpam) {
+        return res.status(422).json({ error: 'Email rejected: spam detected', score: spamResult.score, threshold: spamResult.threshold });
+      }
+    }
+
     const result = await pool.query(`
       INSERT INTO email_queue (tenant_id, from_email, to_email, subject, html_content, text_content, template_name, template_data, status, created_at)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', NOW())
@@ -671,6 +679,21 @@ router.post('/email/schedule', async (req, res) => {
   } catch (error) {
     console.error('Schedule email error:', error);
     res.status(500).json({ error: 'Failed to schedule email' });
+  }
+});
+
+// ── SPAM CHECK ───────────────────────────────────────────────────────────
+router.post('/email/spam-check', async (req, res) => {
+  try {
+    const { from, to, subject, text, html } = req.body;
+    if (!subject || (!text && !html)) {
+      return res.status(400).json({ error: 'subject and text or html required' });
+    }
+    const rawEmail = `From: ${from || ''}\r\nTo: ${to || ''}\r\nSubject: ${subject}\r\n\r\n${text || html}`;
+    const result = await checkSpam(rawEmail);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
