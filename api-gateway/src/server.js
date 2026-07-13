@@ -21,6 +21,7 @@ const storageRoutes = require('./routes/storage');
 const searchRoutes = require('./routes/search');
 const queueRoutes = require('./routes/queue');
 const attachmentsRoutes = require('./routes/attachments');
+const { router: metricsRoutes, metricsMiddleware } = require('./routes/metrics');
 const oauthRoutes = require('./routes/oauth');
 const groupsRoutes = require('./routes/groups');
 const { router: autoresponderRoutes } = require('./routes/autoresponder');
@@ -47,6 +48,7 @@ const PORT = process.env.API_PORT || 4000;
 // Security middleware
 app.use(helmet({ frameguard: false }));
 app.use(cors());
+app.use(metricsMiddleware);
 
 // Body parsing
 app.use(express.json({ limit: '10mb' }));
@@ -77,6 +79,7 @@ app.use('/api/v1/storage', storageRoutes);
 app.use('/api/v1/search', searchRoutes);
 app.use('/api/v1/queue', queueRoutes);
 app.use('/api/v1/attachments', attachmentsRoutes);
+app.use('/api/v1/metrics', metricsRoutes);
 // app.use('/api/v1/oauth', oauthRoutes);
 // app.use('/api/v1/groups', groupsRoutes);
 // app.use('/api/v1/autoresponder', autoresponderRoutes);

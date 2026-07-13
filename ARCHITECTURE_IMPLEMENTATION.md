@@ -743,7 +743,61 @@ SPAM_THRESHOLD=5.0
 
 ## Next Phases (To Be Documented)
 
-- Phase 6: Prometheus + Grafana Setup
+---
+
+## Phase 6: Prometheus + Grafana Monitoring
+
+### 6.1 Status: ✅ IMPLEMENTED
+
+**Services on production**:
+- Prometheus: `http://prashasthub.com:9090`
+- Grafana: `http://prashasthub.com:9093` (default login: admin/admin)
+
+### 6.2 Architecture
+
+```
+ssgzone-api (:4000/api/v1/metrics) ← Prometheus scrape (:9090) ← Grafana dashboards (:9093)
+```
+
+### 6.3 Custom Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `ssgzone_emails_queued_total` | Gauge | Emails in queue |
+| `ssgzone_emails_sent_total` | Gauge | Emails sent |
+| `ssgzone_emails_failed_total` | Gauge | Failed deliveries |
+| `ssgzone_active_tenants` | Gauge | Active tenants |
+| `ssgzone_active_users` | Gauge | Active users |
+| `ssgzone_search_index_total` | Gauge | Search index size |
+| `ssgzone_http_request_duration_seconds` | Histogram | API latency |
+
+### 6.4 Files
+
+| File | Purpose |
+|------|---------|
+| `api-gateway/src/routes/metrics.js` | Prometheus scrape endpoint |
+
+### 6.5 Prometheus Scrape Config
+
+Add to `/etc/prometheus/prometheus.yml`:
+```yaml
+  - job_name: 'ssgzone-api'
+    static_configs:
+      - targets: ['localhost:4000']
+    metrics_path: '/api/v1/metrics'
+    scrape_interval: 15s
+```
+
+### 6.6 Grafana Setup
+
+1. Login: `http://prashasthub.com:9093` (admin/admin)
+2. Add Prometheus datasource: `http://localhost:9090`
+3. Import dashboard or create panels for custom metrics
+
+---
+
+## Next Phases (To Be Documented)
+
 - Phase 7: Webhook System
 - Phase 8: Rate Limiting Implementation
 - Phase 9: Comprehensive Logging

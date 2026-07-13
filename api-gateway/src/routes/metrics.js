@@ -1,88 +1,117 @@
 const express = require('express');
 const router = express.Router();
-const MetricsService = require('../services/MetricsService');
-const { authenticateToken, requireTenantAdmin, requireSuperAdmin } = require('../middleware/auth');
+const client = require('prom-client');
+const { Pool } = require('pg');
 
-// Get tenant metrics
-router.get('/tenant', authenticateToken, requireTenantAdmin, async (req, res) => {
-  try {
-    const tenantId = req.user.tenant_id;
-    const { timeframe = '24h' } = req.query;
-    
-    const metrics = await MetricsService.getTenantMetrics(tenantId, timeframe);
-    res.json({ success: true, metrics });
-  } catch (error) {
-    console.error('Error fetching tenant metrics:', error);
-    res.status(500).json({ error: 'Failed to fetch metrics' });
-  }
+const pool = new Pool({
+  host: process.env.DB_HOST || 'localhost',
+  port: parseInt(process.env.DB_PORT) || 5432,
+  database: process.env.DB_NAME,
+  user: process.env.DB_USER,
+  password: String(process.env.DB_PASSWORD)
 });
 
-// Get system metrics (super admin only)
-router.get('/system', authenticateToken, requireSuperAdmin, async (req, res) => {
-  try {
-    const metrics = await MetricsService.getSystemMetrics();
-    res.json({ success: true, metrics });
-  } catch (error) {
-    console.error('Error fetching system metrics:', error);
-    res.status(500).json({ error: 'Failed to fetch system metrics' });
-  }
+// Default Node.js metrics (CPU, memory, event loop, etc.)
+const register = new client.Registry();
+client.collectDefaultMetrics({ register });
+
+// Custom SSGzone metrics
+const emailsQueued = new client.Gauge({
+  name: 'ssgzone_emails_queued_total',
+  help: 'Total emails currently in queued state',
+  registers: [register]
 });
 
-// Get tenant usage metrics (Task 2.1)
-router.get('/usage', authenticateToken, requireTenantAdmin, async (req, res) => {
+const emailsSent = new client.Gauge({
+  name: 'ssgzone_emails_sent_total',
+  help: 'Total emails sent successfully',
+  registers: [register]
+});
+
+const emailsFailed = new client.Gauge({
+  name: 'ssgzone_emails_failed_total',
+  help: 'Total emails failed to deliver',
+  registers: [register]
+});
+
+const activeTenantsGauge = new client.Gauge({
+  name: 'ssgzone_active_tenants',
+  help: 'Number of active tenants',
+  registers: [register]
+});
+
+const activeUsersGauge = new client.Gauge({
+  name: 'ssgzone_active_users',
+  help: 'Number of active users',
+  registers: [register]
+});
+
+const storageObjectsGauge = new client.Gauge({
+  name: 'ssgzone_storage_objects_total',
+  help: 'Total objects stored in MinIO',
+  registers: [register]
+});
+
+const searchIndexGauge = new client.Gauge({
+  name: 'ssgzone_search_index_total',
+  help: 'Total emails in search index',
+  registers: [register]
+});
+
+const httpRequestDuration = new client.Histogram({
+  name: 'ssgzone_http_request_duration_seconds',
+  help: 'HTTP request duration in seconds',
+  labelNames: ['method', 'route', 'status'],
+  buckets: [0.05, 0.1, 0.3, 0.5, 1, 2, 5],
+  registers: [register]
+});
+
+// Middleware to track request duration - export for use in server.js
+const metricsMiddleware = (req, res, next) => {
+  const end = httpRequestDuration.startTimer();
+  res.on('finish', () => {
+    end({ method: req.method, route: req.route?.path || req.path, status: res.statusCode });
+  });
+  next();
+};
+
+// Collect DB metrics on each scrape
+async function collectDbMetrics() {
   try {
-    const tenantId = req.user.tenant_id;
-    const currentMonth = new Date().toISOString().slice(0, 7);
-    
-    // Get usage limits
-    const limitsQuery = 'SELECT * FROM tenant_usage_limits WHERE tenant_id = $1';
-    const limitsResult = await require('../services/DatabaseService').query(limitsQuery, [tenantId]);
-    
-    // Get current usage
-    const usageQuery = 'SELECT * FROM tenant_usage_tracking WHERE tenant_id = $1 AND month_year = $2';
-    const usageResult = await require('../services/DatabaseService').query(usageQuery, [tenantId, currentMonth]);
-    
-    const limits = limitsResult.rows[0] || {
-      emails_per_month: 50000,
-      api_calls_per_minute: 100,
-      storage_limit_gb: 100,
-      users_limit: 1000
-    };
-    
-    const usage = usageResult.rows[0] || {
-      emails_sent: 0,
-      api_calls_made: 0,
-      storage_used_gb: 0,
-      active_users: 0
-    };
-    
-    res.json({
-      success: true,
-      usage: {
-        emails: {
-          used: usage.emails_sent,
-          limit: limits.emails_per_month,
-          remaining: Math.max(0, limits.emails_per_month - usage.emails_sent),
-          percentage: Math.round((usage.emails_sent / limits.emails_per_month) * 100)
-        },
-        storage: {
-          used: usage.storage_used_gb,
-          limit: limits.storage_limit_gb,
-          remaining: Math.max(0, limits.storage_limit_gb - usage.storage_used_gb),
-          percentage: Math.round((usage.storage_used_gb / limits.storage_limit_gb) * 100)
-        },
-        users: {
-          active: usage.active_users,
-          limit: limits.users_limit,
-          remaining: Math.max(0, limits.users_limit - usage.active_users),
-          percentage: Math.round((usage.active_users / limits.users_limit) * 100)
-        }
-      }
+    const [queueStats, tenantStats, searchStats] = await Promise.all([
+      pool.query(`SELECT status, COUNT(*) as count FROM email_delivery_queue GROUP BY status`),
+      pool.query(`SELECT 
+        COUNT(*) FILTER (WHERE is_active = true) as active_tenants,
+        (SELECT COUNT(*) FROM users WHERE is_active = true) as active_users
+        FROM tenant_companies`),
+      pool.query(`SELECT COUNT(*) as total FROM email_search_index`)
+    ]);
+
+    queueStats.rows.forEach(row => {
+      if (row.status === 'queued') emailsQueued.set(parseInt(row.count));
+      if (row.status === 'sent') emailsSent.set(parseInt(row.count));
+      if (row.status === 'failed') emailsFailed.set(parseInt(row.count));
     });
-  } catch (error) {
-    console.error('Error fetching usage metrics:', error);
-    res.status(500).json({ error: 'Failed to fetch usage metrics' });
+
+    if (tenantStats.rows[0]) {
+      activeTenantsGauge.set(parseInt(tenantStats.rows[0].active_tenants) || 0);
+      activeUsersGauge.set(parseInt(tenantStats.rows[0].active_users) || 0);
+    }
+
+    if (searchStats.rows[0]) {
+      searchIndexGauge.set(parseInt(searchStats.rows[0].total) || 0);
+    }
+  } catch (err) {
+    // Don't crash scrape on DB error
+    console.error('Metrics DB collection error:', err.message);
   }
+}
+
+// GET /api/v1/metrics - Prometheus scrape endpoint
+router.get('/', async (req, res) => {
+  await collectDbMetrics();
+  res.set('Content-Type', register.contentType);
+  res.end(await register.metrics());
 });
 
-module.exports = router;
+module.exports = { router, metricsMiddleware };
