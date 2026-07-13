@@ -796,9 +796,53 @@ Add to `/etc/prometheus/prometheus.yml`:
 
 ---
 
+---
+
+## Phase 7: Webhook System
+
+### 7.1 Status: ✅ IMPLEMENTED
+
+### 7.2 Architecture
+
+```
+triggerEvent(tenantId, event, data) → find matching webhooks → HTTP POST with HMAC signature
+                                                                      ↓ failed → retry (exp backoff)
+```
+
+### 7.3 Files
+
+| File | Purpose |
+|------|---------|
+| `database/migrations/30_webhook_schema.sql` | webhooks + webhook_deliveries tables |
+| `api-gateway/src/services/webhookService.js` | HMAC signing, delivery, retry logic |
+| `api-gateway/src/routes/webhooks.js` | Webhook management API |
+
+### 7.4 Supported Events
+
+`email.received`, `email.sent`, `email.bounced`, `email.spam`, `user.created`, `user.deleted`, `tenant.suspended`, `tenant.activated`, `quota.exceeded`, `attachment.blocked`, `webhook.test`
+
+### 7.5 API Endpoints
+
+```
+POST   /api/v1/webhooks/register          - Register webhook
+GET    /api/v1/webhooks/                  - List webhooks
+PUT    /api/v1/webhooks/:id               - Update webhook
+DELETE /api/v1/webhooks/:id               - Disable webhook
+GET    /api/v1/webhooks/:id/deliveries    - Delivery logs
+POST   /api/v1/webhooks/:id/test          - Send test event
+POST   /api/v1/webhooks/retry-pending     - Retry failed deliveries
+```
+
+### 7.6 Security
+
+- HMAC-SHA256 signature in `X-SSGzone-Signature` header
+- Retry: 3 attempts with exponential backoff (1min, 5min, 30min)
+- Timeout: 10s per delivery attempt
+
+---
+
 ## Next Phases (To Be Documented)
 
-- Phase 7: Webhook System
 - Phase 8: Rate Limiting Implementation
 - Phase 9: Comprehensive Logging
 - Phase 10: Backup & Disaster Recovery
