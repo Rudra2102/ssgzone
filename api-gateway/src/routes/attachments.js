@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const router = express.Router();
-const StorageService = require('../services/StorageService');
+const StorageService = require('../services/storageService');
 const { authenticateToken } = require('../middleware/auth');
 const { scanBuffer } = require('../services/clamavService');
 
