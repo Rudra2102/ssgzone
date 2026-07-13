@@ -37,7 +37,7 @@ async function getTierLimits(tenantId, saasId) {
     if (saasId) {
       const override = await pool.query(
         `SELECT requests_per_minute, requests_per_hour FROM saas_rate_overrides WHERE saas_id = $1 AND is_active = true`,
-        [saasId]
+        [parseInt(saasId)]
       );
       if (override.rows.length > 0) {
         const limits = override.rows[0];

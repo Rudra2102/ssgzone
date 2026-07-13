@@ -23,7 +23,7 @@ ON CONFLICT (tier_name) DO NOTHING;
 -- SaaS-level overrides (override default tier limits per SaaS app)
 CREATE TABLE IF NOT EXISTS saas_rate_overrides (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  saas_id UUID NOT NULL REFERENCES saas_applications(id) ON DELETE CASCADE,
+  saas_id INT NOT NULL REFERENCES saas_applications(id) ON DELETE CASCADE,
   requests_per_minute INT,
   requests_per_hour INT,
   emails_per_day INT,
