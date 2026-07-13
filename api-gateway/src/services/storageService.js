@@ -32,7 +32,7 @@ class StorageService {
           await this.s3.headBucket({ Bucket: bucket }).promise();
           console.log(`✓ MinIO bucket exists: ${bucket}`);
         } catch (error) {
-          if (error.code === 'NoSuchBucket') {
+          if (error.code === 'NoSuchBucket' || error.code === 'NotFound' || error.statusCode === 404) {
             await this.s3.createBucket({ Bucket: bucket }).promise();
             console.log(`✓ MinIO bucket created: ${bucket}`);
           } else {
