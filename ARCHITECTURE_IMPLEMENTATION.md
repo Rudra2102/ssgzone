@@ -841,9 +841,52 @@ POST   /api/v1/webhooks/retry-pending     - Retry failed deliveries
 
 ---
 
+---
+
+## Phase 8: Tiered Rate Limiting
+
+### 8.1 Status: ✅ IMPLEMENTED
+
+### 8.2 Architecture
+
+```
+Request → rateLimitMiddleware → getTierLimits() → SaaS override OR tenant tier
+                                        ↓
+                          Redis sliding window check (per-minute + per-hour)
+                                        ↓
+                          429 blocked OR pass through
+```
+
+### 8.3 Tiers
+
+| Tier | Req/min | Req/hour | Emails/day | Emails/month |
+|------|---------|----------|------------|---------------|
+| free | 30 | 500 | 100 | 1,000 |
+| pro | 120 | 5,000 | 2,000 | 50,000 |
+| enterprise | 600 | 50,000 | 20,000 | 500,000 |
+
+### 8.4 Files
+
+| File | Purpose |
+|------|---------|
+| `database/migrations/31_rate_limit_tiers.sql` | Tier config + SaaS override tables |
+| `api-gateway/src/middleware/rateLimit.js` | Redis sliding window rate limiter |
+
+### 8.5 SaaS Override
+
+Insert into `saas_rate_overrides` to give a specific SaaS app custom limits bypassing tier defaults.
+
+### 8.6 Behavior
+
+- Redis sliding window (accurate, no burst at window boundary)
+- Tier limits cached 5 minutes to reduce DB load
+- Fail open if Redis unavailable
+- Headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
+
+---
+
 ## Next Phases (To Be Documented)
 
-- Phase 8: Rate Limiting Implementation
 - Phase 9: Comprehensive Logging
 - Phase 10: Backup & Disaster Recovery
 
