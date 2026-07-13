@@ -643,9 +643,53 @@ pm2 restart ssgzone-api
 
 ---
 
+---
+
+## Phase 4: ClamAV Attachment Scanning
+
+### 4.1 Status: ✅ IMPLEMENTED
+
+**ClamAV on production**: Already installed and running since June 10
+- Version: 1.5.3
+- Socket: `/var/run/clamav/clamd.ctl`
+- Virus definitions: Up-to-date (355490 sigs)
+- Memory: ~973MB
+
+### 4.2 Architecture
+
+```
+File Upload → scanBuffer() → clamdscan (Unix socket) → clamd daemon
+                                  ↓
+                    Clean → upload to MinIO
+                    Infected → 422 rejected
+```
+
+### 4.3 Files
+
+| File | Purpose |
+|------|---------|
+| `api-gateway/src/services/clamavService.js` | ClamAV scan service |
+| `api-gateway/src/routes/attachments.js` | Updated - scan before upload |
+
+### 4.4 Behavior
+
+- Scans every uploaded attachment before storing in MinIO
+- Infected files → HTTP 422 with virus name
+- clamd unavailable → fail open (warn, don't block)
+- Max scan size: 100MB (configurable via `MAX_SCAN_SIZE`)
+- Health check: `GET /api/v1/attachments/health`
+
+### 4.5 Environment Variables
+
+```env
+CLAMD_SOCKET=/var/run/clamav/clamd.ctl
+MAX_SCAN_SIZE=104857600
+```
+
+---
+
 ## Next Phases (To Be Documented)
 
-- Phase 4: ClamAV Installation
 - Phase 5: SpamAssassin Configuration
 - Phase 6: Prometheus + Grafana Setup
 - Phase 7: Webhook System

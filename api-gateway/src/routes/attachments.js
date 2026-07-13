@@ -3,6 +3,7 @@ const multer = require('multer');
 const router = express.Router();
 const StorageService = require('../services/StorageService');
 const { authenticateToken } = require('../middleware/auth');
+const { scanBuffer } = require('../services/clamavService');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -16,6 +17,11 @@ router.post('/upload', authenticateToken, upload.single('file'), async (req, res
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file provided' });
+    }
+
+    const scanResult = await scanBuffer(req.file.buffer, req.file.originalname);
+    if (!scanResult.clean) {
+      return res.status(422).json({ error: 'File rejected: virus detected', virus: scanResult.virus });
     }
 
     const tenantId = req.user.tenant_id;
@@ -73,6 +79,13 @@ router.delete('/:key', authenticateToken, async (req, res) => {
     console.error('Delete error:', error);
     res.status(500).json({ error: 'Failed to delete attachment' });
   }
+});
+
+// GET /health - ClamAV health check
+router.get('/health', async (req, res) => {
+  const { checkClamdHealth } = require('../services/clamavService');
+  const healthy = await checkClamdHealth();
+  res.status(healthy ? 200 : 503).json({ clamav: healthy ? 'ok' : 'unavailable' });
 });
 
 module.exports = router;
