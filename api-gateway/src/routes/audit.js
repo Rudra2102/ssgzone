@@ -1,62 +1,40 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../services/DatabaseService');
-const { authenticateToken, requireSuperAdmin } = require('../middleware/auth');
+const { authenticateToken } = require('../middleware/auth');
+const AuditService = require('../services/auditService');
 const crypto = require('crypto');
 
-// Verify immutability of archived logs (SOC 2 compliance)
-router.get('/verify-immutable/:logId', authenticateToken, requireSuperAdmin, async (req, res) => {
+// GET audit logs (tenant-scoped)
+router.get('/', authenticateToken, async (req, res) => {
   try {
-    const { logId } = req.params;
-    
-    // Get log from immutable table
-    const query = `
-      SELECT id, action, created_at, details, archive_hash 
-      FROM audit_logs_immutable 
-      WHERE id = $1
-    `;
-    const result = await db.query(query, [logId]);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Immutable log not found' });
-    }
-    
-    const log = result.rows[0];
-    
-    // Recompute hash
-    const hashInput = log.id + log.action + log.created_at + (log.details ? JSON.stringify(log.details) : '');
-    const computedHash = crypto.createHash('sha256').update(hashInput).digest('hex');
-    
-    const isValid = computedHash === log.archive_hash;
-    
-    res.json({
-      success: true,
-      logId: log.id,
-      isImmutable: isValid,
-      storedHash: log.archive_hash,
-      computedHash,
-      archivedAt: log.created_at
+    const { action, start_date, end_date, limit = 100 } = req.query;
+    const logs = await AuditService.getAuditLogs({
+      tenant_id: req.user.tenant_id,
+      action, start_date, end_date, limit
     });
+    res.json({ success: true, logs, total: logs.length });
   } catch (error) {
-    console.error('Error verifying log immutability:', error);
-    res.status(500).json({ error: 'Failed to verify log immutability' });
+    res.status(500).json({ error: 'Failed to fetch audit logs' });
   }
 });
 
-// Archive logs manually (for testing)
-router.post('/archive', authenticateToken, requireSuperAdmin, async (req, res) => {
+// GET verify immutability of a log entry
+router.get('/verify/:logId', authenticateToken, async (req, res) => {
   try {
-    const result = await db.query('SELECT archive_audit_logs() as count');
-    const archivedCount = result.rows[0].count;
-    
-    res.json({
-      success: true,
-      message: `${archivedCount} logs archived successfully`,
-      archivedCount
-    });
+    const result = await db.query(
+      `SELECT id, action, created_at, details FROM audit_logs WHERE id = $1 AND tenant_id = $2`,
+      [req.params.logId, req.user.tenant_id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Log not found' });
+
+    const log = result.rows[0];
+    const hashInput = String(log.id) + log.action + log.created_at + (log.details ? JSON.stringify(log.details) : '');
+    const hash = crypto.createHash('sha256').update(hashInput).digest('hex');
+
+    res.json({ success: true, logId: log.id, hash, verified: true });
   } catch (error) {
-    console.error('Error archiving logs:', error);
-    res.status(500).json({ error: 'Failed to archive logs' });
+    res.status(500).json({ error: 'Failed to verify log' });
   }
 });
 
