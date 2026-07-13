@@ -1,6 +1,5 @@
-const schedule = require('node-schedule');
 const { Pool } = require('pg');
-const nodemailer = require('nodemailer');
+const { enqueueEmail, emailQueue } = require('../services/queueService');
 
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
@@ -10,60 +9,45 @@ const pool = new Pool({
   password: String(process.env.DB_PASSWORD)
 });
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SES_SMTP_HOST,
-  port: parseInt(process.env.SES_SMTP_PORT) || 587,
-  secure: false,
-  auth: { user: process.env.SES_SMTP_USER, pass: process.env.SES_SMTP_PASS }
-});
-
-async function sendEmailViaSES(email) {
+// On startup, re-enqueue any pending emails from old email_queue table
+async function migratePendingEmails() {
   try {
-    const result = await transporter.sendMail({
-      from: email.from_email || process.env.SES_FROM_EMAIL,
-      to: email.to_email,
-      subject: email.subject,
-      html: email.html_content,
-      text: email.text_content
-    });
-    await pool.query(
-      `UPDATE email_queue SET status = 'sent', sent_at = NOW(), whatsapp_message_id = $1 WHERE id = $2`,
-      [result.messageId, email.id]
-    );
-    console.log(`Email sent: ${email.id}`);
-    return true;
+    const result = await pool.query(`
+      SELECT id, tenant_id, from_email, to_email, subject, html_content, text_content, scheduled_at
+      FROM email_queue
+      WHERE status = 'pending' AND scheduled_at <= NOW()
+      LIMIT 100
+    `);
+    if (result.rows.length === 0) return;
+    console.log(`Migrating ${result.rows.length} pending emails to Redis queue`);
+    for (const email of result.rows) {
+      await enqueueEmail({
+        tenantId: email.tenant_id,
+        from: email.from_email || process.env.SES_FROM_EMAIL,
+        to: email.to_email,
+        subject: email.subject,
+        html: email.html_content,
+        text: email.text_content,
+        scheduledAt: email.scheduled_at,
+        metadata: { migrated_from: 'email_queue', original_id: email.id }
+      });
+      await pool.query(`UPDATE email_queue SET status = 'processing' WHERE id = $1`, [email.id]);
+    }
   } catch (error) {
-    console.error(`Failed to send email ${email.id}:`, error);
-    await pool.query(
-      `UPDATE email_queue SET status = 'failed', bounce_reason = $1 WHERE id = $2`,
-      [error.message, email.id]
-    );
-    return false;
+    // email_queue table may not exist yet - that's fine
+    if (!error.message.includes('does not exist')) {
+      console.error('Email migration error:', error.message);
+    }
   }
 }
 
 function startEmailScheduler() {
   console.log('Email scheduler started');
-  schedule.scheduleJob('* * * * *', async () => {
-    try {
-      const result = await pool.query(`
-        SELECT id, from_email, to_email, subject, html_content, text_content
-        FROM email_queue
-        WHERE status = 'pending' AND scheduled_at <= NOW()
-        LIMIT 100
-      `);
-      if (result.rows.length > 0) {
-        console.log(`Processing ${result.rows.length} scheduled emails`);
-        for (const email of result.rows) await sendEmailViaSES(email);
-      }
-    } catch (error) {
-      console.error('Email scheduler error:', error);
-    }
-  });
+  migratePendingEmails();
 }
 
-function stopEmailScheduler() {
-  schedule.gracefulShutdown();
+async function stopEmailScheduler() {
+  await emailQueue.close();
   console.log('Email scheduler stopped');
 }
 

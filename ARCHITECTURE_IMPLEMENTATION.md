@@ -579,9 +579,72 @@ If search performance becomes bottleneck:
 
 ---
 
+## Phase 3: Redis Queue for Email Delivery
+
+### 3.1 Decision: Bull + Redis
+
+**Status**: ✅ IMPLEMENTED
+
+**Architecture**:
+```
+API Request → enqueueEmail() → Bull Queue (Redis) → Job Processor → AWS SES → Delivered
+                                      ↓
+                            email_delivery_queue (DB tracking)
+```
+
+**Why Bull over raw Redis**:
+- Built-in retry with exponential backoff
+- Job priority support
+- Delayed/scheduled jobs
+- Job status tracking
+- Concurrency control
+
+### 3.2 Files
+
+| File | Purpose |
+|------|---------|
+| `database/migrations/29_email_queue_schema.sql` | Queue tracking table |
+| `api-gateway/src/services/queueService.js` | Bull queue + SES processor |
+| `api-gateway/src/routes/queue.js` | Queue management API |
+| `api-gateway/src/jobs/emailScheduler.js` | Updated - migrates old pending emails |
+
+### 3.3 API Endpoints
+
+```
+POST   /api/v1/queue/email          - Enqueue email for delivery
+GET    /api/v1/queue/status/:dbId   - Get job status
+DELETE /api/v1/queue/cancel/:dbId   - Cancel queued email
+GET    /api/v1/queue/stats          - Queue statistics
+```
+
+### 3.4 Job Configuration
+
+- Max retries: 3
+- Backoff: Exponential (5s, 10s, 20s)
+- Priority: 0 (default), higher = more urgent
+- Scheduled delivery: supported via `scheduled_at`
+
+### 3.5 Production Deployment
+
+```bash
+# Verify Redis is running
+redis-cli ping
+
+# Install bull
+cd /opt/ssgzone/api-gateway
+npm install bull
+
+# Run migration
+psql -h localhost -U postgres -d ssgzone_mail -f database/migrations/29_email_queue_schema.sql
+
+# Restart
+pm2 restart ssgzone-api
+```
+
+---
+
 ## Next Phases (To Be Documented)
 
-- Phase 3: Redis Queue Setup
 - Phase 4: ClamAV Installation
 - Phase 5: SpamAssassin Configuration
 - Phase 6: Prometheus + Grafana Setup
