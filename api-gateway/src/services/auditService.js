@@ -3,8 +3,8 @@ const { Pool } = require('pg');
 const pool = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: parseInt(process.env.DB_PORT) || 5432,
-  database: process.env.DB_NAME || 'ssghub_mail',
-  user: process.env.DB_USER || 'postgres',
+  database: process.env.DB_NAME,
+  user: process.env.DB_USER,
   password: String(process.env.DB_PASSWORD || '')
 });
 
@@ -89,7 +89,7 @@ class AuditService {
         SELECT al.*, sa.saas_name, t.tenant_slug, u.email as user_email
         FROM audit_logs al
         LEFT JOIN saas_applications sa ON al.saas_id = sa.id
-        LEFT JOIN tenants t ON al.tenant_id = t.id
+        LEFT JOIN tenant_companies t ON al.tenant_id = t.id
         LEFT JOIN users u ON al.user_id = u.id
         WHERE 1=1
       `;
