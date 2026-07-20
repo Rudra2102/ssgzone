@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS saas_feature_permissions (
 -- Tenant-level permissions (SaaS Admin assigns to Tenant, cannot exceed SaaS permissions)
 CREATE TABLE IF NOT EXISTS tenant_feature_permissions (
   id SERIAL PRIMARY KEY,
-  tenant_id INTEGER NOT NULL REFERENCES tenant_companies(id) ON DELETE CASCADE,
+  tenant_id UUID NOT NULL REFERENCES tenant_companies(id) ON DELETE CASCADE,
   feature_key VARCHAR(50) NOT NULL REFERENCES feature_definitions(feature_key),
   is_enabled BOOLEAN DEFAULT true,
   assigned_by INTEGER,
@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS tenant_feature_permissions (
 -- User-level permission overrides (Tenant Admin assigns to User, cannot exceed Tenant permissions)
 CREATE TABLE IF NOT EXISTS user_feature_permissions (
   id SERIAL PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES tenant_users(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES tenant_users(id) ON DELETE CASCADE,
   feature_key VARCHAR(50) NOT NULL REFERENCES feature_definitions(feature_key),
   is_enabled BOOLEAN DEFAULT true,
   assigned_by INTEGER,

@@ -93,7 +93,7 @@ router.get('/tenant/:tenantId', async (req, res) => {
 // PUT /api/v1/permissions/tenant/:tenantId
 router.put('/tenant/:tenantId', authAs('saas_admin'), async (req, res) => {
   const { permissions } = req.body;
-  const tenantId = parseInt(req.params.tenantId);
+  const tenantId = req.params.tenantId; // UUID
 
   const tenantRow = await pool.query('SELECT saas_app_id FROM tenant_companies WHERE id = $1', [tenantId]);
   if (!tenantRow.rows.length) return res.status(404).json({ error: 'Tenant not found' });
@@ -132,7 +132,7 @@ router.put('/tenant/:tenantId', authAs('saas_admin'), async (req, res) => {
 // PUT /api/v1/permissions/user/:userId
 router.put('/user/:userId', authAs('tenant_admin'), async (req, res) => {
   const { permissions } = req.body;
-  const userId = parseInt(req.params.userId);
+  const userId = req.params.userId; // UUID
 
   const userRow = await pool.query(
     'SELECT tu.tenant_id, tc.saas_app_id FROM tenant_users tu JOIN tenant_companies tc ON tc.id = tu.tenant_id WHERE tu.id = $1',
