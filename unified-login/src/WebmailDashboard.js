@@ -19,6 +19,10 @@ export default function WebmailDashboard() {
   const [compose, setCompose] = useState({ to: '', cc: '', subject: '', body_html: '' });
   const [sending, setSending] = useState(false);
   const [profile, setProfile] = useState(null);
+  const [videoRooms, setVideoRooms] = useState([]);
+  const [activeRoom, setActiveRoom] = useState(null);
+  const [meetingTitle, setMeetingTitle] = useState('');
+  const [showNewMeeting, setShowNewMeeting] = useState(false);
 
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const token = localStorage.getItem('webmail_token');
@@ -28,6 +32,7 @@ export default function WebmailDashboard() {
     if (!token) { window.location.href = '/'; return; }
     fetchFolderCounts();
     fetch(`${API}/profile`, { headers: auth }).then(r => r.json()).then(d => d.success && setProfile(d.data));
+    fetchVideoRooms();
   }, []);
 
   useEffect(() => {
@@ -45,6 +50,37 @@ export default function WebmailDashboard() {
       if (data.success) { setEmails(data.data); setTotal(data.total); setUnread(data.unread || 0); }
     } catch {}
     setLoading(false);
+  };
+
+  const fetchVideoRooms = async () => {
+    try {
+      const res = await fetch('https://api.ssgzone.in/api/v1/video/rooms', { headers: auth });
+      const data = await res.json();
+      if (data.success) setVideoRooms(data.data);
+    } catch {}
+  };
+
+  const createRoom = async () => {
+    try {
+      const res = await fetch('https://api.ssgzone.in/api/v1/video/rooms', {
+        method: 'POST',
+        headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: meetingTitle || 'Quick Meeting' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setVideoRooms(prev => [data.data, ...prev]);
+        setActiveRoom(data.data);
+        setShowNewMeeting(false);
+        setMeetingTitle('');
+      }
+    } catch (err) { alert(err.message); }
+  };
+
+  const endRoom = async (roomId) => {
+    await fetch(`https://api.ssgzone.in/api/v1/video/rooms/${roomId}`, { method: 'DELETE', headers: auth });
+    setVideoRooms(prev => prev.filter(r => r.id !== roomId));
+    if (activeRoom?.id === roomId) setActiveRoom(null);
   };
 
   const fetchFolderCounts = async () => {
@@ -166,6 +202,11 @@ export default function WebmailDashboard() {
             <span style={{ fontSize: 14 }}>💬</span>
             {!sidebarCollapsed && <span>Team Chat</span>}
           </div>
+          <div onClick={() => { setActiveNav('video'); fetchVideoRooms(); }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', background: activeNav === 'video' ? c.primaryLight : 'transparent', color: activeNav === 'video' ? c.primary : c.text, fontWeight: activeNav === 'video' ? 600 : 400, fontSize: 13, justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
+            <span style={{ fontSize: 14 }}>📹</span>
+            {!sidebarCollapsed && <span>Video Calls</span>}
+          </div>
         </div>
 
         <div style={{ padding: 8, borderTop: `1px solid ${c.border}` }}>
@@ -203,6 +244,88 @@ export default function WebmailDashboard() {
         {activeNav === 'chat' ? (
           <div style={{ flex: 1, overflow: 'hidden', padding: 16, display: 'flex', flexDirection: 'column' }}>
             <ChatPanel userData={userData} tenantId={userData?.tenant_id || 'demo'} />
+          </div>
+        ) : activeNav === 'video' ? (
+          <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            {activeRoom ? (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                <div style={{ padding: '10px 16px', background: c.card, borderBottom: `1px solid ${c.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <span style={{ fontWeight: 700, fontSize: 14, color: c.text }}>📹 {activeRoom.title}</span>
+                    <span style={{ fontSize: 11, color: c.textMuted, marginLeft: 12, fontFamily: 'monospace' }}>{activeRoom.room_name}</span>
+                  </div>
+                  <button onClick={() => endRoom(activeRoom.id)}
+                    style={{ background: c.danger, color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                    ✕ End Meeting
+                  </button>
+                </div>
+                <iframe
+                  src={`https://meet.jit.si/${activeRoom.room_name}#userInfo.displayName="${encodeURIComponent((profile?.first_name || '') + ' ' + (profile?.last_name || '') || userData.email)}"&config.prejoinPageEnabled=false`}
+                  style={{ flex: 1, border: 'none', width: '100%' }}
+                  allow="camera; microphone; fullscreen; display-capture"
+                  title="Video Meeting"
+                />
+              </div>
+            ) : (
+              <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                  <div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: c.text }}>Video Calls</div>
+                    <div style={{ fontSize: 13, color: c.textMuted }}>Start or join a meeting with your team</div>
+                  </div>
+                  <button onClick={() => setShowNewMeeting(true)}
+                    style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                    + New Meeting
+                  </button>
+                </div>
+
+                {showNewMeeting && (
+                  <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 10, padding: 20, marginBottom: 20 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: c.text, marginBottom: 12 }}>Start New Meeting</div>
+                    <div style={{ display: 'flex', gap: 10 }}>
+                      <input value={meetingTitle} onChange={e => setMeetingTitle(e.target.value)}
+                        placeholder="Meeting title (optional)"
+                        style={{ flex: 1, padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, outline: 'none' }} />
+                      <button onClick={createRoom}
+                        style={{ background: c.primary, color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Start</button>
+                      <button onClick={() => setShowNewMeeting(false)}
+                        style={{ background: 'none', border: `1px solid ${c.border}`, borderRadius: 7, padding: '9px 14px', fontSize: 13, cursor: 'pointer', color: c.textMuted }}>Cancel</button>
+                    </div>
+                  </div>
+                )}
+
+                {videoRooms.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: c.textMuted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Active Meetings</div>
+                    {videoRooms.map(room => (
+                      <div key={room.id} style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 10, padding: '16px 20px', marginBottom: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: c.text }}>📹 {room.title}</div>
+                          <div style={{ fontSize: 12, color: c.textMuted, marginTop: 2 }}>Started by {room.host_name} · {new Date(room.started_at).toLocaleTimeString()}</div>
+                          <div style={{ fontSize: 11, color: c.textMuted, fontFamily: 'monospace', marginTop: 2 }}>{room.room_name}</div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button onClick={() => setActiveRoom(room)}
+                            style={{ background: '#d1fae5', color: '#10b981', border: 'none', borderRadius: 7, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Join</button>
+                          {String(room.created_by) === String(userData.id) && (
+                            <button onClick={() => endRoom(room.id)}
+                              style={{ background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: 7, padding: '8px 12px', fontSize: 12, cursor: 'pointer' }}>End</button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {videoRooms.length === 0 && !showNewMeeting && (
+                  <div style={{ textAlign: 'center', padding: '60px 0', color: c.textMuted }}>
+                    <div style={{ fontSize: 48, marginBottom: 12 }}>📹</div>
+                    <div style={{ fontSize: 15, fontWeight: 600, color: c.text, marginBottom: 6 }}>No active meetings</div>
+                    <div style={{ fontSize: 13 }}>Click "New Meeting" to start a video call with your team</div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ) : (
           <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
