@@ -515,6 +515,7 @@ router.post('/sso/verify', async (req, res) => {
       success: true,
       data: {
         token: sessionToken,
+        redirect_to: row.redirect_to || null,
         user: { id: row.user_id, email: row.email, full_name: `${row.first_name} ${row.last_name}`, role: row.role, tenant_id: row.tenant_id, saas_id: row.saas_app_id, type: 'user' }
       }
     });

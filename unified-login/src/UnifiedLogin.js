@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Box, Card, TextField, Button, Typography, Alert,
-  Container, Avatar, InputAdornment, IconButton, Paper
+  Container, Avatar, InputAdornment, IconButton, Paper, CircularProgress
 } from '@mui/material';
 import { Visibility, VisibilityOff, Login as LoginIcon } from '@mui/icons-material';
 
@@ -12,6 +12,8 @@ function UnifiedLogin() {
   const [showPassword, setShowPassword] = useState(false);
   const [twoFAState, setTwoFAState] = useState({ pending: false, temp_token: '' });
   const [twoFACode, setTwoFACode] = useState('');
+  const [ssoLoading, setSsoLoading] = useState(false);
+  const [ssoError, setSsoError] = useState('');
 
   // SSO auto-login on mount
   useEffect(() => {
@@ -41,7 +43,8 @@ function UnifiedLogin() {
   }, []);
 
   const handleSSOLogin = async (ssoToken) => {
-    setLoading(true);
+    setSsoLoading(true);
+    setSsoError('');
     try {
       const response = await fetch('https://api.ssgzone.in/api/v1/saas/sso/verify', {
         method: 'POST',
@@ -53,14 +56,14 @@ function UnifiedLogin() {
         localStorage.setItem('webmail_token', data.data.token);
         localStorage.setItem('user_role', 'user');
         localStorage.setItem('user_data', JSON.stringify(data.data.user));
-        window.location.href = '/dashboard/webmail';
+        window.location.href = data.data.redirect_to || '/dashboard/webmail';
       } else {
-        setError('SSO login failed. Please login manually.');
+        setSsoError(data.error || 'SSO login failed');
+        setSsoLoading(false);
       }
     } catch (err) {
-      setError('SSO error. Please login manually.');
-    } finally {
-      setLoading(false);
+      setSsoError('SSO error. Please login manually.');
+      setSsoLoading(false);
     }
   };
 
@@ -132,6 +135,34 @@ function UnifiedLogin() {
       setLoading(false);
     }
   };
+
+  if (ssoLoading) {
+    return (
+      <Box sx={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Paper elevation={24} sx={{ borderRadius: 4, p: 5, textAlign: 'center', minWidth: 320 }}>
+          <CircularProgress size={48} sx={{ color: '#667eea', mb: 3 }} />
+          <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e293b', mb: 1 }}>Signing you in...</Typography>
+          <Typography variant="body2" sx={{ color: '#6b7280' }}>Verifying your SSO credentials</Typography>
+        </Paper>
+      </Box>
+    );
+  }
+
+  if (ssoError) {
+    return (
+      <Box sx={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <Paper elevation={24} sx={{ borderRadius: 4, p: 5, textAlign: 'center', minWidth: 320 }}>
+          <Typography variant="h2" sx={{ mb: 2 }}>⚠️</Typography>
+          <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e293b', mb: 1 }}>SSO Login Failed</Typography>
+          <Typography variant="body2" sx={{ color: '#6b7280', mb: 3 }}>{ssoError}</Typography>
+          <Button variant="contained" onClick={() => { setSsoError(''); window.history.replaceState({}, '', '/'); }}
+            sx={{ background: 'linear-gradient(135deg, #667eea, #764ba2)' }}>
+            Back to Login
+          </Button>
+        </Paper>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2 }}>

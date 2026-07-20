@@ -198,8 +198,8 @@ router.post('/sso/generate', async (req, res) => {
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
     await pool.query(
-      'INSERT INTO sso_tokens (token, user_id, tenant_id, saas_app_id, expires_at) VALUES ($1, $2, $3, $4, $5)',
-      [ssoToken, userId, tenantId, saas.id, expiresAt]
+      'INSERT INTO sso_tokens (token, user_id, tenant_id, saas_app_id, expires_at, redirect_to) VALUES ($1, $2, $3, $4, $5, $6)',
+      [ssoToken, userId, tenantId, saas.id, expiresAt, redirect_to || null]
     );
 
     const loginUrl = `${process.env.WEBMAIL_URL || 'https://mail.ssgzone.in'}/?sso_token=${ssoToken}${redirect_to ? '&redirect=' + redirect_to : ''}`;
