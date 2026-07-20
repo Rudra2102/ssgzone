@@ -81,8 +81,9 @@ function UnifiedLogin() {
           const response = await fetch(config.endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(config.type === 'user' ? 
-              { email: credentials.username, password: credentials.password } : 
+            body: JSON.stringify(
+              (config.type === 'user' || config.type === 'saas_admin') ?
+              { email: credentials.username, password: credentials.password } :
               credentials
             )
           });
