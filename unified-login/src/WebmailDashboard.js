@@ -54,7 +54,25 @@ export default function WebmailDashboard() {
     setLoading(false);
   };
 
-  const fetchVideoRooms = async () => { = async () => {
+  const fetchVideoRooms = async () => {
+    try {
+      const res = await fetch('https://api.ssgzone.in/api/v1/video/rooms', { headers: auth });
+      const data = await res.json();
+      if (data.success) setVideoRooms(data.data);
+    } catch {}
+  };
+
+  const fetchAnalytics = async () => {
+    setAnalyticsLoading(true);
+    try {
+      const res = await fetch(`${API}/analytics`, { headers: auth });
+      const data = await res.json();
+      if (data.success) setAnalytics(data.data);
+    } catch {}
+    setAnalyticsLoading(false);
+  };
+
+  const createRoom = async () => {
     try {
       const res = await fetch('https://api.ssgzone.in/api/v1/video/rooms', {
         method: 'POST',
