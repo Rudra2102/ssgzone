@@ -18,6 +18,7 @@ const webmailRoutes = require('./routes/webmail');
 const communicationRoutes = require('./routes/communication');
 const permissionsRoutes = require('./routes/permissions');
 const videoRoutes = require('./routes/video');
+const gdprRoutes = require('./routes/gdpr');
 const dashboardRoutes = require('./routes/dashboard');
 const storageRoutes = require('./routes/storage');
 const searchRoutes = require('./routes/search');
@@ -43,8 +44,7 @@ const { errorHandler } = require('./middleware/errorHandler');
 const { requestLogger } = require('./middleware/logger');
 const { checkAPIUsage } = require('./middleware/usageRateLimit');
 const { csrfProtection } = require('./middleware/security');
-// const retentionJob = require('./jobs/retentionJob');
-// const gdprDeletionJob = require('./jobs/gdprDeletionJob');
+
 
 const app = express();
 const PORT = process.env.API_PORT || 4000;
@@ -80,6 +80,7 @@ app.use('/api/v1/webmail', webmailRoutes);
 app.use('/api/v1/communication', communicationRoutes);
 app.use('/api/v1/permissions', permissionsRoutes);
 app.use('/api/v1/video', videoRoutes);
+app.use('/api/v1/gdpr', gdprRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
 app.use('/api/v1/storage', storageRoutes);
 app.use('/api/v1/search', searchRoutes);
@@ -118,8 +119,10 @@ httpServer.listen(PORT, () => {
   console.log(`SSGzone API Gateway running on port ${PORT}`);
   console.log(`Socket.io WebSocket server active on port ${PORT}`);
   // Start scheduled jobs
-  // retentionJob.start();
-  // gdprDeletionJob.start();
+  const retentionJob = require('./jobs/retentionJob');
+  const gdprDeletionJob = require('./jobs/gdprDeletionJob');
+  retentionJob.start();
+  gdprDeletionJob.start();
 });
 
 module.exports = app;

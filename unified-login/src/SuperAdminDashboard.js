@@ -283,6 +283,7 @@ function SuperAdminDashboard() {
       { id: 'system-config', label: 'System Config', icon: '⚙' },
       { id: 'security', label: 'Security & Logs', icon: '🔐' },
       { id: 'audit', label: 'Audit Logs', icon: '📋' },
+      { id: 'gdpr', label: 'GDPR & Compliance', icon: '🛡' },
       { id: 'settings', label: 'Settings & Branding', icon: '🎨' },
     ]},
   ];
@@ -2298,6 +2299,272 @@ function SuperAdminDashboard() {
     );
   };
 
+  const GDPRSection = () => {
+    const [gdprTab, setGdprTab] = useState('requests');
+    const [requests, setRequests] = useState([]);
+    const [stats, setGdprStats] = useState(null);
+    const [retentionPolicies, setRetentionPolicies] = useState([]);
+    const [auditTrail, setAuditTrail] = useState(null);
+    const [auditRequest, setAuditRequest] = useState(null);
+    const [newRequest, setNewRequest] = useState({ user_email: '', tenant_id: '', delay_hours: 72 });
+    const [retentionForm, setRetentionForm] = useState({ tenant_id: '', inbox_days: 365, sent_days: 365, trash_days: 30, spam_days: 7 });
+    const [showNewRequest, setShowNewRequest] = useState(false);
+    const [showRetentionForm, setShowRetentionForm] = useState(false);
+    const GDPR = 'https://api.ssgzone.in/api/v1/gdpr';
+
+    const load = () => {
+      fetch(`${GDPR}/requests`, { headers: authHeaders }).then(r => r.json()).then(d => d.success && setRequests(d.data));
+      fetch(`${GDPR}/stats`, { headers: authHeaders }).then(r => r.json()).then(d => d.success && setGdprStats(d.data));
+      fetch(`${GDPR}/retention`, { headers: authHeaders }).then(r => r.json()).then(d => d.success && setRetentionPolicies(d.data));
+    };
+    useEffect(() => { load(); }, []);
+
+    const createRequest = async () => {
+      if (!newRequest.user_email || !newRequest.tenant_id) return alert('Email and tenant required');
+      const res = await fetch(`${GDPR}/requests`, {
+        method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify(newRequest)
+      });
+      const data = await res.json();
+      if (data.success) { setShowNewRequest(false); setNewRequest({ user_email: '', tenant_id: '', delay_hours: 72 }); load(); }
+      else alert(data.error);
+    };
+
+    const cancelRequest = async (id) => {
+      if (!window.confirm('Cancel this deletion request?')) return;
+      const res = await fetch(`${GDPR}/requests/${id}`, { method: 'DELETE', headers: authHeaders });
+      const data = await res.json();
+      if (data.success) load(); else alert(data.error);
+    };
+
+    const executeNow = async (id) => {
+      if (!window.confirm('Execute deletion immediately? This cannot be undone.')) return;
+      const res = await fetch(`${GDPR}/requests/${id}/execute`, { method: 'POST', headers: authHeaders });
+      const data = await res.json();
+      if (data.success) { alert('✅ Deletion triggered'); load(); } else alert(data.error);
+    };
+
+    const loadAudit = async (req) => {
+      const res = await fetch(`${GDPR}/requests/${req.id}/audit`, { headers: authHeaders });
+      const data = await res.json();
+      if (data.success) { setAuditTrail(data.data); setAuditRequest(req); }
+    };
+
+    const saveRetention = async () => {
+      if (!retentionForm.tenant_id) return alert('Select a tenant');
+      const res = await fetch(`${GDPR}/retention/${retentionForm.tenant_id}`, {
+        method: 'PUT', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify(retentionForm)
+      });
+      const data = await res.json();
+      if (data.success) { setShowRetentionForm(false); load(); alert('✅ Retention policy saved!'); }
+      else alert(data.error);
+    };
+
+    const statusColors = {
+      pending: { bg: colors.warningLight, color: colors.warning },
+      processing: { bg: colors.cyanLight, color: colors.cyan },
+      completed: { bg: colors.successLight, color: colors.success },
+      failed: { bg: colors.dangerLight, color: colors.danger },
+      cancelled: { bg: colors.border, color: colors.textMuted },
+    };
+    const inputS = { width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 13, color: colors.text, background: colors.bg, outline: 'none', boxSizing: 'border-box', marginBottom: 12 };
+
+    return (
+      <div>
+        <div style={{ fontSize: 22, fontWeight: 700, color: colors.text, marginBottom: 4 }}>GDPR & Compliance</div>
+        <div style={{ fontSize: 13, color: colors.textMuted, marginBottom: 20 }}>Manage right-to-erasure requests and data retention policies</div>
+
+        {stats && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 24 }}>
+            {[['Pending', stats.pending, colors.warning], ['Processing', stats.processing, colors.cyan], ['Completed', stats.completed, colors.success], ['Failed', stats.failed, colors.danger], ['Total', stats.total, colors.primary]].map(([label, val, color]) => (
+              <div key={label} style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 10, padding: '14px 16px', textAlign: 'center' }}>
+                <div style={{ fontSize: 24, fontWeight: 700, color }}>{val || 0}</div>
+                <div style={{ fontSize: 11, color: colors.textMuted }}>{label}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: `1px solid ${colors.border}` }}>
+          {[['requests', '🗑 Deletion Requests'], ['retention', '⏱ Retention Policies']].map(([id, label]) => (
+            <button key={id} onClick={() => setGdprTab(id)}
+              style={{ padding: '9px 18px', border: 'none', borderBottom: gdprTab === id ? `2px solid ${colors.primary}` : '2px solid transparent', background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: gdprTab === id ? 700 : 400, color: gdprTab === id ? colors.primary : colors.textMuted, marginBottom: -1 }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {gdprTab === 'requests' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div style={{ fontSize: 13, color: colors.textMuted }}>Right-to-erasure requests. Deletions execute after the scheduled delay.</div>
+              <button onClick={() => setShowNewRequest(true)}
+                style={{ background: colors.danger, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                + New Deletion Request
+              </button>
+            </div>
+
+            {showNewRequest && (
+              <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 10, padding: 20, marginBottom: 20 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 14 }}>New GDPR Deletion Request</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>User Email *</label>
+                    <input style={inputS} value={newRequest.user_email} onChange={e => setNewRequest(p => ({ ...p, user_email: e.target.value }))} placeholder="user@tenant.ssgzone.in" />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>Tenant *</label>
+                    <select style={inputS} value={newRequest.tenant_id} onChange={e => setNewRequest(p => ({ ...p, tenant_id: e.target.value }))}>
+                      <option value="">Select Tenant</option>
+                      {tenants.map(t => <option key={t.id} value={t.id}>{t.company_name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>Delay (hours)</label>
+                    <select style={inputS} value={newRequest.delay_hours} onChange={e => setNewRequest(p => ({ ...p, delay_hours: parseInt(e.target.value) }))}>
+                      <option value={0}>Immediate</option>
+                      <option value={24}>24 hours</option>
+                      <option value={72}>72 hours (default)</option>
+                      <option value={168}>7 days</option>
+                    </select>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button onClick={createRequest}
+                    style={{ background: colors.danger, color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Submit Request</button>
+                  <button onClick={() => setShowNewRequest(false)}
+                    style={{ background: 'none', border: `1px solid ${colors.border}`, borderRadius: 7, padding: '9px 16px', fontSize: 13, cursor: 'pointer', color: colors.textMuted }}>Cancel</button>
+                </div>
+              </div>
+            )}
+
+            <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr style={{ background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                  {['User Email', 'Tenant', 'Status', 'Requested', 'Scheduled For', 'Actions'].map(h => (
+                    <th key={h} style={{ textAlign: 'left', padding: '10px 14px', color: colors.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {requests.map((r, i) => (
+                    <tr key={r.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                      <td style={{ padding: '10px 14px', color: colors.text, fontFamily: 'monospace', fontSize: 12 }}>{r.user_email}</td>
+                      <td style={{ padding: '10px 14px', color: colors.textMuted, fontSize: 12 }}>{r.tenant_name || r.tenant_id}</td>
+                      <td style={{ padding: '10px 14px' }}>
+                        <span style={{ background: statusColors[r.status]?.bg || colors.border, color: statusColors[r.status]?.color || colors.textMuted, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>{r.status}</span>
+                      </td>
+                      <td style={{ padding: '10px 14px', color: colors.textMuted, fontSize: 12 }}>{new Date(r.requested_at).toLocaleDateString()}</td>
+                      <td style={{ padding: '10px 14px', color: colors.textMuted, fontSize: 12 }}>{new Date(r.scheduled_for).toLocaleString()}</td>
+                      <td style={{ padding: '10px 14px' }}>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button onClick={() => loadAudit(r)}
+                            style={{ background: colors.primaryLight, color: colors.primary, border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}>📋 Audit</button>
+                          {r.status === 'pending' && (<>
+                            <button onClick={() => executeNow(r.id)}
+                              style={{ background: colors.dangerLight, color: colors.danger, border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}>⚡ Now</button>
+                            <button onClick={() => cancelRequest(r.id)}
+                              style={{ background: colors.bg, color: colors.textMuted, border: `1px solid ${colors.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer' }}>✕ Cancel</button>
+                          </> )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {requests.length === 0 && <tr><td colSpan={6} style={{ padding: 40, textAlign: 'center', color: colors.textMuted }}>No deletion requests</td></tr>}
+                </tbody>
+              </table>
+            </div>
+
+            {auditTrail && auditRequest && (
+              <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setAuditTrail(null)}>
+                <div style={{ background: colors.card, borderRadius: 12, padding: 28, width: 520, maxHeight: '80vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: colors.text, marginBottom: 4 }}>Audit Trail</div>
+                  <div style={{ fontSize: 12, color: colors.textMuted, marginBottom: 20 }}>{auditRequest.user_email}</div>
+                  {auditTrail.length === 0 && <div style={{ color: colors.textMuted, fontSize: 13 }}>No audit steps recorded yet</div>}
+                  {auditTrail.map((step, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 12, marginBottom: 12, alignItems: 'flex-start' }}>
+                      <span style={{ fontSize: 16 }}>{step.status === 'completed' ? '✅' : '❌'}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>{step.step}</div>
+                        <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: 'monospace', marginTop: 2 }}>{JSON.stringify(step.details)}</div>
+                        <div style={{ fontSize: 11, color: colors.textMuted }}>{new Date(step.completed_at).toLocaleString()}</div>
+                      </div>
+                    </div>
+                  ))}
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+                    <button onClick={() => setAuditTrail(null)} style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Close</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {gdprTab === 'retention' && (
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div style={{ fontSize: 13, color: colors.textMuted }}>Set how long emails are retained per folder for each tenant.</div>
+              <button onClick={() => setShowRetentionForm(true)}
+                style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>+ Set Policy</button>
+            </div>
+
+            {showRetentionForm && (
+              <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 10, padding: 20, marginBottom: 20 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: colors.text, marginBottom: 14 }}>Set Retention Policy</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>Tenant *</label>
+                    <select style={inputS} value={retentionForm.tenant_id} onChange={e => setRetentionForm(p => ({ ...p, tenant_id: e.target.value }))}>
+                      <option value="">Select</option>
+                      {tenants.map(t => <option key={t.id} value={t.id}>{t.company_name}</option>)}
+                    </select>
+                  </div>
+                  {[['inbox_days', 'Inbox (days)'], ['sent_days', 'Sent (days)'], ['trash_days', 'Trash (days)'], ['spam_days', 'Spam (days)']].map(([key, label]) => (
+                    <div key={key}>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>{label}</label>
+                      <input type="number" style={inputS} value={retentionForm[key]} onChange={e => setRetentionForm(p => ({ ...p, [key]: parseInt(e.target.value) }))} />
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button onClick={saveRetention}
+                    style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Save Policy</button>
+                  <button onClick={() => setShowRetentionForm(false)}
+                    style={{ background: 'none', border: `1px solid ${colors.border}`, borderRadius: 7, padding: '9px 16px', fontSize: 13, cursor: 'pointer', color: colors.textMuted }}>Cancel</button>
+                </div>
+              </div>
+            )}
+
+            <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr style={{ background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                  {['Tenant', 'Inbox', 'Sent', 'Trash', 'Spam', 'Active'].map(h => (
+                    <th key={h} style={{ textAlign: 'left', padding: '10px 14px', color: colors.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {retentionPolicies.map((p, i) => (
+                    <tr key={p.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                      <td style={{ padding: '10px 14px', fontWeight: 600, color: colors.text }}>{p.company_name}</td>
+                      <td style={{ padding: '10px 14px', color: colors.textMuted }}>{p.inbox_days}d</td>
+                      <td style={{ padding: '10px 14px', color: colors.textMuted }}>{p.sent_days}d</td>
+                      <td style={{ padding: '10px 14px', color: colors.textMuted }}>{p.trash_days}d</td>
+                      <td style={{ padding: '10px 14px', color: colors.textMuted }}>{p.spam_days}d</td>
+                      <td style={{ padding: '10px 14px' }}>
+                        <span style={{ background: p.is_active ? colors.successLight : colors.dangerLight, color: p.is_active ? colors.success : colors.danger, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>{p.is_active ? 'Active' : 'Paused'}</span>
+                      </td>
+                    </tr>
+                  ))}
+                  {retentionPolicies.length === 0 && <tr><td colSpan={6} style={{ padding: 40, textAlign: 'center', color: colors.textMuted }}>No retention policies set — default: emails kept indefinitely</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderContent = () => {
     switch (activeSection) {
       case 'dashboard':
@@ -2351,6 +2618,7 @@ function SuperAdminDashboard() {
       case 'templates': return <TemplatesSection />;
       case 'permissions': return <PermissionsSection />;
       case 'admins': return <AdminsSection />;
+      case 'gdpr': return <GDPRSection />;
       case 'settings': return <SettingsSection />;
       case 'mailboxes': return <MailboxSection />;
       default:
