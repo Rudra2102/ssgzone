@@ -142,9 +142,9 @@ router.post('/send', webmailAuth, async (req, res) => {
 
     // Save to sent folder
     await pool.query(
-      `INSERT INTO emails (tenant_id, from_email, to_email, subject, html_content, text_content, folder, read_status)
-       VALUES ($1, $2, $3, $4, $5, $6, 'sent', true)`,
-      [String(req.user.tenant_id), fromEmail, to, subject, html_content || '', text_content || '']
+      `INSERT INTO emails (tenant_id, from_email, to_email, subject, html_content, text_content, folder, read_status, tracking_token)
+       VALUES ($1, $2, $3, $4, $5, $6, 'sent', true, $7)`,
+      [String(req.user.tenant_id), fromEmail, to, subject, html_content || '', text_content || '', require('crypto').randomBytes(32).toString('hex')]
     );
 
     res.json({ success: true, message: 'Email sent successfully' });
@@ -363,6 +363,61 @@ router.delete('/templates/:id', webmailAuth, async (req, res) => {
       [req.params.id, String(req.user.tenant_id)]
     );
     res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// GET /api/v1/webmail/track/open/:token
+router.get('/track/open/:token', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `UPDATE emails SET open_count = open_count + 1 WHERE tracking_token=$1 RETURNING id, tenant_id`,
+      [req.params.token]
+    );
+    if (result.rows.length) {
+      const { id, tenant_id } = result.rows[0];
+      await pool.query(
+        `INSERT INTO email_tracking_events (email_id, tenant_id, event_type, ip_address, user_agent) VALUES ($1,$2,'open',$3,$4)`,
+        [id, tenant_id, req.ip, req.headers['user-agent'] || '']
+      );
+    }
+  } catch {}
+  const pixel = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+  res.set({ 'Content-Type': 'image/gif', 'Cache-Control': 'no-store, no-cache', 'Pragma': 'no-cache' });
+  res.send(pixel);
+});
+
+// GET /api/v1/webmail/track/click/:token
+router.get('/track/click/:token', async (req, res) => {
+  const { url } = req.query;
+  try {
+    const result = await pool.query(
+      `UPDATE emails SET click_count = click_count + 1 WHERE tracking_token=$1 RETURNING id, tenant_id`,
+      [req.params.token]
+    );
+    if (result.rows.length) {
+      const { id, tenant_id } = result.rows[0];
+      await pool.query(
+        `INSERT INTO email_tracking_events (email_id, tenant_id, event_type, url, ip_address, user_agent) VALUES ($1,$2,'click',$3,$4,$5)`,
+        [id, tenant_id, url || '', req.ip, req.headers['user-agent'] || '']
+      );
+    }
+  } catch {}
+  res.redirect(url || 'https://ssgzone.in');
+});
+
+// GET /api/v1/webmail/email/:id/tracking
+router.get('/email/:id/tracking', webmailAuth, async (req, res) => {
+  try {
+    const email = await pool.query(
+      `SELECT open_count, click_count, tracking_token FROM emails WHERE id=$1 AND to_email=$2`,
+      [req.params.id, req.user.email]
+    );
+    if (!email.rows.length) return res.status(404).json({ success: false, error: 'Not found' });
+    const events = await pool.query(
+      `SELECT event_type, url, ip_address, created_at FROM email_tracking_events WHERE email_id=$1 ORDER BY created_at DESC LIMIT 20`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: { ...email.rows[0], events: events.rows } });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 

@@ -292,5 +292,46 @@ router.post('/keys/regenerate', saasAdminAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// GET /api/saas-admin/branding
+router.get('/branding', saasAdminAuth, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM saas_branding WHERE saas_id=$1', [req.decoded.saas_id]);
+    res.json({ success: true, data: result.rows[0] || null });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// PUT /api/saas-admin/branding
+router.put('/branding', saasAdminAuth, async (req, res) => {
+  const { platform_name, tagline, primary_color, secondary_color, custom_domain, support_email } = req.body;
+  try {
+    const result = await pool.query(
+      `INSERT INTO saas_branding (saas_id, platform_name, tagline, primary_color, secondary_color, custom_domain, support_email)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (saas_id) DO UPDATE SET
+         platform_name=$2, tagline=$3, primary_color=$4, secondary_color=$5,
+         custom_domain=$6, support_email=$7, updated_at=NOW()
+       RETURNING *`,
+      [req.decoded.saas_id, platform_name, tagline, primary_color, secondary_color, custom_domain, support_email]
+    );
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/saas-admin/branding/logo
+router.post('/branding/logo', saasAdminAuth, async (req, res) => {
+  const { logo_base64, type = 'logo' } = req.body;
+  if (!logo_base64) return res.status(400).json({ success: false, error: 'logo_base64 required' });
+  try {
+    const field = type === 'favicon' ? 'favicon_url' : 'logo_url';
+    const result = await pool.query(
+      `INSERT INTO saas_branding (saas_id, ${field}) VALUES ($1,$2)
+       ON CONFLICT (saas_id) DO UPDATE SET ${field}=$2, updated_at=NOW()
+       RETURNING ${field}`,
+      [req.decoded.saas_id, logo_base64]
+    );
+    res.json({ success: true, data: { url: result.rows[0][field] } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 module.exports = router;
 

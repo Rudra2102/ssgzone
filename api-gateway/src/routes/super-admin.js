@@ -71,29 +71,27 @@ router.post('/auth/login', async (req, res) => {
     //   [admin.id]
     // );
     
+    // Check if 2FA is enabled
+    if (admin.totp_enabled) {
+      const tempToken = jwt.sign(
+        { type: 'super_admin_2fa_pending', adminId: admin.id },
+        process.env.JWT_SECRET || 'super-admin-secret',
+        { expiresIn: '5m' }
+      );
+      return res.json({ success: true, requires_2fa: true, temp_token: tempToken });
+    }
+
     // Generate JWT token
     const token = jwt.sign(
-      { 
-        type: 'super_admin',
-        adminId: admin.id, 
-        username: admin.username,
-        email: admin.email
-      },
+      { type: 'super_admin', adminId: admin.id, username: admin.username, email: admin.email },
       process.env.JWT_SECRET || 'super-admin-secret',
       { expiresIn: '8h' }
     );
-    
     res.json({
       success: true,
       data: {
         token,
-        admin: {
-          id: admin.id,
-          username: admin.username,
-          email: admin.email,
-          full_name: admin.full_name,
-          type: 'super_admin'
-        }
+        admin: { id: admin.id, username: admin.username, email: admin.email, full_name: admin.full_name, type: 'super_admin' }
       }
     });
     
@@ -905,6 +903,74 @@ router.post('/tenants/import-csv', superAdminAuth, async (req, res) => {
       error: 'Failed to import CSV'
     });
   }
+});
+
+// POST /api/v1/super-admin/2fa/setup
+router.post('/2fa/setup', superAdminAuth, async (req, res) => {
+  const speakeasy = require('speakeasy');
+  const QRCode = require('qrcode');
+  try {
+    const secret = speakeasy.generateSecret({ name: `SSGzone (${req.admin.username})`, length: 20 });
+    await db.query('UPDATE super_admins SET totp_secret=$1 WHERE id=$2', [secret.base32, req.admin.adminId]);
+    const qrDataUrl = await QRCode.toDataURL(secret.otpauth_url);
+    res.json({ success: true, data: { secret: secret.base32, qr_code: qrDataUrl } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/v1/super-admin/2fa/enable
+router.post('/2fa/enable', superAdminAuth, async (req, res) => {
+  const speakeasy = require('speakeasy');
+  const { token } = req.body;
+  if (!token) return res.status(400).json({ success: false, error: 'token required' });
+  try {
+    const result = await db.query('SELECT totp_secret FROM super_admins WHERE id=$1', [req.admin.adminId]);
+    const secret = result.rows[0]?.totp_secret;
+    if (!secret) return res.status(400).json({ success: false, error: 'Run /2fa/setup first' });
+    const valid = speakeasy.totp.verify({ secret, encoding: 'base32', token, window: 1 });
+    if (!valid) return res.status(400).json({ success: false, error: 'Invalid token' });
+    await db.query('UPDATE super_admins SET totp_enabled=true WHERE id=$1', [req.admin.adminId]);
+    res.json({ success: true, message: '2FA enabled' });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/v1/super-admin/2fa/disable
+router.post('/2fa/disable', superAdminAuth, async (req, res) => {
+  try {
+    await db.query('UPDATE super_admins SET totp_enabled=false, totp_secret=NULL WHERE id=$1', [req.admin.adminId]);
+    res.json({ success: true, message: '2FA disabled' });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/v1/super-admin/2fa/verify
+router.post('/2fa/verify', async (req, res) => {
+  const speakeasy = require('speakeasy');
+  const { temp_token, totp_token } = req.body;
+  if (!temp_token || !totp_token) return res.status(400).json({ success: false, error: 'temp_token and totp_token required' });
+  try {
+    let decoded;
+    try { decoded = jwt.verify(temp_token, process.env.JWT_SECRET || 'super-admin-secret'); }
+    catch { return res.status(401).json({ success: false, error: 'Invalid or expired temp token' }); }
+    if (decoded.type !== 'super_admin_2fa_pending') return res.status(401).json({ success: false, error: 'Invalid token type' });
+    const result = await db.query('SELECT * FROM super_admins WHERE id=$1 AND status=$2', [decoded.adminId, 'active']);
+    if (!result.rows.length) return res.status(401).json({ success: false, error: 'Admin not found' });
+    const admin = result.rows[0];
+    const valid = speakeasy.totp.verify({ secret: admin.totp_secret, encoding: 'base32', token: totp_token, window: 1 });
+    if (!valid) return res.status(401).json({ success: false, error: 'Invalid 2FA code' });
+    const token = jwt.sign(
+      { type: 'super_admin', adminId: admin.id, username: admin.username, email: admin.email },
+      process.env.JWT_SECRET || 'super-admin-secret',
+      { expiresIn: '8h' }
+    );
+    res.json({ success: true, data: { token, admin: { id: admin.id, username: admin.username, email: admin.email, full_name: admin.full_name, type: 'super_admin' } } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// GET /api/v1/super-admin/2fa/status
+router.get('/2fa/status', superAdminAuth, async (req, res) => {
+  try {
+    const result = await db.query('SELECT totp_enabled FROM super_admins WHERE id=$1', [req.admin.adminId]);
+    res.json({ success: true, data: { enabled: result.rows[0]?.totp_enabled || false } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
 module.exports = router;

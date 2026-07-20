@@ -18,6 +18,9 @@ export default function SaasAdminDashboard() {
   const [webhookTestResult, setWebhookTestResult] = useState(null);
   const [apiLogs, setApiLogs] = useState([]);
   const [logsLoading, setLogsLoading] = useState(false);
+  const [branding, setBranding] = useState(null);
+  const [brandingForm, setBrandingForm] = useState({ platform_name: '', tagline: '', primary_color: '#6366f1', secondary_color: '#8b5cf6', custom_domain: '', support_email: '' });
+  const [brandingSaving, setBrandingSaving] = useState(false);
 
   const user = JSON.parse(localStorage.getItem('user_data') || '{}');
   const token = localStorage.getItem('saas_admin_token');
@@ -97,6 +100,28 @@ export default function SaasAdminDashboard() {
     else alert(data.error);
   };
 
+  const loadBranding = () => {
+    fetch(`${API}/api/saas-admin/branding`, { headers: auth })
+      .then(r => r.json()).then(d => {
+        if (d.success && d.data) {
+          setBranding(d.data);
+          setBrandingForm({ platform_name: d.data.platform_name || '', tagline: d.data.tagline || '', primary_color: d.data.primary_color || '#6366f1', secondary_color: d.data.secondary_color || '#8b5cf6', custom_domain: d.data.custom_domain || '', support_email: d.data.support_email || '' });
+        }
+      });
+  };
+
+  const saveBranding = async () => {
+    setBrandingSaving(true);
+    const res = await fetch(`${API}/api/saas-admin/branding`, {
+      method: 'PUT', headers: { ...auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify(brandingForm)
+    });
+    const data = await res.json();
+    setBrandingSaving(false);
+    if (data.success) { setBranding(data.data); alert('✅ Branding saved!'); }
+    else alert(data.error);
+  };
+
   const savePerms = async () => {
     setSavingPerms(true);
     const res = await fetch(`${API}/api/v1/permissions/tenant/${selectedTenant}`, {
@@ -118,6 +143,7 @@ export default function SaasAdminDashboard() {
     { id: 'permissions', label: 'Tenant Permissions', icon: '🔑' },
     { id: 'api-keys', label: 'API Keys', icon: '🗝' },
     { id: 'developer', label: 'Developer', icon: '⚡' },
+    { id: 'branding', label: 'White-label', icon: '🎨' },
   ];
 
   const Sidebar = () => (
@@ -128,7 +154,7 @@ export default function SaasAdminDashboard() {
       </div>
       <div style={{ flex: 1, padding: '12px 8px' }}>
         {nav.map(item => (
-          <div key={item.id} onClick={() => { setSection(item.id); if (item.id === 'api-keys') loadApiKeys(); if (item.id === 'developer') { loadApiKeys(); loadWebhookCfg(); } }}
+          <div key={item.id} onClick={() => { setSection(item.id); if (item.id === 'api-keys') loadApiKeys(); if (item.id === 'developer') { loadApiKeys(); loadWebhookCfg(); } if (item.id === 'branding') loadBranding(); }}
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 10px', borderRadius: 6, cursor: 'pointer', marginBottom: 2, background: section === item.id ? c.primaryLight : 'transparent', color: section === item.id ? c.primary : c.text, fontWeight: section === item.id ? 600 : 400, fontSize: 13 }}>
             <span>{item.icon}</span>{item.label}
           </div>
@@ -439,6 +465,76 @@ export default function SaasAdminDashboard() {
     </div>
   );
 
+  const BrandingView = () => {
+    const inputS = { width: '100%', padding: '10px 12px', border: `1px solid ${c.border}`, borderRadius: 8, fontSize: 13, color: c.text, background: c.bg, outline: 'none', boxSizing: 'border-box', marginBottom: 12 };
+    const labelS = { fontSize: 12, fontWeight: 600, color: c.textMuted, marginBottom: 4, display: 'block' };
+    return (
+      <div>
+        <div style={{ fontSize: 22, fontWeight: 700, color: c.text, marginBottom: 4 }}>White-label Branding</div>
+        <div style={{ fontSize: 13, color: c.textMuted, marginBottom: 24 }}>Customize how SSGzone Mail appears to your tenants</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, maxWidth: 800 }}>
+          <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: 24 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: c.text, marginBottom: 16 }}>Identity</div>
+            <label style={labelS}>Platform Name</label>
+            <input style={inputS} value={brandingForm.platform_name} onChange={e => setBrandingForm(p => ({ ...p, platform_name: e.target.value }))} placeholder="My Mail Platform" />
+            <label style={labelS}>Tagline</label>
+            <input style={inputS} value={brandingForm.tagline} onChange={e => setBrandingForm(p => ({ ...p, tagline: e.target.value }))} placeholder="Powered by your brand" />
+            <label style={labelS}>Support Email</label>
+            <input style={inputS} value={brandingForm.support_email} onChange={e => setBrandingForm(p => ({ ...p, support_email: e.target.value }))} placeholder="support@yourapp.com" />
+            <label style={labelS}>Custom Domain (webmail)</label>
+            <input style={inputS} value={brandingForm.custom_domain} onChange={e => setBrandingForm(p => ({ ...p, custom_domain: e.target.value }))} placeholder="mail.yourapp.com" />
+          </div>
+          <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: 24 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: c.text, marginBottom: 16 }}>Colors</div>
+            <label style={labelS}>Primary Color</label>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+              <input type="color" value={brandingForm.primary_color} onChange={e => setBrandingForm(p => ({ ...p, primary_color: e.target.value }))} style={{ width: 40, height: 40, border: 'none', borderRadius: 8, cursor: 'pointer' }} />
+              <input style={{ ...inputS, marginBottom: 0, flex: 1 }} value={brandingForm.primary_color} onChange={e => setBrandingForm(p => ({ ...p, primary_color: e.target.value }))} />
+            </div>
+            <label style={labelS}>Secondary Color</label>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 20 }}>
+              <input type="color" value={brandingForm.secondary_color} onChange={e => setBrandingForm(p => ({ ...p, secondary_color: e.target.value }))} style={{ width: 40, height: 40, border: 'none', borderRadius: 8, cursor: 'pointer' }} />
+              <input style={{ ...inputS, marginBottom: 0, flex: 1 }} value={brandingForm.secondary_color} onChange={e => setBrandingForm(p => ({ ...p, secondary_color: e.target.value }))} />
+            </div>
+            <div style={{ padding: 16, borderRadius: 10, background: brandingForm.primary_color + '22', border: `1px solid ${brandingForm.primary_color}44`, marginBottom: 16 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: brandingForm.primary_color }}>{brandingForm.platform_name || 'Your Platform'}</div>
+              <div style={{ fontSize: 11, color: brandingForm.secondary_color }}>{brandingForm.tagline || 'Your tagline here'}</div>
+            </div>
+            <button onClick={saveBranding} disabled={brandingSaving}
+              style={{ background: c.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: brandingSaving ? 0.7 : 1, width: '100%' }}>
+              {brandingSaving ? 'Saving...' : '💾 Save Branding'}
+            </button>
+          </div>
+        </div>
+        {branding && (
+          <div style={{ marginTop: 20, background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: 20, maxWidth: 800 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: c.text, marginBottom: 12 }}>Logo Upload</div>
+            <div style={{ fontSize: 12, color: c.textMuted, marginBottom: 12 }}>Upload logo as base64 — paste data URL or use the API directly</div>
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+              {branding.logo_url && <img src={branding.logo_url} alt="logo" style={{ width: 60, height: 60, borderRadius: 8, objectFit: 'contain', border: `1px solid ${c.border}` }} />}
+              <label style={{ background: c.primary, color: '#fff', borderRadius: 8, padding: '8px 16px', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
+                Upload Logo
+                <input type="file" accept="image/*" style={{ display: 'none' }} onChange={async e => {
+                  const file = e.target.files[0]; if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = async ev => {
+                    const res = await fetch(`${API}/api/saas-admin/branding/logo`, {
+                      method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ logo_base64: ev.target.result, type: 'logo' })
+                    });
+                    const data = await res.json();
+                    if (data.success) { loadBranding(); alert('✅ Logo uploaded!'); } else alert(data.error);
+                  };
+                  reader.readAsDataURL(file);
+                }} />
+              </label>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderSection = () => {
     switch (section) {
       case 'dashboard': return <Dashboard />;
@@ -446,6 +542,7 @@ export default function SaasAdminDashboard() {
       case 'permissions': return <PermissionsView />;
       case 'api-keys': return <ApiKeysView />;
       case 'developer': return <DeveloperView />;
+      case 'branding': return <BrandingView />;
       default: return <Dashboard />;
     }
   };

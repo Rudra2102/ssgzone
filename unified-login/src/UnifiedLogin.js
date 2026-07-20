@@ -10,6 +10,8 @@ function UnifiedLogin() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [twoFAState, setTwoFAState] = useState({ pending: false, temp_token: '' });
+  const [twoFACode, setTwoFACode] = useState('');
 
   // SSO auto-login on mount
   useEffect(() => {
@@ -91,6 +93,11 @@ function UnifiedLogin() {
           const data = await response.json();
 
           if (data.success) {
+            if (data.requires_2fa) {
+              setTwoFAState({ pending: true, temp_token: data.temp_token });
+              setLoading(false);
+              return;
+            }
             localStorage.setItem(config.tokenKey, data.data.token);
             
             // Store user info and redirect to appropriate dashboard
@@ -139,12 +146,36 @@ function UnifiedLogin() {
           </Box>
 
           <Box sx={{ p: 4 }}>
+            {twoFAState.pending ? (
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8, color: '#1e293b' }}>Two-Factor Authentication</div>
+                <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>Enter the 6-digit code from your authenticator app</div>
+                <input value={twoFACode} onChange={e => setTwoFACode(e.target.value)} maxLength={6}
+                  placeholder="000000" style={{ width: '100%', padding: '12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 20, textAlign: 'center', letterSpacing: 8, outline: 'none', boxSizing: 'border-box', marginBottom: 12 }} />
+                <button onClick={async () => {
+                  const res = await fetch('https://api.ssgzone.in/api/v1/super-admin/2fa/verify', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ temp_token: twoFAState.temp_token, totp_token: twoFACode })
+                  });
+                  const d = await res.json();
+                  if (d.success) {
+                    localStorage.setItem('super_admin_token', d.data.token);
+                    localStorage.setItem('user_data', JSON.stringify({ ...d.data.admin, type: 'super_admin' }));
+                    window.location.href = '/dashboard/super-admin';
+                  } else { alert(d.error); setTwoFACode(''); }
+                }} style={{ width: '100%', background: 'linear-gradient(135deg, #4f46e5, #7c3aed)', color: '#fff', border: 'none', borderRadius: 8, padding: 12, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                  Verify
+                </button>
+                <div onClick={() => setTwoFAState({ pending: false, temp_token: '' })} style={{ textAlign: 'center', marginTop: 12, fontSize: 13, color: '#6b7280', cursor: 'pointer' }}>← Back to login</div>
+              </div>
+            ) : (
             <form onSubmit={handleSubmit}>
               {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
               <TextField fullWidth label="Username / Email" value={credentials.username} onChange={(e) => setCredentials({ ...credentials, username: e.target.value })} required sx={{ mb: 3 }} />
               <TextField fullWidth label="Password" type={showPassword ? 'text' : 'password'} value={credentials.password} onChange={(e) => setCredentials({ ...credentials, password: e.target.value })} required sx={{ mb: 4 }} InputProps={{ endAdornment: (<InputAdornment position="end"><IconButton onClick={() => setShowPassword(!showPassword)}>{showPassword ? <VisibilityOff /> : <Visibility />}</IconButton></InputAdornment>) }} />
               <Button type="submit" fullWidth variant="contained" size="large" disabled={loading} startIcon={<LoginIcon />} sx={{ py: 1.5, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>{loading ? 'Signing in...' : 'Sign In'}</Button>
             </form>
+            )}
           </Box>
         </Paper>
       </Container>

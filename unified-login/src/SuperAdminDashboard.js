@@ -2012,6 +2012,79 @@ function SuperAdminDashboard() {
     const inputS = { width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 13, color: colors.text, background: colors.bg, outline: 'none', boxSizing: 'border-box', marginBottom: 12 };
     const labelS = { fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' };
 
+    const TwoFAPanel = () => {
+      const [twoFAStatus, setTwoFAStatus] = useState(null);
+      const [qrCode, setQrCode] = useState(null);
+      const [secret, setSecret] = useState('');
+      const [verifyCode, setVerifyCode] = useState('');
+      const [loading2fa, setLoading2fa] = useState(false);
+      const SA = 'https://api.ssgzone.in/api/v1/super-admin';
+      useEffect(() => {
+        fetch(`${SA}/2fa/status`, { headers: authHeaders })
+          .then(r => r.json()).then(d => d.success && setTwoFAStatus(d.data.enabled));
+      }, []);
+      const setup = async () => {
+        setLoading2fa(true);
+        const res = await fetch(`${SA}/2fa/setup`, { method: 'POST', headers: authHeaders });
+        const data = await res.json();
+        if (data.success) { setQrCode(data.data.qr_code); setSecret(data.data.secret); } else alert(data.error);
+        setLoading2fa(false);
+      };
+      const enable = async () => {
+        if (!verifyCode) return alert('Enter the 6-digit code');
+        const res = await fetch(`${SA}/2fa/enable`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ token: verifyCode }) });
+        const data = await res.json();
+        if (data.success) { setTwoFAStatus(true); setQrCode(null); setSecret(''); setVerifyCode(''); alert('✅ 2FA enabled!'); } else alert(data.error);
+      };
+      const disable = async () => {
+        if (!window.confirm('Disable 2FA? Your account will be less secure.')) return;
+        const res = await fetch(`${SA}/2fa/disable`, { method: 'POST', headers: authHeaders });
+        const data = await res.json();
+        if (data.success) { setTwoFAStatus(false); alert('2FA disabled'); } else alert(data.error);
+      };
+      return (
+        <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 24 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: colors.text, marginBottom: 4 }}>Two-Factor Authentication</div>
+          <div style={{ fontSize: 13, color: colors.textMuted, marginBottom: 16 }}>Add an extra layer of security to your super admin account</div>
+          {twoFAStatus === null && <div style={{ color: colors.textMuted, fontSize: 13 }}>Loading...</div>}
+          {twoFAStatus === true && (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, padding: 12, background: colors.successLight, borderRadius: 8 }}>
+                <span style={{ fontSize: 20 }}>🔐</span>
+                <div><div style={{ fontSize: 13, fontWeight: 600, color: colors.success }}>2FA is enabled</div><div style={{ fontSize: 12, color: colors.success }}>Your account is protected with TOTP authentication</div></div>
+              </div>
+              <button onClick={disable} style={{ background: colors.dangerLight, color: colors.danger, border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Disable 2FA</button>
+            </div>
+          )}
+          {twoFAStatus === false && !qrCode && (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16, padding: 12, background: colors.warningLight, borderRadius: 8 }}>
+                <span style={{ fontSize: 20 }}>⚠️</span>
+                <div style={{ fontSize: 13, color: colors.warning }}>2FA is not enabled. We recommend enabling it for security.</div>
+              </div>
+              <button onClick={setup} disabled={loading2fa} style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: loading2fa ? 0.7 : 1 }}>
+                {loading2fa ? 'Generating...' : '🔐 Enable 2FA'}
+              </button>
+            </div>
+          )}
+          {qrCode && (
+            <div>
+              <div style={{ fontSize: 13, color: colors.text, marginBottom: 12 }}>1. Scan this QR code with Google Authenticator or Authy:</div>
+              <img src={qrCode} alt="2FA QR" style={{ width: 180, height: 180, border: `1px solid ${colors.border}`, borderRadius: 8, marginBottom: 12 }} />
+              <div style={{ fontSize: 12, color: colors.textMuted, marginBottom: 12 }}>Or enter manually: <code style={{ background: colors.bg, padding: '2px 6px', borderRadius: 4, fontFamily: 'monospace', fontSize: 11 }}>{secret}</code></div>
+              <div style={{ fontSize: 13, color: colors.text, marginBottom: 8 }}>2. Enter the 6-digit code to confirm:</div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <input value={verifyCode} onChange={e => setVerifyCode(e.target.value)} maxLength={6} placeholder="000000"
+                  style={{ padding: '9px 12px', border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 16, width: 120, textAlign: 'center', letterSpacing: 4, outline: 'none' }} />
+                <button onClick={enable} style={{ background: colors.success, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Verify & Enable</button>
+                <button onClick={() => { setQrCode(null); setSecret(''); }} style={{ background: 'none', border: `1px solid ${colors.border}`, borderRadius: 8, padding: '9px 14px', fontSize: 13, cursor: 'pointer', color: colors.textMuted }}>Cancel</button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    };
+
     return (
       <div>
         <div style={{ fontSize: 22, fontWeight: 700, color: colors.text, marginBottom: 4 }}>Settings</div>
@@ -2181,19 +2254,22 @@ function SuperAdminDashboard() {
 
         {/* Security Tab */}
         {settingsTab === 'security' && (
-          <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 24, maxWidth: 600 }}>
-            <div style={{ fontWeight: 700, fontSize: 15, color: colors.text, marginBottom: 16 }}>Security Settings</div>
-            <label style={labelS}>Session Timeout (minutes)</label>
-            <select style={inputS} value={form.session_timeout} onChange={e => setForm({ ...form, session_timeout: parseInt(e.target.value) })}>
-              {[60, 120, 240, 480, 720, 1440].map(t => <option key={t} value={t}>{t >= 60 ? `${t/60} hour${t > 60 ? 's' : ''}` : `${t} min`}</option>)}
-            </select>
-            <label style={labelS}>Minimum Password Length</label>
-            <select style={inputS} value={form.password_min_length} onChange={e => setForm({ ...form, password_min_length: parseInt(e.target.value) })}>
-              {[6, 8, 10, 12, 16].map(l => <option key={l} value={l}>{l} characters</option>)}
-            </select>
-            <button onClick={saveSettings} disabled={saving} style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: saving ? 0.7 : 1 }}>
-              {saving ? 'Saving...' : 'Save Security Settings'}
-            </button>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+            <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 24 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: colors.text, marginBottom: 16 }}>Security Settings</div>
+              <label style={labelS}>Session Timeout (minutes)</label>
+              <select style={inputS} value={form.session_timeout} onChange={e => setForm({ ...form, session_timeout: parseInt(e.target.value) })}>
+                {[60, 120, 240, 480, 720, 1440].map(t => <option key={t} value={t}>{t >= 60 ? `${t/60} hour${t > 60 ? 's' : ''}` : `${t} min`}</option>)}
+              </select>
+              <label style={labelS}>Minimum Password Length</label>
+              <select style={inputS} value={form.password_min_length} onChange={e => setForm({ ...form, password_min_length: parseInt(e.target.value) })}>
+                {[6, 8, 10, 12, 16].map(l => <option key={l} value={l}>{l} characters</option>)}
+              </select>
+              <button onClick={saveSettings} disabled={saving} style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: saving ? 0.7 : 1 }}>
+                {saving ? 'Saving...' : 'Save Security Settings'}
+              </button>
+            </div>
+            <TwoFAPanel />
           </div>
         )}
 
