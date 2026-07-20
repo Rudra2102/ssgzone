@@ -316,4 +316,54 @@ router.get('/analytics', webmailAuth, async (req, res) => {
   }
 });
 
+// GET /api/v1/webmail/templates
+router.get('/templates', webmailAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT * FROM email_templates WHERE tenant_id = $1 AND is_active = true ORDER BY name ASC`,
+      [String(req.user.tenant_id)]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/v1/webmail/templates
+router.post('/templates', webmailAuth, async (req, res) => {
+  const { name, subject, html_body, category = 'general' } = req.body;
+  if (!name || !subject || !html_body) return res.status(400).json({ success: false, error: 'name, subject, html_body required' });
+  try {
+    const result = await pool.query(
+      `INSERT INTO email_templates (tenant_id, name, subject, html_body, category, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [String(req.user.tenant_id), name, subject, html_body, category, req.user.id]
+    );
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// PUT /api/v1/webmail/templates/:id
+router.put('/templates/:id', webmailAuth, async (req, res) => {
+  const { name, subject, html_body, category } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE email_templates SET name=$1, subject=$2, html_body=$3, category=$4, updated_at=NOW()
+       WHERE id=$5 AND tenant_id=$6 RETURNING *`,
+      [name, subject, html_body, category, req.params.id, String(req.user.tenant_id)]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Not found' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// DELETE /api/v1/webmail/templates/:id
+router.delete('/templates/:id', webmailAuth, async (req, res) => {
+  try {
+    await pool.query(
+      `UPDATE email_templates SET is_active=false WHERE id=$1 AND tenant_id=$2`,
+      [req.params.id, String(req.user.tenant_id)]
+    );
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 module.exports = router;

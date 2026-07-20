@@ -25,6 +25,12 @@ export default function WebmailDashboard() {
   const [showNewMeeting, setShowNewMeeting] = useState(false);
   const [analytics, setAnalytics] = useState(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [templates, setTemplates] = useState([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [templateModal, setTemplateModal] = useState(null);
+  const [tplForm, setTplForm] = useState({ name: '', subject: '', html_body: '', category: 'general' });
+  const [tplPreview, setTplPreview] = useState(false);
+  const [tplSaving, setTplSaving] = useState(false);
 
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const token = localStorage.getItem('webmail_token');
@@ -70,6 +76,49 @@ export default function WebmailDashboard() {
       if (data.success) setAnalytics(data.data);
     } catch {}
     setAnalyticsLoading(false);
+  };
+
+  const fetchTemplates = async () => {
+    setTemplatesLoading(true);
+    try {
+      const res = await fetch(`${API}/templates`, { headers: auth });
+      const data = await res.json();
+      if (data.success) setTemplates(data.data);
+    } catch {}
+    setTemplatesLoading(false);
+  };
+
+  const saveTemplate = async () => {
+    if (!tplForm.name || !tplForm.subject || !tplForm.html_body) return alert('Name, subject and body required');
+    setTplSaving(true);
+    try {
+      const isEdit = templateModal && templateModal.id;
+      const url = isEdit ? `${API}/templates/${templateModal.id}` : `${API}/templates`;
+      const method = isEdit ? 'PUT' : 'POST';
+      const res = await fetch(url, {
+        method,
+        headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify(tplForm)
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTemplateModal(null);
+        setTplForm({ name: '', subject: '', html_body: '', category: 'general' });
+        fetchTemplates();
+      } else alert(data.error);
+    } catch (err) { alert(err.message); }
+    setTplSaving(false);
+  };
+
+  const deleteTemplate = async (id) => {
+    if (!window.confirm('Delete this template?')) return;
+    await fetch(`${API}/templates/${id}`, { method: 'DELETE', headers: auth });
+    setTemplates(prev => prev.filter(t => t.id !== id));
+  };
+
+  const useTemplate = (tpl) => {
+    setCompose({ to: '', cc: '', subject: tpl.subject, body_html: tpl.html_body });
+    setComposeOpen(true);
   };
 
   const createRoom = async () => {
@@ -224,6 +273,11 @@ export default function WebmailDashboard() {
             <span style={{ fontSize: 14 }}>📊</span>
             {!sidebarCollapsed && <span>Analytics</span>}
           </div>
+          <div onClick={() => { setActiveNav('templates'); fetchTemplates(); }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', background: activeNav === 'templates' ? c.primaryLight : 'transparent', color: activeNav === 'templates' ? c.primary : c.text, fontWeight: activeNav === 'templates' ? 600 : 400, fontSize: 13, justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
+            <span style={{ fontSize: 14 }}>📋</span>
+            {!sidebarCollapsed && <span>Templates</span>}
+          </div>
         </div>
 
         <div style={{ padding: 8, borderTop: `1px solid ${c.border}` }}>
@@ -343,6 +397,55 @@ export default function WebmailDashboard() {
                 </div>
               );
             })()}
+          </div>
+        ) : activeNav === 'templates' ? (
+          <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: c.text }}>Email Templates</div>
+                <div style={{ fontSize: 13, color: c.textMuted }}>Reusable email templates for quick compose</div>
+              </div>
+              <button onClick={() => { setTemplateModal('new'); setTplForm({ name: '', subject: '', html_body: '', category: 'general' }); setTplPreview(false); }}
+                style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                + New Template
+              </button>
+            </div>
+            {templatesLoading && <div style={{ textAlign: 'center', padding: 40, color: c.textMuted }}>Loading...</div>}
+            {!templatesLoading && templates.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '60px 0', color: c.textMuted }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>📋</div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: c.text, marginBottom: 6 }}>No templates yet</div>
+                <div style={{ fontSize: 13 }}>Create reusable email templates to speed up your workflow</div>
+              </div>
+            )}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
+              {templates.map(tpl => (
+                <div key={tpl.id} style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 10, padding: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: c.text }}>{tpl.name}</div>
+                      <div style={{ marginTop: 4 }}>
+                        <span style={{ background: '#eff6ff', color: '#6366f1', borderRadius: 20, padding: '1px 8px', fontSize: 10, fontWeight: 600 }}>{tpl.category}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: 12, color: c.textMuted, fontStyle: 'italic' }}>Subject: {tpl.subject}</div>
+                  <div style={{ fontSize: 12, color: c.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {tpl.html_body.replace(/<[^>]*>/g, '').slice(0, 80)}...
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+                    <button onClick={() => useTemplate(tpl)}
+                      style={{ flex: 1, background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 6, padding: '7px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                      ✏️ Use
+                    </button>
+                    <button onClick={() => { setTemplateModal(tpl); setTplForm({ name: tpl.name, subject: tpl.subject, html_body: tpl.html_body, category: tpl.category }); setTplPreview(false); }}
+                      style={{ padding: '7px 12px', border: `1px solid ${c.border}`, borderRadius: 6, background: 'none', cursor: 'pointer', fontSize: 12, color: c.text }}>Edit</button>
+                    <button onClick={() => deleteTemplate(tpl.id)}
+                      style={{ padding: '7px 12px', border: `1px solid ${c.danger}`, borderRadius: 6, background: 'none', cursor: 'pointer', fontSize: 12, color: c.danger }}>Del</button>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         ) : activeNav === 'chat' ? (
           <div style={{ flex: 1, overflow: 'hidden', padding: 16, display: 'flex', flexDirection: 'column' }}>
@@ -567,5 +670,59 @@ export default function WebmailDashboard() {
         </div>
       )}
     </div>
+
+      {/* Template Modal */}
+      {templateModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: c.card, borderRadius: 12, width: 680, maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+            <div style={{ padding: '14px 20px', borderBottom: `1px solid ${c.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: c.text }}>{templateModal === 'new' ? 'New Template' : 'Edit Template'}</span>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => setTplPreview(!tplPreview)}
+                  style={{ padding: '5px 12px', border: `1px solid ${c.border}`, borderRadius: 6, background: tplPreview ? c.primaryLight : 'none', color: tplPreview ? c.primary : c.text, cursor: 'pointer', fontSize: 12 }}>
+                  {tplPreview ? '✏️ Edit' : '👁 Preview'}
+                </button>
+                <button onClick={() => setTemplateModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: c.textMuted }}>×</button>
+              </div>
+            </div>
+            <div style={{ padding: 20, overflowY: 'auto', flex: 1 }}>
+              {tplPreview ? (
+                <div>
+                  <div style={{ fontSize: 12, color: c.textMuted, marginBottom: 8 }}>Subject: <strong>{tplForm.subject}</strong></div>
+                  <div style={{ border: `1px solid ${c.border}`, borderRadius: 8, padding: 16, minHeight: 200, fontSize: 14, color: c.text, lineHeight: 1.7 }}
+                    dangerouslySetInnerHTML={{ __html: tplForm.html_body || '<em style="color:#9ca3af">Nothing to preview</em>' }} />
+                </div>
+              ) : (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                    <input value={tplForm.name} onChange={e => setTplForm(p => ({ ...p, name: e.target.value }))}
+                      placeholder="Template name *"
+                      style={{ padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, outline: 'none' }} />
+                    <select value={tplForm.category} onChange={e => setTplForm(p => ({ ...p, category: e.target.value }))}
+                      style={{ padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, outline: 'none', background: '#fff' }}>
+                      {['general', 'onboarding', 'support', 'marketing', 'notification'].map(cat => (
+                        <option key={cat} value={cat}>{cat.charAt(0).toUpperCase() + cat.slice(1)}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <input value={tplForm.subject} onChange={e => setTplForm(p => ({ ...p, subject: e.target.value }))}
+                    placeholder="Email subject *"
+                    style={{ width: '100%', padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, marginBottom: 10, outline: 'none', boxSizing: 'border-box' }} />
+                  <textarea value={tplForm.html_body} onChange={e => setTplForm(p => ({ ...p, html_body: e.target.value }))}
+                    placeholder="HTML body * (supports HTML tags)" rows={10}
+                    style={{ width: '100%', padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, resize: 'vertical', outline: 'none', boxSizing: 'border-box', fontFamily: 'monospace' }} />
+                </>
+              )}
+            </div>
+            <div style={{ padding: '12px 20px', borderTop: `1px solid ${c.border}`, display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button onClick={() => setTemplateModal(null)} style={{ padding: '8px 18px', border: `1px solid ${c.border}`, borderRadius: 7, background: 'none', cursor: 'pointer', fontSize: 13, color: c.text }}>Cancel</button>
+              <button onClick={saveTemplate} disabled={tplSaving}
+                style={{ padding: '8px 20px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 7, cursor: tplSaving ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600, opacity: tplSaving ? 0.7 : 1 }}>
+                {tplSaving ? 'Saving...' : '💾 Save Template'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
   );
 }
