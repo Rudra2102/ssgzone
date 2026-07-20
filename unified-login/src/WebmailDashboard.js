@@ -343,9 +343,6 @@ export default function WebmailDashboard() {
             <span style={{ fontSize: 14 }}>🏖</span>
             {!sidebarCollapsed && <span>Out of Office</span>}
           </div>
-            <span style={{ fontSize: 14 }}>📋</span>
-            {!sidebarCollapsed && <span>Templates</span>}
-          </div>
         </div>
 
         <div style={{ padding: 8, borderTop: `1px solid ${c.border}` }}>
