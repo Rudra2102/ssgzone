@@ -669,7 +669,6 @@ export default function WebmailDashboard() {
           </div>
         </div>
       )}
-    </div>
 
       {/* Template Modal */}
       {templateModal && (
@@ -724,5 +723,6 @@ export default function WebmailDashboard() {
           </div>
         </div>
       )}
+    </div>
   );
 }
