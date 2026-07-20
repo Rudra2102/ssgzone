@@ -1,208 +1,238 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
-const UserService = require('../services/userService');
+const { Pool } = require('pg');
+const nodemailer = require('nodemailer');
 
 const router = express.Router();
-
-// Test route
-router.post('/test', (req, res) => {
-  res.json({ message: 'Webmail routes working' });
+const pool = new Pool({
+  host: process.env.DB_HOST || 'localhost',
+  port: parseInt(process.env.DB_PORT) || 5432,
+  database: process.env.DB_NAME,
+  user: process.env.DB_USER,
+  password: String(process.env.DB_PASSWORD)
 });
 
-// Webmail auth middleware
 const webmailAuth = (req, res, next) => {
-  const authHeader = req.headers.authorization;
-  console.log(`[WEBMAIL AUTH] Authorization header: ${authHeader}`);
-  
-  const token = authHeader?.replace('Bearer ', '');
-  console.log(`[WEBMAIL AUTH] Token extracted: ${token ? 'YES' : 'NO'}`);
-  
-  if (!token) {
-    return res.status(401).json({
-      success: false,
-      error: 'Token required'
-    });
-  }
-
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token) return res.status(401).json({ success: false, error: 'Token required' });
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'webmail-secret');
-    console.log(`[WEBMAIL AUTH] Token valid for user: ${decoded.email}`);
-    req.user = decoded;
+    req.user = jwt.verify(token, process.env.JWT_SECRET || 'super-admin-secret');
     next();
-  } catch (error) {
-    console.log(`[WEBMAIL AUTH] Token verification failed: ${error.message}`);
-    res.status(401).json({
-      success: false,
-      error: 'Invalid token'
-    });
+  } catch {
+    res.status(401).json({ success: false, error: 'Invalid token' });
   }
 };
 
-// Verify authentication
-router.get('/auth/verify', webmailAuth, async (req, res) => {
-  try {
-    console.log(`[WEBMAIL VERIFY] Verifying user: ${req.user.userId}`);
-    // Get user details from database
-    const user = await UserService.findById(req.user.userId);
-    
-    if (!user) {
-      console.log(`[WEBMAIL VERIFY] User not found in database`);
-      return res.status(401).json({
-        success: false,
-        error: 'User not found'
-      });
-    }
-
-    console.log(`[WEBMAIL VERIFY] User verified: ${user.email}`);
-    res.json({
-      success: true,
-      user: {
-        id: user.id,
-        email: user.email,
-        first_name: user.first_name,
-        last_name: user.last_name
-      }
-    });
-  } catch (error) {
-    console.log(`[WEBMAIL VERIFY] Error: ${error.message}`);
-    res.status(401).json({
-      success: false,
-      error: 'Invalid token'
-    });
-  }
-});
-
-// Webmail authentication
+// POST /api/v1/webmail/auth/login
 router.post('/auth/login', async (req, res) => {
+  const bcrypt = require('bcryptjs');
+  const { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ success: false, error: 'Email and password required' });
   try {
-    const { email, password } = req.body;
-    console.log(`[WEBMAIL] Login attempt for: ${email}`);
-    
-    const user = await UserService.authenticate(email, password);
-    console.log(`[WEBMAIL] Authentication result: ${user ? 'SUCCESS' : 'FAILED'}`);
-    
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid credentials'
-      });
-    }
-
-    const token = jwt.sign(
-      { userId: user.id, email: user.email },
-      process.env.JWT_SECRET || 'webmail-secret',
-      { expiresIn: '24h' }
+    const result = await pool.query(
+      `SELECT tu.*, tc.saas_app_id, tc.company_slug
+       FROM tenant_users tu
+       JOIN tenant_companies tc ON tc.id = tu.tenant_id
+       WHERE tu.email = $1 AND tu.status = 'active'`,
+      [email]
     );
-
+    if (!result.rows.length) return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    const user = result.rows[0];
+    const valid = await bcrypt.compare(password, user.password_hash);
+    if (!valid) return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    const token = jwt.sign(
+      { type: 'user', id: user.id, tenant_id: user.tenant_id, saas_id: user.saas_app_id, email: user.email, role: user.role },
+      process.env.JWT_SECRET || 'super-admin-secret',
+      { expiresIn: '8h' }
+    );
     res.json({
       success: true,
       data: {
         token,
-        user: {
-          id: user.id,
-          email: user.email,
-          first_name: user.first_name,
-          last_name: user.last_name
-        }
+        user: { id: user.id, email: user.email, full_name: `${user.first_name} ${user.last_name}`, role: user.role, tenant_id: user.tenant_id, type: 'user' }
       }
     });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Logout
-router.post('/auth/logout', webmailAuth, async (req, res) => {
+// GET /api/v1/webmail/inbox?folder=INBOX&page=1&limit=25&search=
+router.get('/inbox', webmailAuth, async (req, res) => {
+  const { folder = 'INBOX', page = 1, limit = 25, search = '' } = req.query;
+  const offset = (parseInt(page) - 1) * parseInt(limit);
+  const userId = req.user.id;
   try {
-    // In a production system, you might want to blacklist the token
-    // For now, we'll just return success as the frontend removes the token
-    res.json({
-      success: true,
-      message: 'Logged out successfully'
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    let whereClause = `WHERE es.user_id = $1 AND es.folder = $2 AND es.is_deleted = false`;
+    const params = [userId, folder];
+    if (search) {
+      params.push(`%${search}%`);
+      whereClause += ` AND (es.subject ILIKE $${params.length} OR es.from_email ILIKE $${params.length} OR es.body_text ILIKE $${params.length})`;
+    }
+    const countResult = await pool.query(`SELECT COUNT(*) FROM email_storage es ${whereClause}`, params);
+    const total = parseInt(countResult.rows[0].count);
+    params.push(parseInt(limit), offset);
+    const result = await pool.query(
+      `SELECT es.id, es.subject, es.from_email, es.from_name, es.to_email,
+              es.is_read, es.is_starred, es.has_attachments, es.received_at, es.folder,
+              LEFT(es.body_text, 120) as preview
+       FROM email_storage es
+       ${whereClause}
+       ORDER BY es.received_at DESC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+    const unread = await pool.query(
+      `SELECT COUNT(*) FROM email_storage WHERE user_id = $1 AND folder = 'INBOX' AND is_read = false AND is_deleted = false`,
+      [userId]
+    );
+    res.json({ success: true, data: result.rows, total, unread: parseInt(unread.rows[0].count), page: parseInt(page) });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Get messages
-router.get('/messages', webmailAuth, async (req, res) => {
+// GET /api/v1/webmail/email/:id
+router.get('/email/:id', webmailAuth, async (req, res) => {
   try {
-    const { folder = 'INBOX', limit = 50, offset = 0 } = req.query;
-    
-    // Mock messages for demo
-    const messages = [
-      {
-        id: 1,
-        subject: 'Welcome to SSGhub Mail',
-        sender: 'admin@ssghub.com',
-        recipients: [req.user.email],
-        received_at: new Date().toISOString(),
-        flags: ['\\\\Recent']
-      }
-    ];
-
-    res.json({
-      success: true,
-      data: messages
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    const result = await pool.query(
+      `SELECT * FROM email_storage WHERE id = $1 AND user_id = $2 AND is_deleted = false`,
+      [req.params.id, req.user.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Email not found' });
+    await pool.query('UPDATE email_storage SET is_read = true WHERE id = $1', [req.params.id]);
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Get specific message
-router.get('/messages/:id', webmailAuth, async (req, res) => {
+// POST /api/v1/webmail/send
+router.post('/send', webmailAuth, async (req, res) => {
+  const { to, subject, body_html, body_text, cc, bcc } = req.body;
+  if (!to || !subject) return res.status(400).json({ success: false, error: 'to and subject required' });
   try {
-    const message = {
-      id: req.params.id,
-      subject: 'Welcome to SSGhub Mail',
-      sender: 'admin@ssghub.com',
-      recipients: [req.user.email],
-      body_text: 'Welcome to your new email account!',
-      body_html: '<p>Welcome to your new email account!</p>',
-      received_at: new Date().toISOString(),
-      flags: ['\\\\Seen']
-    };
+    const userResult = await pool.query(
+      'SELECT first_name, last_name, email FROM tenant_users WHERE id = $1',
+      [req.user.id]
+    );
+    const sender = userResult.rows[0];
+    const fromEmail = sender?.email || req.user.email;
+    const fromName = sender ? `${sender.first_name} ${sender.last_name}` : fromEmail;
 
-    res.json({
-      success: true,
-      data: message
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || 'email-smtp.ap-south-1.amazonaws.com',
+      port: parseInt(process.env.SMTP_PORT) || 587,
+      secure: false,
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
     });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
+    await transporter.sendMail({
+      from: `"${fromName}" <${fromEmail}>`,
+      to, cc, bcc, subject,
+      html: body_html || body_text,
+      text: body_text || body_html
     });
+
+    await pool.query(
+      `INSERT INTO email_storage (user_id, tenant_id, folder, subject, from_email, from_name, to_email, body_html, body_text, is_read, received_at)
+       VALUES ($1, $2, 'Sent', $3, $4, $5, $6, $7, $8, true, NOW())`,
+      [req.user.id, req.user.tenant_id, subject, fromEmail, fromName, to, body_html || '', body_text || '']
+    );
+    res.json({ success: true, message: 'Email sent successfully' });
+  } catch (err) {
+    console.error('Send email error:', err);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
-// Send message
-router.post('/messages/send', webmailAuth, async (req, res) => {
+// PATCH /api/v1/webmail/email/:id/read
+router.patch('/email/:id/read', webmailAuth, async (req, res) => {
   try {
-    const { to, subject, body } = req.body;
-    
-    // In production, integrate with mail server
-    console.log(`Sending email from ${req.user.email} to ${to}: ${subject}`);
-    
-    res.json({
-      success: true,
-      message: 'Email sent successfully'
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message
-    });
+    await pool.query(
+      'UPDATE email_storage SET is_read = $1 WHERE id = $2 AND user_id = $3',
+      [req.body.is_read !== false, req.params.id, req.user.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PATCH /api/v1/webmail/email/:id/star
+router.patch('/email/:id/star', webmailAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      'UPDATE email_storage SET is_starred = NOT is_starred WHERE id = $1 AND user_id = $2 RETURNING is_starred',
+      [req.params.id, req.user.id]
+    );
+    res.json({ success: true, is_starred: result.rows[0]?.is_starred });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PATCH /api/v1/webmail/email/:id/move
+router.patch('/email/:id/move', webmailAuth, async (req, res) => {
+  try {
+    await pool.query(
+      'UPDATE email_storage SET folder = $1 WHERE id = $2 AND user_id = $3',
+      [req.body.folder, req.params.id, req.user.id]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /api/v1/webmail/email/:id
+router.delete('/email/:id', webmailAuth, async (req, res) => {
+  try {
+    const email = await pool.query(
+      'SELECT folder FROM email_storage WHERE id = $1 AND user_id = $2',
+      [req.params.id, req.user.id]
+    );
+    if (!email.rows.length) return res.status(404).json({ success: false, error: 'Not found' });
+    if (email.rows[0].folder === 'Trash') {
+      await pool.query('UPDATE email_storage SET is_deleted = true WHERE id = $1', [req.params.id]);
+    } else {
+      await pool.query('UPDATE email_storage SET folder = $1 WHERE id = $2', ['Trash', req.params.id]);
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/v1/webmail/folders/counts
+router.get('/folders/counts', webmailAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT folder, COUNT(*) as total, COUNT(*) FILTER (WHERE is_read = false) as unread
+       FROM email_storage
+       WHERE user_id = $1 AND is_deleted = false
+       GROUP BY folder`,
+      [req.user.id]
+    );
+    const counts = {};
+    result.rows.forEach(r => { counts[r.folder] = { total: parseInt(r.total), unread: parseInt(r.unread) }; });
+    res.json({ success: true, data: counts });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// GET /api/v1/webmail/profile
+router.get('/profile', webmailAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT tu.id, tu.email, tu.first_name, tu.last_name, tu.role, tc.company_name, tc.domain
+       FROM tenant_users tu JOIN tenant_companies tc ON tc.id = tu.tenant_id
+       WHERE tu.id = $1`,
+      [req.user.id]
+    );
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 

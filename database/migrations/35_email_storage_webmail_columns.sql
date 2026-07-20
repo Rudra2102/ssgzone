@@ -1,0 +1,15 @@
+ALTER TABLE email_storage
+  ADD COLUMN IF NOT EXISTS body_html TEXT,
+  ADD COLUMN IF NOT EXISTS body_text TEXT,
+  ADD COLUMN IF NOT EXISTS from_name VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS to_email VARCHAR(500),
+  ADD COLUMN IF NOT EXISTS cc_email VARCHAR(500),
+  ADD COLUMN IF NOT EXISTS bcc_email VARCHAR(500),
+  ADD COLUMN IF NOT EXISTS is_starred BOOLEAN DEFAULT false,
+  ADD COLUMN IF NOT EXISTS has_attachments BOOLEAN DEFAULT false,
+  ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false,
+  ADD COLUMN IF NOT EXISTS folder VARCHAR(50) DEFAULT 'INBOX',
+  ADD COLUMN IF NOT EXISTS preview TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_email_storage_user_folder ON email_storage(user_id, folder);
+CREATE INDEX IF NOT EXISTS idx_email_storage_received ON email_storage(received_at DESC);
