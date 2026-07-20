@@ -210,4 +210,87 @@ router.post('/sso/generate', async (req, res) => {
   }
 });
 
+// GET /api/saas-admin/webhook/config
+router.get('/webhook/config', saasAdminAuth, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM saas_webhook_configs WHERE saas_id = $1', [req.decoded.saas_id]);
+    res.json({ success: true, data: result.rows[0] || null });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/saas-admin/webhook/config
+router.post('/webhook/config', saasAdminAuth, async (req, res) => {
+  const { url, events, is_active } = req.body;
+  if (!url) return res.status(400).json({ success: false, error: 'url required' });
+  const secret = require('crypto').randomBytes(20).toString('hex');
+  try {
+    const result = await pool.query(
+      `INSERT INTO saas_webhook_configs (saas_id, url, events, secret, is_active)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (saas_id) DO UPDATE SET url=$2, events=$3, is_active=$5, updated_at=NOW()
+       RETURNING *`,
+      [req.decoded.saas_id, url, events || ['email.received','email.sent','user.created'], secret, is_active !== false]
+    );
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/saas-admin/webhook/test
+router.post('/webhook/test', saasAdminAuth, async (req, res) => {
+  try {
+    const cfg = await pool.query('SELECT * FROM saas_webhook_configs WHERE saas_id = $1', [req.decoded.saas_id]);
+    if (!cfg.rows.length) return res.status(404).json({ success: false, error: 'No webhook configured' });
+    const { url, secret } = cfg.rows[0];
+    const payload = JSON.stringify({ event: 'webhook.test', saas_id: req.decoded.saas_id, timestamp: new Date().toISOString() });
+    const sig = require('crypto').createHmac('sha256', secret).update(payload).digest('hex');
+    const https = require('https');
+    const http = require('http');
+    const parsedUrl = new URL(url);
+    const lib = parsedUrl.protocol === 'https:' ? https : http;
+    const options = {
+      hostname: parsedUrl.hostname, port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
+      path: parsedUrl.pathname + parsedUrl.search, method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-SSGzone-Signature': sig, 'Content-Length': Buffer.byteLength(payload) },
+      timeout: 5000
+    };
+    const startTime = Date.now();
+    const pingReq = lib.request(options, (pingRes) => {
+      const duration = Date.now() - startTime;
+      res.json({ success: true, data: { status_code: pingRes.statusCode, duration_ms: duration, url } });
+    });
+    pingReq.on('error', (e) => res.json({ success: false, error: e.message }));
+    pingReq.on('timeout', () => { pingReq.destroy(); res.json({ success: false, error: 'Timeout after 5s' }); });
+    pingReq.write(payload);
+    pingReq.end();
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// GET /api/saas-admin/api-logs
+router.get('/api-logs', saasAdminAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT method, endpoint, status_code, duration_ms, ip_address, created_at
+       FROM saas_api_logs WHERE saas_id = $1
+       ORDER BY created_at DESC LIMIT 50`,
+      [req.decoded.saas_id]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/saas-admin/keys/regenerate
+router.post('/keys/regenerate', saasAdminAuth, async (req, res) => {
+  const crypto = require('crypto');
+  const newKey = 'sk_' + crypto.randomBytes(24).toString('hex');
+  const newSecret = crypto.randomBytes(32).toString('hex');
+  try {
+    const result = await pool.query(
+      `UPDATE saas_applications SET api_key=$1, api_secret=$2, updated_at=NOW() WHERE id=$3 RETURNING api_key, api_secret`,
+      [newKey, newSecret, req.decoded.saas_id]
+    );
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 module.exports = router;
+
