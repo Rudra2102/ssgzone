@@ -2,6 +2,8 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 const nodemailer = require('nodemailer');
+const { checkAndSendAutoResponse } = require('./autoresponder');
+const { applyRulesToEmail } = require('./rules');
 
 const router = express.Router();
 const pool = new Pool({
@@ -146,6 +148,23 @@ router.post('/send', webmailAuth, async (req, res) => {
        VALUES ($1, $2, $3, $4, $5, $6, 'sent', true, $7)`,
       [String(req.user.tenant_id), fromEmail, to, subject, html_content || '', text_content || '', require('crypto').randomBytes(32).toString('hex')]
     );
+
+    // Save to recipient inbox and apply rules + autoresponder
+    const recipientResult = await pool.query(
+      `SELECT tu.id, tu.tenant_id FROM tenant_users tu WHERE tu.email=$1 AND tu.status='active' LIMIT 1`,
+      [to]
+    );
+    if (recipientResult.rows.length) {
+      const recipient = recipientResult.rows[0];
+      const inboxInsert = await pool.query(
+        `INSERT INTO emails (tenant_id, from_email, to_email, subject, html_content, text_content, folder, read_status, tracking_token)
+         VALUES ($1, $2, $3, $4, $5, $6, 'inbox', false, $7) RETURNING id`,
+        [String(recipient.tenant_id), fromEmail, to, subject, html_content || '', text_content || '', require('crypto').randomBytes(32).toString('hex')]
+      );
+      const inboxEmailId = inboxInsert.rows[0].id;
+      await applyRulesToEmail(inboxEmailId, to, recipient.tenant_id, fromEmail, subject, text_content || '', pool);
+      await checkAndSendAutoResponse(recipient.id, to, fromEmail, recipient.tenant_id);
+    }
 
     res.json({ success: true, message: 'Email sent successfully' });
   } catch (err) {
