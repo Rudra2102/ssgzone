@@ -48,6 +48,16 @@ function TenantAdminDashboard() {
   
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const token = localStorage.getItem('tenant_admin_token');
+
+  // Parse permissions from JWT
+  const getJwtPermissions = () => {
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      return payload.permissions || {};
+    } catch { return {}; }
+  };
+  const jwtPerms = getJwtPermissions();
+  const canUse = (feature) => jwtPerms[feature] !== false;
   
   useEffect(() => {
     fetchDashboardData();
@@ -470,8 +480,8 @@ function TenantAdminDashboard() {
             <Tabs value={activeTab} onChange={(e, newValue) => setActiveTab(newValue)}>
               <Tab label="Employee Management" />
               <Tab label="Departments" />
-              <Tab label="Communication Settings" />
-              <Tab label="Analytics" />
+              {canUse('email') && <Tab label="Communication Settings" />}
+              {canUse('analytics') && <Tab label="Analytics" />}
             </Tabs>
           </Box>
 

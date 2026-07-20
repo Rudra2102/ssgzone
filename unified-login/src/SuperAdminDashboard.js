@@ -272,6 +272,7 @@ function SuperAdminDashboard() {
       { id: 'tenants', label: 'Tenants', icon: '🏢' },
       { id: 'users', label: 'Users', icon: '👥' },
       { id: 'mailboxes', label: 'Mailboxes', icon: '📬' },
+      { id: 'permissions', label: 'Feature Permissions', icon: '🔑' },
       { id: 'admins', label: 'Roles & Permissions', icon: '🛡' },
     ]},
     { section: 'ANALYTICS', items: [
@@ -2214,6 +2215,89 @@ function SuperAdminDashboard() {
     );
   };
 
+  const PermissionsSection = () => {
+    const [features, setFeatures] = useState([]);
+    const [selectedSaas, setSelectedSaas] = useState('');
+    const [saasPerms, setSaasPerms] = useState({});
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+      fetch('https://api.ssgzone.in/api/v1/permissions/features')
+        .then(r => r.json()).then(d => d.success && setFeatures(d.data));
+    }, []);
+
+    useEffect(() => {
+      if (!selectedSaas) return;
+      fetch(`https://api.ssgzone.in/api/v1/permissions/saas/${selectedSaas}`, { headers: authHeaders })
+        .then(r => r.json()).then(d => {
+          if (d.success) {
+            const map = {};
+            d.data.forEach(f => { map[f.feature_key] = f.is_enabled; });
+            setSaasPerms(map);
+          }
+        });
+    }, [selectedSaas]);
+
+    const save = async () => {
+      setSaving(true);
+      const res = await fetch(`https://api.ssgzone.in/api/v1/permissions/saas/${selectedSaas}`, {
+        method: 'PUT',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ permissions: saasPerms })
+      });
+      const data = await res.json();
+      setSaving(false);
+      if (data.success) alert('✅ Permissions saved!');
+      else alert(data.error);
+    };
+
+    const categories = [...new Set(features.map(f => f.category))];
+
+    return (
+      <div>
+        <div style={{ fontSize: 22, fontWeight: 700, color: colors.text, marginBottom: 4 }}>Feature Permissions</div>
+        <div style={{ fontSize: 13, color: colors.textMuted, marginBottom: 20 }}>Control which features each SaaS application can access</div>
+        <div style={{ display: 'flex', gap: 12, marginBottom: 24, alignItems: 'center' }}>
+          <select value={selectedSaas} onChange={e => setSelectedSaas(e.target.value)}
+            style={{ padding: '10px 14px', border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 13, color: colors.text, background: colors.card, outline: 'none', minWidth: 240 }}>
+            <option value="">— Select SaaS Application —</option>
+            {saasApps.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+          {selectedSaas && (
+            <button onClick={save} disabled={saving}
+              style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: saving ? 0.7 : 1 }}>
+              {saving ? 'Saving...' : 'Save Permissions'}
+            </button>
+          )}
+        </div>
+        {selectedSaas && categories.map(cat => (
+          <div key={cat} style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 20, marginBottom: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: colors.textMuted, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>{cat}</div>
+            {features.filter(f => f.category === cat).map(f => (
+              <div key={f.feature_key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: `1px solid ${colors.border}` }}>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>{f.feature_name}</div>
+                  <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: 'monospace' }}>{f.feature_key}</div>
+                </div>
+                <div onClick={() => setSaasPerms(p => ({ ...p, [f.feature_key]: !p[f.feature_key] }))}
+                  style={{ width: 44, height: 24, borderRadius: 12, background: saasPerms[f.feature_key] ? colors.success : colors.border, cursor: 'pointer', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}>
+                  <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: saasPerms[f.feature_key] ? 23 : 3, transition: 'left 0.2s' }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
+        {!selectedSaas && (
+          <div style={{ textAlign: 'center', padding: 60, color: colors.textMuted }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>🔑</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: colors.text }}>Select a SaaS Application</div>
+            <div style={{ fontSize: 13, marginTop: 4 }}>Choose an application above to manage its feature permissions</div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderContent = () => {
     switch (activeSection) {
       case 'dashboard':
@@ -2265,6 +2349,7 @@ function SuperAdminDashboard() {
       case 'email': return <EmailSection />;
       case 'compose': return <ComposeSection />;
       case 'templates': return <TemplatesSection />;
+      case 'permissions': return <PermissionsSection />;
       case 'admins': return <AdminsSection />;
       case 'settings': return <SettingsSection />;
       case 'mailboxes': return <MailboxSection />;
