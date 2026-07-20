@@ -57,35 +57,42 @@ router.post('/auth/login', async (req, res) => {
   }
 });
 
-// GET /api/v1/webmail/inbox?folder=INBOX&page=1&limit=25&search=
+// GET /api/v1/webmail/inbox?folder=inbox&page=1&limit=25&search=
 router.get('/inbox', webmailAuth, async (req, res) => {
-  const { folder = 'INBOX', page = 1, limit = 25, search = '' } = req.query;
+  const { folder = 'inbox', page = 1, limit = 25, search = '' } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(limit);
-  const userId = req.user.id;
+  const userEmail = req.user.email;
+  const tenantId = String(req.user.tenant_id);
+
   try {
-    let whereClause = `WHERE es.user_id = $1 AND es.folder = $2 AND es.is_deleted = false`;
-    const params = [userId, folder];
+    let where = `WHERE to_email = $1 AND tenant_id = $2 AND folder = $3 AND archived = false`;
+    const params = [userEmail, tenantId, folder];
+
     if (search) {
       params.push(`%${search}%`);
-      whereClause += ` AND (es.subject ILIKE $${params.length} OR es.from_email ILIKE $${params.length} OR es.body_text ILIKE $${params.length})`;
+      where += ` AND (subject ILIKE $${params.length} OR from_email ILIKE $${params.length} OR text_content ILIKE $${params.length})`;
     }
-    const countResult = await pool.query(`SELECT COUNT(*) FROM email_storage es ${whereClause}`, params);
+
+    const countResult = await pool.query(`SELECT COUNT(*) FROM emails ${where}`, params);
     const total = parseInt(countResult.rows[0].count);
+
     params.push(parseInt(limit), offset);
     const result = await pool.query(
-      `SELECT es.id, es.subject, es.from_email, es.from_name, es.to_email,
-              es.is_read, es.is_starred, es.has_attachments, es.received_at, es.folder,
-              LEFT(es.body_text, 120) as preview
-       FROM email_storage es
-       ${whereClause}
-       ORDER BY es.received_at DESC
+      `SELECT id, subject, from_email, to_email, read_status, starred,
+              folder, created_at, attachments,
+              LEFT(text_content, 120) as preview
+       FROM emails
+       ${where}
+       ORDER BY created_at DESC
        LIMIT $${params.length - 1} OFFSET $${params.length}`,
       params
     );
+
     const unread = await pool.query(
-      `SELECT COUNT(*) FROM email_storage WHERE user_id = $1 AND folder = 'INBOX' AND is_read = false AND is_deleted = false`,
-      [userId]
+      `SELECT COUNT(*) FROM emails WHERE to_email = $1 AND tenant_id = $2 AND folder = 'inbox' AND read_status = false AND archived = false`,
+      [userEmail, tenantId]
     );
+
     res.json({ success: true, data: result.rows, total, unread: parseInt(unread.rows[0].count), page: parseInt(page) });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -96,11 +103,11 @@ router.get('/inbox', webmailAuth, async (req, res) => {
 router.get('/email/:id', webmailAuth, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT * FROM email_storage WHERE id = $1 AND user_id = $2 AND is_deleted = false`,
-      [req.params.id, req.user.id]
+      `SELECT * FROM emails WHERE id = $1 AND to_email = $2 AND archived = false`,
+      [req.params.id, req.user.email]
     );
     if (!result.rows.length) return res.status(404).json({ success: false, error: 'Email not found' });
-    await pool.query('UPDATE email_storage SET is_read = true WHERE id = $1', [req.params.id]);
+    await pool.query('UPDATE emails SET read_status = true WHERE id = $1', [req.params.id]);
     res.json({ success: true, data: result.rows[0] });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -109,7 +116,7 @@ router.get('/email/:id', webmailAuth, async (req, res) => {
 
 // POST /api/v1/webmail/send
 router.post('/send', webmailAuth, async (req, res) => {
-  const { to, subject, body_html, body_text, cc, bcc } = req.body;
+  const { to, subject, html_content, text_content, cc, bcc } = req.body;
   if (!to || !subject) return res.status(400).json({ success: false, error: 'to and subject required' });
   try {
     const userResult = await pool.query(
@@ -129,15 +136,17 @@ router.post('/send', webmailAuth, async (req, res) => {
     await transporter.sendMail({
       from: `"${fromName}" <${fromEmail}>`,
       to, cc, bcc, subject,
-      html: body_html || body_text,
-      text: body_text || body_html
+      html: html_content || text_content,
+      text: text_content || html_content
     });
 
+    // Save to sent folder
     await pool.query(
-      `INSERT INTO email_storage (user_id, tenant_id, folder, subject, from_email, from_name, to_email, body_html, body_text, is_read, received_at)
-       VALUES ($1, $2, 'Sent', $3, $4, $5, $6, $7, $8, true, NOW())`,
-      [req.user.id, req.user.tenant_id, subject, fromEmail, fromName, to, body_html || '', body_text || '']
+      `INSERT INTO emails (tenant_id, from_email, to_email, subject, html_content, text_content, folder, read_status)
+       VALUES ($1, $2, $3, $4, $5, $6, 'sent', true)`,
+      [String(req.user.tenant_id), fromEmail, to, subject, html_content || '', text_content || '']
     );
+
     res.json({ success: true, message: 'Email sent successfully' });
   } catch (err) {
     console.error('Send email error:', err);
@@ -149,8 +158,8 @@ router.post('/send', webmailAuth, async (req, res) => {
 router.patch('/email/:id/read', webmailAuth, async (req, res) => {
   try {
     await pool.query(
-      'UPDATE email_storage SET is_read = $1 WHERE id = $2 AND user_id = $3',
-      [req.body.is_read !== false, req.params.id, req.user.id]
+      'UPDATE emails SET read_status = $1 WHERE id = $2 AND to_email = $3',
+      [req.body.is_read !== false, req.params.id, req.user.email]
     );
     res.json({ success: true });
   } catch (err) {
@@ -162,10 +171,10 @@ router.patch('/email/:id/read', webmailAuth, async (req, res) => {
 router.patch('/email/:id/star', webmailAuth, async (req, res) => {
   try {
     const result = await pool.query(
-      'UPDATE email_storage SET is_starred = NOT is_starred WHERE id = $1 AND user_id = $2 RETURNING is_starred',
-      [req.params.id, req.user.id]
+      'UPDATE emails SET starred = NOT starred WHERE id = $1 AND to_email = $2 RETURNING starred',
+      [req.params.id, req.user.email]
     );
-    res.json({ success: true, is_starred: result.rows[0]?.is_starred });
+    res.json({ success: true, is_starred: result.rows[0]?.starred });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -175,8 +184,8 @@ router.patch('/email/:id/star', webmailAuth, async (req, res) => {
 router.patch('/email/:id/move', webmailAuth, async (req, res) => {
   try {
     await pool.query(
-      'UPDATE email_storage SET folder = $1 WHERE id = $2 AND user_id = $3',
-      [req.body.folder, req.params.id, req.user.id]
+      'UPDATE emails SET folder = $1 WHERE id = $2 AND to_email = $3',
+      [req.body.folder, req.params.id, req.user.email]
     );
     res.json({ success: true });
   } catch (err) {
@@ -184,18 +193,18 @@ router.patch('/email/:id/move', webmailAuth, async (req, res) => {
   }
 });
 
-// DELETE /api/v1/webmail/email/:id
+// DELETE /api/v1/webmail/email/:id  (move to trash, or archive if already trash)
 router.delete('/email/:id', webmailAuth, async (req, res) => {
   try {
     const email = await pool.query(
-      'SELECT folder FROM email_storage WHERE id = $1 AND user_id = $2',
-      [req.params.id, req.user.id]
+      'SELECT folder FROM emails WHERE id = $1 AND to_email = $2',
+      [req.params.id, req.user.email]
     );
     if (!email.rows.length) return res.status(404).json({ success: false, error: 'Not found' });
-    if (email.rows[0].folder === 'Trash') {
-      await pool.query('UPDATE email_storage SET is_deleted = true WHERE id = $1', [req.params.id]);
+    if (email.rows[0].folder === 'trash') {
+      await pool.query('UPDATE emails SET archived = true WHERE id = $1', [req.params.id]);
     } else {
-      await pool.query('UPDATE email_storage SET folder = $1 WHERE id = $2', ['Trash', req.params.id]);
+      await pool.query('UPDATE emails SET folder = $1 WHERE id = $2', ['trash', req.params.id]);
     }
     res.json({ success: true });
   } catch (err) {
@@ -207,11 +216,11 @@ router.delete('/email/:id', webmailAuth, async (req, res) => {
 router.get('/folders/counts', webmailAuth, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT folder, COUNT(*) as total, COUNT(*) FILTER (WHERE is_read = false) as unread
-       FROM email_storage
-       WHERE user_id = $1 AND is_deleted = false
+      `SELECT folder, COUNT(*) as total, COUNT(*) FILTER (WHERE read_status = false) as unread
+       FROM emails
+       WHERE to_email = $1 AND tenant_id = $2 AND archived = false
        GROUP BY folder`,
-      [req.user.id]
+      [req.user.email, String(req.user.tenant_id)]
     );
     const counts = {};
     result.rows.forEach(r => { counts[r.folder] = { total: parseInt(r.total), unread: parseInt(r.unread) }; });

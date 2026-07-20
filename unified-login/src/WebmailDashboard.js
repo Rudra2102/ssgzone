@@ -4,7 +4,7 @@ import ChatPanel from './ChatPanel';
 const API = 'https://api.ssgzone.in/api/v1/webmail';
 
 export default function WebmailDashboard() {
-  const [folder, setFolder] = useState('INBOX');
+  const [folder, setFolder] = useState('inbox');
   const [emails, setEmails] = useState([]);
   const [total, setTotal] = useState(0);
   const [unread, setUnread] = useState(0);
@@ -56,12 +56,12 @@ export default function WebmailDashboard() {
   };
 
   const openEmail = async (email) => {
-    if (!email.is_read) {
+    if (!email.read_status) {
       await fetch(`${API}/email/${email.id}/read`, {
         method: 'PATCH', headers: { ...auth, 'Content-Type': 'application/json' },
         body: JSON.stringify({ is_read: true })
       });
-      setEmails(prev => prev.map(e => e.id === email.id ? { ...e, is_read: true } : e));
+      setEmails(prev => prev.map(e => e.id === email.id ? { ...e, read_status: true } : e));
       setUnread(u => Math.max(0, u - 1));
     }
     const res = await fetch(`${API}/email/${email.id}`, { headers: auth });
@@ -73,7 +73,7 @@ export default function WebmailDashboard() {
     e.stopPropagation();
     const res = await fetch(`${API}/email/${emailId}/star`, { method: 'PATCH', headers: auth });
     const data = await res.json();
-    if (data.success) setEmails(prev => prev.map(em => em.id === emailId ? { ...em, is_starred: data.is_starred } : em));
+    if (data.success) setEmails(prev => prev.map(em => em.id === emailId ? { ...em, starred: data.is_starred } : em));
   };
 
   const deleteEmail = async (emailId) => {
@@ -90,14 +90,14 @@ export default function WebmailDashboard() {
       const res = await fetch(`${API}/send`, {
         method: 'POST',
         headers: { ...auth, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...compose, body_text: compose.body_html })
+        body: JSON.stringify({ to: compose.to, cc: compose.cc, subject: compose.subject, html_content: compose.body_html, text_content: compose.body_html })
       });
       const data = await res.json();
       if (data.success) {
         setComposeOpen(false);
         setCompose({ to: '', cc: '', subject: '', body_html: '' });
         alert('✅ Email sent!');
-        if (folder === 'Sent') fetchEmails();
+        if (folder === 'sent') fetchEmails();
         fetchFolderCounts();
       } else alert(data.error);
     } catch (err) { alert(err.message); }
@@ -114,12 +114,12 @@ export default function WebmailDashboard() {
   };
 
   const FOLDERS = [
-    { id: 'INBOX', label: 'Inbox', icon: '📥' },
-    { id: 'Sent', label: 'Sent', icon: '📤' },
-    { id: 'Drafts', label: 'Drafts', icon: '📝' },
-    { id: 'Starred', label: 'Starred', icon: '⭐' },
-    { id: 'Spam', label: 'Spam', icon: '⚠️' },
-    { id: 'Trash', label: 'Trash', icon: '🗑️' },
+    { id: 'inbox', label: 'Inbox', icon: '📥' },
+    { id: 'sent', label: 'Sent', icon: '📤' },
+    { id: 'drafts', label: 'Drafts', icon: '📝' },
+    { id: 'starred', label: 'Starred', icon: '⭐' },
+    { id: 'spam', label: 'Spam', icon: '⚠️' },
+    { id: 'trash', label: 'Trash', icon: '🗑️' },
   ];
 
   return (
@@ -227,17 +227,17 @@ export default function WebmailDashboard() {
                 )}
                 {emails.map(email => (
                   <div key={email.id} onClick={() => openEmail(email)}
-                    style={{ padding: '11px 13px', borderBottom: `1px solid ${c.border}`, cursor: 'pointer', background: selectedEmail?.id === email.id ? '#eff6ff' : email.is_read ? c.card : '#fafbff', borderLeft: selectedEmail?.id === email.id ? `3px solid ${c.primary}` : '3px solid transparent' }}>
+                    style={{ padding: '11px 13px', borderBottom: `1px solid ${c.border}`, cursor: 'pointer', background: selectedEmail?.id === email.id ? '#eff6ff' : email.read_status ? c.card : '#fafbff', borderLeft: selectedEmail?.id === email.id ? `3px solid ${c.primary}` : '3px solid transparent' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 2 }}>
-                      <div style={{ fontSize: 13, fontWeight: email.is_read ? 400 : 700, color: c.text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: 6 }}>
+                      <div style={{ fontSize: 13, fontWeight: email.read_status ? 400 : 700, color: c.text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: 6 }}>
                         {email.from_name || email.from_email}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                        <span onClick={e => toggleStar(e, email.id)} style={{ cursor: 'pointer', fontSize: 13, color: email.is_starred ? c.warning : c.border }}>★</span>
-                        <span style={{ fontSize: 10, color: c.textMuted }}>{new Date(email.received_at).toLocaleDateString()}</span>
+                        <span onClick={e => toggleStar(e, email.id)} style={{ cursor: 'pointer', fontSize: 13, color: email.starred ? c.warning : c.border }}>★</span>
+                        <span style={{ fontSize: 10, color: c.textMuted }}>{new Date(email.created_at).toLocaleDateString()}</span>
                       </div>
                     </div>
-                    <div style={{ fontSize: 12, fontWeight: email.is_read ? 400 : 600, color: email.is_read ? c.textMuted : c.text, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontSize: 12, fontWeight: email.read_status ? 400 : 600, color: email.read_status ? c.textMuted : c.text, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {email.subject || '(no subject)'}
                     </div>
                     <div style={{ fontSize: 11, color: c.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -289,15 +289,15 @@ export default function WebmailDashboard() {
                         <div style={{ fontSize: 14, fontWeight: 600, color: c.text }}>{selectedEmail.from_name || selectedEmail.from_email}</div>
                         <div style={{ fontSize: 12, color: c.textMuted }}>{selectedEmail.from_email}</div>
                         <div style={{ fontSize: 11, color: c.textMuted, marginTop: 2 }}>
-                          To: {selectedEmail.to_email} · {new Date(selectedEmail.received_at).toLocaleString()}
+                          To: {selectedEmail.to_email} · {new Date(selectedEmail.created_at).toLocaleString()}
                         </div>
                       </div>
                     </div>
                     {/* Body */}
                     <div style={{ fontSize: 14, color: c.text, lineHeight: 1.7 }}>
-                      {selectedEmail.body_html
-                        ? <div dangerouslySetInnerHTML={{ __html: selectedEmail.body_html }} />
-                        : <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{selectedEmail.body_text || '(empty)'}</pre>
+                      {selectedEmail.html_content
+                        ? <div dangerouslySetInnerHTML={{ __html: selectedEmail.html_content }} />
+                        : <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{selectedEmail.text_content || '(empty)'}</pre>
                       }
                     </div>
                   </div>
