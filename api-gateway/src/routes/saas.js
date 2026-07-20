@@ -488,37 +488,34 @@ router.post('/sso/generate', saasAuth, async (req, res) => {
 router.post('/sso/verify', async (req, res) => {
   try {
     const { token } = req.body;
-    if (!token) {
-      return res.status(400).json({ success: false, error: 'token required' });
-    }
-    const jwt = require('jsonwebtoken');
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'webmail-secret');
-    if (!decoded.sso) {
-      return res.status(401).json({ success: false, error: 'Invalid SSO token' });
-    }
+    if (!token) return res.status(400).json({ success: false, error: 'token required' });
 
-    // Get user details
-    const userResult = await db.query(
-      'SELECT id, email, first_name, last_name, role FROM tenant_users WHERE id = $1 AND status = $2',
-      [decoded.userId, 'active']
+    const result = await db.query(
+      `SELECT st.*, tu.email, tu.first_name, tu.last_name, tu.role,
+              tc.saas_app_id, tc.company_slug
+       FROM sso_tokens st
+       JOIN tenant_users tu ON tu.id = st.user_id
+       JOIN tenant_companies tc ON tc.id = st.tenant_id
+       WHERE st.token = $1 AND st.used_at IS NULL AND st.expires_at > NOW()`,
+      [token]
     );
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'User not found' });
-    }
-    const user = userResult.rows[0];
 
-    // Generate a full webmail session token
+    if (!result.rows.length) return res.status(401).json({ success: false, error: 'Invalid or expired SSO token' });
+
+    const row = result.rows[0];
+    await db.query('UPDATE sso_tokens SET used_at = NOW() WHERE token = $1', [token]);
+
     const sessionToken = jwt.sign(
-      { userId: user.id, email: user.email, tenantId: decoded.tenantId },
-      process.env.JWT_SECRET || 'webmail-secret',
-      { expiresIn: '24h' }
+      { type: 'user', id: row.user_id, tenant_id: row.tenant_id, saas_id: row.saas_app_id, email: row.email, role: row.role },
+      process.env.JWT_SECRET || 'super-admin-secret',
+      { expiresIn: '8h' }
     );
 
     res.json({
       success: true,
       data: {
         token: sessionToken,
-        user: { id: user.id, email: user.email, full_name: `${user.first_name} ${user.last_name}`, role: user.role }
+        user: { id: row.user_id, email: row.email, full_name: `${row.first_name} ${row.last_name}`, role: row.role, tenant_id: row.tenant_id, saas_id: row.saas_app_id, type: 'user' }
       }
     });
   } catch (error) {

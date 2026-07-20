@@ -44,15 +44,12 @@ router.post('/auth/login', async (req, res) => {
     // Update last login
     await db.query('UPDATE tenant_users SET last_login = NOW() WHERE id = $1', [user.id]);
     
+    const saasRow = await db.query('SELECT saas_app_id FROM tenant_companies WHERE id = $1', [user.tenant_id]);
+    const saasId = saasRow.rows[0]?.saas_app_id;
+
     const token = jwt.sign(
-      { 
-        type: 'tenant_admin', 
-        adminId: user.id, 
-        tenantId: user.tenant_id, 
-        username: user.username,
-        role: user.role
-      },
-      process.env.JWT_SECRET || 'tenant-admin-secret',
+      { type: 'tenant_admin', id: user.id, adminId: user.id, tenant_id: user.tenant_id, tenantId: user.tenant_id, saas_id: saasId, username: user.username, role: user.role },
+      process.env.JWT_SECRET || 'super-admin-secret',
       { expiresIn: '8h' }
     );
     

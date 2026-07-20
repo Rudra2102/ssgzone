@@ -71,6 +71,7 @@ function UnifiedLogin() {
       // Try all login endpoints to detect user role
       const endpoints = [
         { type: 'super_admin', endpoint: 'https://api.ssgzone.in/api/v1/super-admin/auth/login', tokenKey: 'super_admin_token' },
+        { type: 'saas_admin', endpoint: 'https://api.ssgzone.in/api/saas-admin/login', tokenKey: 'saas_admin_token' },
         { type: 'tenant_admin', endpoint: 'https://api.ssgzone.in/api/v1/tenant-admin/auth/login', tokenKey: 'tenant_admin_token' },
         { type: 'user', endpoint: 'https://api.ssgzone.in/api/v1/webmail/auth/login', tokenKey: 'webmail_token' }
       ];
@@ -96,6 +97,10 @@ function UnifiedLogin() {
               localStorage.setItem('user_role', 'super_admin');
               localStorage.setItem('user_data', JSON.stringify(data.data.admin));
               window.location.href = '/dashboard/super-admin';
+            } else if (config.type === 'saas_admin') {
+              localStorage.setItem('user_role', 'saas_admin');
+              localStorage.setItem('user_data', JSON.stringify(data.data.admin));
+              window.location.href = '/dashboard/saas-admin';
             } else if (config.type === 'tenant_admin') {
               localStorage.setItem('user_role', 'tenant_admin');
               localStorage.setItem('user_data', JSON.stringify(data.data.admin));

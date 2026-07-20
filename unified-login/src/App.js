@@ -6,6 +6,7 @@ import UnifiedLogin from './UnifiedLogin';
 import SuperAdminDashboard from './SuperAdminDashboard';
 import TenantAdminDashboard from './TenantAdminDashboard';
 import WebmailDashboard from './WebmailDashboard';
+import SaasAdminDashboard from './SaasAdminDashboard';
 
 const theme = createTheme({
   palette: {
@@ -25,6 +26,7 @@ function App() {
         <Routes>
           <Route path="/" element={<UnifiedLogin />} />
           <Route path="/dashboard/super-admin" element={<SuperAdminDashboard />} />
+          <Route path="/dashboard/saas-admin" element={<SaasAdminDashboard />} />
           <Route path="/dashboard/tenant-admin" element={<TenantAdminDashboard />} />
           <Route path="/dashboard/webmail" element={<WebmailDashboard />} />
         </Routes>
