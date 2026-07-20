@@ -45,6 +45,7 @@ function TenantAdminDashboard() {
     whatsapp_enabled: false,
     notifications_enabled: true
   });
+  const [autoresponders, setAutoresponders] = useState([]);
   
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const token = localStorage.getItem('tenant_admin_token');
@@ -482,6 +483,7 @@ function TenantAdminDashboard() {
               <Tab label="Departments" />
               {canUse('email') && <Tab label="Communication Settings" />}
               {canUse('analytics') && <Tab label="Analytics" />}
+              {canUse('email') && <Tab label="Out of Office" />}
             </Tabs>
           </Box>
 
@@ -727,6 +729,46 @@ function TenantAdminDashboard() {
                   </Card>
                 </Grid>
               </Grid>
+            </CardContent>
+          </TabPanel>
+
+          {/* Out of Office Tab */}
+          <TabPanel value={activeTab} index={4}>
+            <CardContent>
+              <Typography variant="h6" sx={{ mb: 3 }}>Team Out-of-Office Status</Typography>
+              {autoresponders.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">No active autoresponders in your team</Typography>
+              ) : (
+                <TableContainer component={Paper} variant="outlined">
+                  <Table>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Employee</TableCell>
+                        <TableCell>Subject</TableCell>
+                        <TableCell>Active Until</TableCell>
+                        <TableCell>Status</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {autoresponders.map((ar) => (
+                        <TableRow key={ar.id}>
+                          <TableCell>
+                            <Box>
+                              <Typography variant="body2" fontWeight={600}>{ar.first_name} {ar.last_name}</Typography>
+                              <Typography variant="caption" color="text.secondary">{ar.user_email}</Typography>
+                            </Box>
+                          </TableCell>
+                          <TableCell>{ar.subject}</TableCell>
+                          <TableCell>{ar.end_date ? new Date(ar.end_date).toLocaleDateString() : 'Indefinite'}</TableCell>
+                          <TableCell>
+                            <Chip label={ar.is_active ? 'Active' : 'Inactive'} color={ar.is_active ? 'success' : 'default'} size="small" />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
             </CardContent>
           </TabPanel>
         </Card>

@@ -31,6 +31,11 @@ export default function WebmailDashboard() {
   const [tplForm, setTplForm] = useState({ name: '', subject: '', html_body: '', category: 'general' });
   const [tplPreview, setTplPreview] = useState(false);
   const [tplSaving, setTplSaving] = useState(false);
+  const [ooo, setOoo] = useState(null);
+  const [oooLoading, setOooLoading] = useState(false);
+  const [oooForm, setOooForm] = useState({ subject: 'Out of Office', message: '', start_date: '', end_date: '', is_active: true });
+  const [oooSaving, setOooSaving] = useState(false);
+  const [oooEditing, setOooEditing] = useState(false);
 
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const token = localStorage.getItem('webmail_token');
@@ -108,6 +113,58 @@ export default function WebmailDashboard() {
       } else alert(data.error);
     } catch (err) { alert(err.message); }
     setTplSaving(false);
+  };
+
+  const fetchOoo = async () => {
+    setOooLoading(true);
+    try {
+      const res = await fetch('https://api.ssgzone.in/api/v1/autoresponder', { headers: auth });
+      const data = await res.json();
+      if (data.success) {
+        setOoo(data.data);
+        if (data.data) setOooForm({
+          subject: data.data.subject,
+          message: data.data.message,
+          start_date: data.data.start_date ? data.data.start_date.slice(0,16) : '',
+          end_date: data.data.end_date ? data.data.end_date.slice(0,16) : '',
+          is_active: data.data.is_active
+        });
+      }
+    } catch {}
+    setOooLoading(false);
+  };
+
+  const saveOoo = async () => {
+    if (!oooForm.message) return alert('Message required');
+    setOooSaving(true);
+    try {
+      const res = await fetch('https://api.ssgzone.in/api/v1/autoresponder', {
+        method: 'POST',
+        headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify(oooForm)
+      });
+      const data = await res.json();
+      if (data.success) { setOoo(data.data); setOooEditing(false); }
+      else alert(data.error);
+    } catch (err) { alert(err.message); }
+    setOooSaving(false);
+  };
+
+  const toggleOoo = async () => {
+    try {
+      const res = await fetch('https://api.ssgzone.in/api/v1/autoresponder/toggle', { method: 'PATCH', headers: auth });
+      const data = await res.json();
+      if (data.success) setOoo(data.data);
+      else alert(data.error);
+    } catch (err) { alert(err.message); }
+  };
+
+  const deleteOoo = async () => {
+    if (!window.confirm('Remove autoresponder?')) return;
+    await fetch('https://api.ssgzone.in/api/v1/autoresponder', { method: 'DELETE', headers: auth });
+    setOoo(null);
+    setOooForm({ subject: 'Out of Office', message: '', start_date: '', end_date: '', is_active: true });
+    setOooEditing(false);
   };
 
   const deleteTemplate = async (id) => {
@@ -275,6 +332,17 @@ export default function WebmailDashboard() {
           </div>
           <div onClick={() => { setActiveNav('templates'); fetchTemplates(); }}
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', background: activeNav === 'templates' ? c.primaryLight : 'transparent', color: activeNav === 'templates' ? c.primary : c.text, fontWeight: activeNav === 'templates' ? 600 : 400, fontSize: 13, justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
+
+            <span style={{ fontSize: 14 }}>📋</span>
+            {!sidebarCollapsed && <span>Templates</span>}
+
+          </div>
+
+          <div onClick={() => { setActiveNav('ooo'); fetchOoo(); }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', background: activeNav === 'ooo' ? c.primaryLight : 'transparent', color: activeNav === 'ooo' ? c.primary : c.text, fontWeight: activeNav === 'ooo' ? 600 : 400, fontSize: 13, justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
+            <span style={{ fontSize: 14 }}>🏖</span>
+            {!sidebarCollapsed && <span>Out of Office</span>}
+          </div>
             <span style={{ fontSize: 14 }}>📋</span>
             {!sidebarCollapsed && <span>Templates</span>}
           </div>
@@ -397,6 +465,106 @@ export default function WebmailDashboard() {
                 </div>
               );
             })()}
+          </div>
+        ) : activeNav === 'ooo' ? (
+          <div style={{ flex: 1, overflowY: 'auto', padding: 24, maxWidth: 640 }}>
+            <div style={{ fontSize: 20, fontWeight: 700, color: c.text, marginBottom: 4 }}>Out of Office</div>
+            <div style={{ fontSize: 13, color: c.textMuted, marginBottom: 24 }}>Automatically reply to incoming emails when you're away</div>
+
+            {oooLoading && <div style={{ color: c.textMuted, fontSize: 13 }}>Loading...</div>}
+
+            {!oooLoading && !ooo && !oooEditing && (
+              <div style={{ textAlign: 'center', padding: '60px 0' }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>🏖</div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: c.text, marginBottom: 6 }}>No autoresponder set</div>
+                <div style={{ fontSize: 13, color: c.textMuted, marginBottom: 20 }}>Set up an out-of-office reply for when you're away</div>
+                <button onClick={() => setOooEditing(true)}
+                  style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 24px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                  + Set Up Autoresponder
+                </button>
+              </div>
+            )}
+
+            {!oooLoading && ooo && !oooEditing && (
+              <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: 24 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+                  <div>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: c.text, marginBottom: 4 }}>{ooo.subject}</div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <div onClick={toggleOoo}
+                        style={{ width: 44, height: 24, borderRadius: 12, background: ooo.is_active ? '#10b981' : c.border, cursor: 'pointer', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}>
+                        <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: ooo.is_active ? 23 : 3, transition: 'left 0.2s' }} />
+                      </div>
+                      <span style={{ fontSize: 13, color: ooo.is_active ? '#10b981' : c.textMuted, fontWeight: 600 }}>
+                        {ooo.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => setOooEditing(true)}
+                      style={{ padding: '7px 14px', border: `1px solid ${c.border}`, borderRadius: 7, background: 'none', cursor: 'pointer', fontSize: 12, color: c.text }}>Edit</button>
+                    <button onClick={deleteOoo}
+                      style={{ padding: '7px 14px', border: `1px solid ${c.danger}`, borderRadius: 7, background: 'none', cursor: 'pointer', fontSize: 12, color: c.danger }}>Remove</button>
+                  </div>
+                </div>
+                {(ooo.start_date || ooo.end_date) && (
+                  <div style={{ fontSize: 12, color: c.textMuted, marginBottom: 12 }}>
+                    📅 {ooo.start_date ? new Date(ooo.start_date).toLocaleString() : 'Now'} → {ooo.end_date ? new Date(ooo.end_date).toLocaleString() : 'Indefinitely'}
+                  </div>
+                )}
+                <div style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 8, padding: 14, fontSize: 13, color: c.text, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+                  {ooo.message}
+                </div>
+              </div>
+            )}
+
+            {oooEditing && (
+              <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: 24 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: c.text, marginBottom: 16 }}>{ooo ? 'Edit Autoresponder' : 'New Autoresponder'}</div>
+
+                <label style={{ fontSize: 12, fontWeight: 600, color: c.textMuted, marginBottom: 4, display: 'block' }}>Subject</label>
+                <input value={oooForm.subject} onChange={e => setOooForm(p => ({ ...p, subject: e.target.value }))}
+                  style={{ width: '100%', padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, marginBottom: 12, outline: 'none', boxSizing: 'border-box' }} />
+
+                <label style={{ fontSize: 12, fontWeight: 600, color: c.textMuted, marginBottom: 4, display: 'block' }}>Message *</label>
+                <textarea value={oooForm.message} onChange={e => setOooForm(p => ({ ...p, message: e.target.value }))}
+                  placeholder="Hi, I'm currently out of office and will return on [date]. For urgent matters, please contact [name]."
+                  rows={5}
+                  style={{ width: '100%', padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, resize: 'vertical', outline: 'none', boxSizing: 'border-box', marginBottom: 12 }} />
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: c.textMuted, marginBottom: 4, display: 'block' }}>Start Date (optional)</label>
+                    <input type="datetime-local" value={oooForm.start_date} onChange={e => setOooForm(p => ({ ...p, start_date: e.target.value }))}
+                      style={{ width: '100%', padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: c.textMuted, marginBottom: 4, display: 'block' }}>End Date (optional)</label>
+                    <input type="datetime-local" value={oooForm.end_date} onChange={e => setOooForm(p => ({ ...p, end_date: e.target.value }))}
+                      style={{ width: '100%', padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                  <div onClick={() => setOooForm(p => ({ ...p, is_active: !p.is_active }))}
+                    style={{ width: 44, height: 24, borderRadius: 12, background: oooForm.is_active ? '#10b981' : c.border, cursor: 'pointer', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}>
+                    <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: oooForm.is_active ? 23 : 3, transition: 'left 0.2s' }} />
+                  </div>
+                  <span style={{ fontSize: 13, color: c.text }}>Activate immediately</span>
+                </div>
+
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button onClick={saveOoo} disabled={oooSaving}
+                    style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: oooSaving ? 'not-allowed' : 'pointer', opacity: oooSaving ? 0.7 : 1 }}>
+                    {oooSaving ? 'Saving...' : '💾 Save'}
+                  </button>
+                  <button onClick={() => setOooEditing(false)}
+                    style={{ background: 'none', border: `1px solid ${c.border}`, borderRadius: 7, padding: '9px 16px', fontSize: 13, cursor: 'pointer', color: c.textMuted }}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         ) : activeNav === 'templates' ? (
           <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
