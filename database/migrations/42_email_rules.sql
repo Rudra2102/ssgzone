@@ -1,6 +1,6 @@
 CREATE TABLE IF NOT EXISTS email_rules (
   id SERIAL PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES tenant_users(id) ON DELETE CASCADE,
+  user_id INTEGER NOT NULL,
   tenant_id INTEGER NOT NULL,
   name VARCHAR(100) NOT NULL,
   condition_field VARCHAR(20) NOT NULL CHECK (condition_field IN ('from', 'subject', 'body')),
