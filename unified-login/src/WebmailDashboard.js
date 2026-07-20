@@ -23,6 +23,8 @@ export default function WebmailDashboard() {
   const [activeRoom, setActiveRoom] = useState(null);
   const [meetingTitle, setMeetingTitle] = useState('');
   const [showNewMeeting, setShowNewMeeting] = useState(false);
+  const [analytics, setAnalytics] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const token = localStorage.getItem('webmail_token');
@@ -52,15 +54,7 @@ export default function WebmailDashboard() {
     setLoading(false);
   };
 
-  const fetchVideoRooms = async () => {
-    try {
-      const res = await fetch('https://api.ssgzone.in/api/v1/video/rooms', { headers: auth });
-      const data = await res.json();
-      if (data.success) setVideoRooms(data.data);
-    } catch {}
-  };
-
-  const createRoom = async () => {
+  const fetchVideoRooms = async () => { = async () => {
     try {
       const res = await fetch('https://api.ssgzone.in/api/v1/video/rooms', {
         method: 'POST',
@@ -207,6 +201,11 @@ export default function WebmailDashboard() {
             <span style={{ fontSize: 14 }}>📹</span>
             {!sidebarCollapsed && <span>Video Calls</span>}
           </div>
+          <div onClick={() => { setActiveNav('analytics'); fetchAnalytics(); }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', background: activeNav === 'analytics' ? c.primaryLight : 'transparent', color: activeNav === 'analytics' ? c.primary : c.text, fontWeight: activeNav === 'analytics' ? 600 : 400, fontSize: 13, justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
+            <span style={{ fontSize: 14 }}>📊</span>
+            {!sidebarCollapsed && <span>Analytics</span>}
+          </div>
         </div>
 
         <div style={{ padding: 8, borderTop: `1px solid ${c.border}` }}>
@@ -241,7 +240,93 @@ export default function WebmailDashboard() {
         </div>
 
         {/* Content */}
-        {activeNav === 'chat' ? (
+        {activeNav === 'analytics' ? (
+          <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+            <div style={{ fontSize: 20, fontWeight: 700, color: c.text, marginBottom: 4 }}>Analytics</div>
+            <div style={{ fontSize: 13, color: c.textMuted, marginBottom: 20 }}>Your email activity overview</div>
+            {analyticsLoading && <div style={{ textAlign: 'center', padding: 40, color: c.textMuted }}>Loading analytics...</div>}
+            {analytics && (() => {
+              const maxVol = Math.max(...analytics.volume7d.map(d => d.count), 1);
+              const maxDow = Math.max(...analytics.dowActivity.map(d => d.count), 1);
+              const s = analytics.stats;
+              const total = parseInt(s.total) || 0;
+              const unreadPct = total > 0 ? Math.round((parseInt(s.unread) / total) * 100) : 0;
+              return (
+                <div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
+                    {[
+                      { label: 'Total Emails', value: total, icon: '✉️', color: '#6366f1' },
+                      { label: 'Unread', value: s.unread || 0, icon: '📬', color: '#ef4444' },
+                      { label: 'Unread %', value: unreadPct + '%', icon: '📊', color: '#f59e0b' },
+                      { label: 'Sent Today', value: s.sent_today || 0, icon: '📤', color: '#10b981' },
+                      { label: 'Starred', value: s.starred || 0, icon: '⭐', color: '#f59e0b' },
+                    ].map(stat => (
+                      <div key={stat.label} style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 10, padding: '14px 16px', textAlign: 'center' }}>
+                        <div style={{ fontSize: 22, marginBottom: 4 }}>{stat.icon}</div>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: stat.color }}>{stat.value}</div>
+                        <div style={{ fontSize: 11, color: c.textMuted }}>{stat.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+                    <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 10, padding: 20 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: c.text, marginBottom: 16 }}>Emails Received — Last 7 Days</div>
+                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 120 }}>
+                        {analytics.volume7d.map((d, i) => (
+                          <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                            <div style={{ fontSize: 10, color: c.textMuted }}>{d.count || ''}</div>
+                            <div style={{ width: '100%', background: '#6366f1', borderRadius: '4px 4px 0 0', height: `${Math.max((d.count / maxVol) * 90, d.count > 0 ? 4 : 0)}px` }} />
+                            <div style={{ fontSize: 10, color: c.textMuted }}>{d.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                    <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 10, padding: 20 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: c.text, marginBottom: 16 }}>Activity by Day of Week (30 days)</div>
+                      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 120 }}>
+                        {analytics.dowActivity.map((d, i) => (
+                          <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                            <div style={{ fontSize: 10, color: c.textMuted }}>{d.count || ''}</div>
+                            <div style={{ width: '100%', background: '#8b5cf6', borderRadius: '4px 4px 0 0', height: `${Math.max((d.count / maxDow) * 90, d.count > 0 ? 4 : 0)}px` }} />
+                            <div style={{ fontSize: 10, color: c.textMuted }}>{d.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                    <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 10, padding: 20 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: c.text, marginBottom: 14 }}>Folder Breakdown</div>
+                      {analytics.folders.length === 0 && <div style={{ color: c.textMuted, fontSize: 13 }}>No data yet</div>}
+                      {analytics.folders.map((f, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${c.border}` }}>
+                          <div style={{ fontSize: 13, color: c.text, textTransform: 'capitalize' }}>{f.folder}</div>
+                          <div style={{ display: 'flex', gap: 12 }}>
+                            <span style={{ fontSize: 12, color: c.textMuted }}>{f.total} total</span>
+                            {parseInt(f.unread) > 0 && <span style={{ fontSize: 12, color: '#ef4444', fontWeight: 600 }}>{f.unread} unread</span>}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 10, padding: 20 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: c.text, marginBottom: 14 }}>Top Senders</div>
+                      {analytics.topSenders.length === 0 && <div style={{ color: c.textMuted, fontSize: 13 }}>No data yet</div>}
+                      {analytics.topSenders.map((s, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: `1px solid ${c.border}` }}>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: c.text }}>{s.from_name || s.from_email}</div>
+                            <div style={{ fontSize: 11, color: c.textMuted }}>{s.from_email}</div>
+                          </div>
+                          <span style={{ background: '#eff6ff', color: '#6366f1', borderRadius: 20, padding: '2px 10px', fontSize: 12, fontWeight: 600 }}>{s.count}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+        ) : activeNav === 'chat' ? (
           <div style={{ flex: 1, overflow: 'hidden', padding: 16, display: 'flex', flexDirection: 'column' }}>
             <ChatPanel userData={userData} tenantId={userData?.tenant_id || 'demo'} />
           </div>

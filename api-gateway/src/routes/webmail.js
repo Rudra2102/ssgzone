@@ -245,4 +245,75 @@ router.get('/profile', webmailAuth, async (req, res) => {
   }
 });
 
+// GET /api/v1/webmail/analytics
+router.get('/analytics', webmailAuth, async (req, res) => {
+  const userEmail = req.user.email;
+
+  try {
+    const [volumeResult, folderResult, sendersResult, dowResult, statsResult] = await Promise.all([
+      pool.query(
+        `SELECT DATE(created_at) as day, COUNT(*) as count
+         FROM emails WHERE to_email = $1 AND created_at >= NOW() - INTERVAL '7 days'
+         GROUP BY DATE(created_at) ORDER BY day ASC`,
+        [userEmail]
+      ),
+      pool.query(
+        `SELECT folder, COUNT(*) as total, COUNT(*) FILTER (WHERE read_status = false) as unread
+         FROM emails WHERE to_email = $1 AND archived = false GROUP BY folder`,
+        [userEmail]
+      ),
+      pool.query(
+        `SELECT from_email, from_name, COUNT(*) as count
+         FROM emails WHERE to_email = $1
+         GROUP BY from_email, from_name ORDER BY count DESC LIMIT 5`,
+        [userEmail]
+      ),
+      pool.query(
+        `SELECT EXTRACT(DOW FROM created_at) as dow, COUNT(*) as count
+         FROM emails WHERE to_email = $1 AND created_at >= NOW() - INTERVAL '30 days'
+         GROUP BY dow ORDER BY dow`,
+        [userEmail]
+      ),
+      pool.query(
+        `SELECT COUNT(*) as total,
+                COUNT(*) FILTER (WHERE read_status = false) as unread,
+                COUNT(*) FILTER (WHERE folder = 'sent' AND DATE(created_at) = CURRENT_DATE) as sent_today,
+                COUNT(*) FILTER (WHERE starred = true) as starred,
+                COUNT(*) FILTER (WHERE folder = 'spam') as spam
+         FROM emails WHERE to_email = $1`,
+        [userEmail]
+      )
+    ]);
+
+    const last7 = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = d.toISOString().split('T')[0];
+      const found = volumeResult.rows.find(r => r.day?.toISOString?.().split('T')[0] === dateStr);
+      last7.push({ date: dateStr, count: found ? parseInt(found.count) : 0, label: d.toLocaleDateString('en', { weekday: 'short' }) });
+    }
+
+    const dowLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const dowData = dowLabels.map((label, i) => {
+      const found = dowResult.rows.find(r => parseInt(r.dow) === i);
+      return { label, count: found ? parseInt(found.count) : 0 };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        volume7d: last7,
+        folders: folderResult.rows,
+        topSenders: sendersResult.rows,
+        dowActivity: dowData,
+        stats: statsResult.rows[0]
+      }
+    });
+  } catch (err) {
+    console.error('Analytics error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
