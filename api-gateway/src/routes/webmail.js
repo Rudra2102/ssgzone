@@ -4,6 +4,7 @@ const { Pool } = require('pg');
 const nodemailer = require('nodemailer');
 const { checkAndSendAutoResponse } = require('./autoresponder');
 const { applyRulesToEmail } = require('./rules');
+const { notifyNewEmailSms } = require('../jobs/smsNotificationJob');
 
 const router = express.Router();
 const pool = new Pool({
@@ -164,6 +165,12 @@ router.post('/send', webmailAuth, async (req, res) => {
       const inboxEmailId = inboxInsert.rows[0].id;
       await applyRulesToEmail(inboxEmailId, to, recipient.tenant_id, fromEmail, subject, text_content || '', pool);
       await checkAndSendAutoResponse(recipient.id, to, fromEmail, recipient.tenant_id);
+      await notifyNewEmailSms(to, fromEmail, subject);
+      await pool.query(
+        `INSERT INTO user_notifications (user_id, tenant_id, type, title, body)
+         VALUES ($1,$2,'new_email',$3,$4)`,
+        [String(recipient.id), recipient.tenant_id, `New email from ${fromEmail}`, subject || '(no subject)']
+      );
     }
 
     res.json({ success: true, message: 'Email sent successfully' });

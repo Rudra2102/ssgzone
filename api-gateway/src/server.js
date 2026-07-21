@@ -34,6 +34,7 @@ const { router: rulesRoutes } = require('./routes/rules');
 const contactsRoutes = require('./routes/contacts');
 const signaturesRoutes = require('./routes/signatures');
 const whatsappRoutes = require('./routes/whatsapp');
+const notificationsRoutes = require('./routes/notifications');
 // const searchRoutes = require('./routes/search');
 // const attachmentsRoutes = require('./routes/attachments');
 // const retentionRoutes = require('./routes/retention');
@@ -98,6 +99,7 @@ app.use('/api/v1/rules', rulesRoutes);
 app.use('/api/v1/contacts', contactsRoutes);
 app.use('/api/v1/signatures', signaturesRoutes);
 app.use('/api/v1/whatsapp', whatsappRoutes);
+app.use('/api/v1/notifications', notificationsRoutes);
 // app.use('/api/v1/webhooks', webhooksRoutes);
 // app.use('/api/v1/search', searchRoutes);
 // app.use('/api/v1/retention', retentionRoutes);
@@ -128,8 +130,10 @@ httpServer.listen(PORT, () => {
   // Start scheduled jobs
   const retentionJob = require('./jobs/retentionJob');
   const gdprDeletionJob = require('./jobs/gdprDeletionJob');
+  const digestJob = require('./jobs/digestJob');
   retentionJob.start();
   gdprDeletionJob.start();
+  digestJob.start();
 });
 
 module.exports = app;

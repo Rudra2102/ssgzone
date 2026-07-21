@@ -68,6 +68,13 @@ export default function WebmailDashboard() {
   const [waContactForm, setWaContactForm] = useState({ name: '', phone: '' });
   const [waContactFormOpen, setWaContactFormOpen] = useState(false);
   const [waLoading, setWaLoading] = useState(false);
+  const [notifications, setNotifications] = useState([]);
+  const [notifUnread, setNotifUnread] = useState(0);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifPrefs, setNotifPrefs] = useState(null);
+  const [notifPrefsOpen, setNotifPrefsOpen] = useState(false);
+  const [notifPrefsSaving, setNotifPrefsSaving] = useState(false);
+  const [notifPrefsForm, setNotifPrefsForm] = useState({ notify_new_email: true, notify_chat_mention: true, email_digest: false, email_digest_frequency: 'daily', sms_new_email: false, phone: '' });
 
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const token = localStorage.getItem('webmail_token');
@@ -78,6 +85,7 @@ export default function WebmailDashboard() {
     fetchFolderCounts();
     fetch(`${API}/profile`, { headers: auth }).then(r => r.json()).then(d => d.success && setProfile(d.data));
     fetchVideoRooms();
+    fetchNotifications();
   }, []);
 
   useEffect(() => {
@@ -179,6 +187,58 @@ export default function WebmailDashboard() {
       } else alert(data.error);
     } catch (err) { alert(err.message); }
     setTplSaving(false);
+  };
+
+  const fetchNotifications = async () => {
+    try {
+      const res = await fetch('https://api.ssgzone.in/api/v1/notifications?limit=20', { headers: auth });
+      const data = await res.json();
+      if (data.success) { setNotifications(data.data); setNotifUnread(data.unread); }
+    } catch {}
+  };
+
+  const markAllNotifRead = async () => {
+    await fetch('https://api.ssgzone.in/api/v1/notifications/read-all', { method: 'PATCH', headers: auth });
+    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })));
+    setNotifUnread(0);
+  };
+
+  const deleteNotif = async (id) => {
+    await fetch(`https://api.ssgzone.in/api/v1/notifications/${id}`, { method: 'DELETE', headers: auth });
+    setNotifications(prev => prev.filter(n => n.id !== id));
+  };
+
+  const fetchNotifPrefs = async () => {
+    try {
+      const res = await fetch('https://api.ssgzone.in/api/v1/notifications/prefs', { headers: auth });
+      const data = await res.json();
+      if (data.success && data.data) {
+        setNotifPrefs(data.data);
+        setNotifPrefsForm({
+          notify_new_email: data.data.notify_new_email,
+          notify_chat_mention: data.data.notify_chat_mention,
+          email_digest: data.data.email_digest,
+          email_digest_frequency: data.data.email_digest_frequency || 'daily',
+          sms_new_email: data.data.sms_new_email,
+          phone: data.data.phone || ''
+        });
+      }
+    } catch {}
+  };
+
+  const saveNotifPrefs = async () => {
+    setNotifPrefsSaving(true);
+    try {
+      const res = await fetch('https://api.ssgzone.in/api/v1/notifications/prefs', {
+        method: 'POST',
+        headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify(notifPrefsForm)
+      });
+      const data = await res.json();
+      if (data.success) { setNotifPrefs(data.data); setNotifPrefsOpen(false); showToastNotification('Preferences saved'); }
+      else alert(data.error);
+    } catch (err) { alert(err.message); }
+    setNotifPrefsSaving(false);
   };
 
   const fetchWaStatus = async () => {
@@ -706,6 +766,42 @@ export default function WebmailDashboard() {
           </div>
           <div style={{ flex: 1 }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ position: 'relative' }}>
+              <button onClick={() => { setNotifOpen(p => !p); if (!notifOpen) fetchNotifications(); }}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: c.textMuted, position: 'relative', padding: '4px' }}>
+                🔔
+                {notifUnread > 0 && (
+                  <span style={{ position: 'absolute', top: 0, right: 0, background: c.danger, color: '#fff', borderRadius: '50%', width: 16, height: 16, fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{notifUnread > 9 ? '9+' : notifUnread}</span>
+                )}
+              </button>
+              {notifOpen && (
+                <div style={{ position: 'absolute', top: '100%', right: 0, width: 340, background: '#fff', border: `1px solid ${c.border}`, borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 500 }}>
+                  <div style={{ padding: '12px 16px', borderBottom: `1px solid ${c.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: c.text }}>Notifications</span>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={markAllNotifRead} style={{ fontSize: 11, color: c.primary, background: 'none', border: 'none', cursor: 'pointer' }}>Mark all read</button>
+                      <button onClick={() => { setNotifPrefsOpen(true); setNotifOpen(false); fetchNotifPrefs(); }} style={{ fontSize: 11, color: c.textMuted, background: 'none', border: 'none', cursor: 'pointer' }}>⚙️ Prefs</button>
+                    </div>
+                  </div>
+                  <div style={{ maxHeight: 360, overflowY: 'auto' }}>
+                    {notifications.length === 0 && (
+                      <div style={{ padding: 24, textAlign: 'center', color: c.textMuted, fontSize: 13 }}>No notifications</div>
+                    )}
+                    {notifications.map(n => (
+                      <div key={n.id} style={{ padding: '10px 16px', borderBottom: `1px solid ${c.border}`, background: n.is_read ? '#fff' : '#f0f4ff', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                        <div style={{ fontSize: 18, flexShrink: 0 }}>{n.type === 'new_email' ? '✉️' : n.type === 'chat_mention' ? '💬' : '🔔'}</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: n.is_read ? 400 : 600, color: c.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.title}</div>
+                          {n.body && <div style={{ fontSize: 11, color: c.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.body}</div>}
+                          <div style={{ fontSize: 10, color: c.textMuted, marginTop: 2 }}>{new Date(n.created_at).toLocaleString()}</div>
+                        </div>
+                        <button onClick={() => deleteNotif(n.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: c.textMuted, flexShrink: 0 }}>×</button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
             <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 13, fontWeight: 700 }}>{initials}</div>
             <span style={{ fontSize: 13, fontWeight: 600, color: c.text }}>{userData.full_name || userData.email}</span>
           </div>
@@ -1538,6 +1634,60 @@ export default function WebmailDashboard() {
                 style={{ padding: '8px 20px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 7, cursor: sending ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600, opacity: sending ? 0.7 : 1 }}>
                 {sending ? 'Sending...' : 'Send'}
               </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Notification Preferences Modal */}
+      {notifPrefsOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 12, width: 440, boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+            <div style={{ padding: '14px 20px', borderBottom: `1px solid ${c.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: c.text }}>🔔 Notification Preferences</span>
+              <button onClick={() => setNotifPrefsOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: c.textMuted }}>×</button>
+            </div>
+            <div style={{ padding: 20 }}>
+              {[
+                { key: 'notify_new_email', label: 'Notify on new email' },
+                { key: 'notify_chat_mention', label: 'Notify on chat mention' },
+                { key: 'email_digest', label: 'Email digest summary' },
+                { key: 'sms_new_email', label: 'SMS on new email (requires Twilio)' },
+              ].map(pref => (
+                <div key={pref.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                  <span style={{ fontSize: 13, color: c.text }}>{pref.label}</span>
+                  <div onClick={() => setNotifPrefsForm(p => ({ ...p, [pref.key]: !p[pref.key] }))}
+                    style={{ width: 44, height: 24, borderRadius: 12, background: notifPrefsForm[pref.key] ? '#10b981' : c.border, cursor: 'pointer', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}>
+                    <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: notifPrefsForm[pref.key] ? 23 : 3, transition: 'left 0.2s' }} />
+                  </div>
+                </div>
+              ))}
+              {notifPrefsForm.email_digest && (
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: c.textMuted, marginBottom: 4, display: 'block' }}>Digest Frequency</label>
+                  <select value={notifPrefsForm.email_digest_frequency} onChange={e => setNotifPrefsForm(p => ({ ...p, email_digest_frequency: e.target.value }))}
+                    style={{ width: '100%', padding: '8px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, outline: 'none', background: '#fff' }}>
+                    <option value="daily">Daily (7 AM)</option>
+                    <option value="weekly">Weekly</option>
+                  </select>
+                </div>
+              )}
+              {notifPrefsForm.sms_new_email && (
+                <div style={{ marginBottom: 14 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: c.textMuted, marginBottom: 4, display: 'block' }}>Phone Number (with country code)</label>
+                  <input value={notifPrefsForm.phone} onChange={e => setNotifPrefsForm(p => ({ ...p, phone: e.target.value }))}
+                    placeholder="e.g. 919876543210"
+                    style={{ width: '100%', padding: '8px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 4 }}>
+                <button onClick={() => setNotifPrefsOpen(false)}
+                  style={{ padding: '8px 18px', border: `1px solid ${c.border}`, borderRadius: 7, background: 'none', cursor: 'pointer', fontSize: 13, color: c.text }}>Cancel</button>
+                <button onClick={saveNotifPrefs} disabled={notifPrefsSaving}
+                  style={{ padding: '8px 20px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 7, cursor: notifPrefsSaving ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600, opacity: notifPrefsSaving ? 0.7 : 1 }}>
+                  {notifPrefsSaving ? 'Saving...' : 'Save'}
+                </button>
               </div>
             </div>
           </div>
