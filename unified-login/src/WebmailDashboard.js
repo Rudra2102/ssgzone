@@ -1362,6 +1362,7 @@ export default function WebmailDashboard() {
                 style={{ padding: '8px 20px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 7, cursor: sending ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600, opacity: sending ? 0.7 : 1 }}>
                 {sending ? 'Sending...' : '➤ Send'}
               </button>
+              </div>
             </div>
           </div>
         </div>
