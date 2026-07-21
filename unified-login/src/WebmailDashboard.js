@@ -59,6 +59,15 @@ export default function WebmailDashboard() {
   const [draftSaving, setDraftSaving] = useState(false);
   const [lastUnread, setLastUnread] = useState(null);
   const [toast, setToast] = useState(null);
+  const [waConfigured, setWaConfigured] = useState(false);
+  const [waContacts, setWaContacts] = useState([]);
+  const [waMessages, setWaMessages] = useState([]);
+  const [waActivePhone, setWaActivePhone] = useState('');
+  const [waMessage, setWaMessage] = useState('');
+  const [waSending, setWaSending] = useState(false);
+  const [waContactForm, setWaContactForm] = useState({ name: '', phone: '' });
+  const [waContactFormOpen, setWaContactFormOpen] = useState(false);
+  const [waLoading, setWaLoading] = useState(false);
 
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const token = localStorage.getItem('webmail_token');
@@ -170,6 +179,71 @@ export default function WebmailDashboard() {
       } else alert(data.error);
     } catch (err) { alert(err.message); }
     setTplSaving(false);
+  };
+
+  const fetchWaStatus = async () => {
+    try {
+      const res = await fetch('https://api.ssgzone.in/api/v1/whatsapp/status', { headers: auth });
+      const data = await res.json();
+      if (data.success) setWaConfigured(data.configured);
+    } catch {}
+  };
+
+  const fetchWaContacts = async () => {
+    try {
+      const res = await fetch('https://api.ssgzone.in/api/v1/whatsapp/contacts', { headers: auth });
+      const data = await res.json();
+      if (data.success) setWaContacts(data.data);
+    } catch {}
+  };
+
+  const fetchWaMessages = async (phone) => {
+    setWaLoading(true);
+    try {
+      const res = await fetch(`https://api.ssgzone.in/api/v1/whatsapp/messages?phone=${encodeURIComponent(phone)}`, { headers: auth });
+      const data = await res.json();
+      if (data.success) setWaMessages(data.data);
+    } catch {}
+    setWaLoading(false);
+  };
+
+  const sendWaMessage = async () => {
+    if (!waActivePhone || !waMessage.trim()) return;
+    setWaSending(true);
+    try {
+      const res = await fetch('https://api.ssgzone.in/api/v1/whatsapp/send', {
+        method: 'POST',
+        headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to: waActivePhone, message: waMessage.trim() })
+      });
+      const data = await res.json();
+      if (data.success) { setWaMessages(prev => [...prev, data.data]); setWaMessage(''); }
+      else showToastNotification('Failed: ' + data.error);
+    } catch (err) { showToastNotification(err.message); }
+    setWaSending(false);
+  };
+
+  const saveWaContact = async () => {
+    if (!waContactForm.name || !waContactForm.phone) return alert('Name and phone required');
+    try {
+      const res = await fetch('https://api.ssgzone.in/api/v1/whatsapp/contacts', {
+        method: 'POST',
+        headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify(waContactForm)
+      });
+      const data = await res.json();
+      if (data.success) {
+        setWaContacts(prev => [...prev.filter(c => c.id !== data.data.id), data.data].sort((a, b) => a.name.localeCompare(b.name)));
+        setWaContactForm({ name: '', phone: '' });
+        setWaContactFormOpen(false);
+      } else alert(data.error);
+    } catch (err) { alert(err.message); }
+  };
+
+  const deleteWaContact = async (id) => {
+    if (!window.confirm('Delete this contact?')) return;
+    await fetch(`https://api.ssgzone.in/api/v1/whatsapp/contacts/${id}`, { method: 'DELETE', headers: auth });
+    setWaContacts(prev => prev.filter(c => c.id !== id));
   };
 
   const saveDraft = async (composeData, existingDraftId) => {
@@ -594,6 +668,11 @@ export default function WebmailDashboard() {
             <span style={{ fontSize: 14 }}>⚙️</span>
             {!sidebarCollapsed && <span>Email Rules</span>}
           </div>
+          <div onClick={() => { setActiveNav('whatsapp'); fetchWaStatus(); fetchWaContacts(); }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', background: activeNav === 'whatsapp' ? c.primaryLight : 'transparent', color: activeNav === 'whatsapp' ? c.primary : c.text, fontWeight: activeNav === 'whatsapp' ? 600 : 400, fontSize: 13, justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
+            <span style={{ fontSize: 14 }}>💬</span>
+            {!sidebarCollapsed && <span>WhatsApp</span>}
+          </div>
           <div onClick={() => { setActiveNav('ooo'); fetchOoo(); }}
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', background: activeNav === 'ooo' ? c.primaryLight : 'transparent', color: activeNav === 'ooo' ? c.primary : c.text, fontWeight: activeNav === 'ooo' ? 600 : 400, fontSize: 13, justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
             <span style={{ fontSize: 14 }}>🏖</span>
@@ -973,6 +1052,106 @@ export default function WebmailDashboard() {
               </div>
             ))}
           </div>
+        ) : activeNav === 'whatsapp' ? (
+          <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+            <div style={{ width: 260, borderRight: `1px solid ${c.border}`, display: 'flex', flexDirection: 'column', background: c.card, flexShrink: 0 }}>
+              <div style={{ padding: '14px 16px', borderBottom: `1px solid ${c.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: c.text }}>WhatsApp</div>
+                <button onClick={() => setWaContactFormOpen(true)}
+                  style={{ background: 'linear-gradient(135deg, #25d366, #128c7e)', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 10px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>+ Contact</button>
+              </div>
+              {!waConfigured && (
+                <div style={{ padding: 12, background: '#fffbeb', borderBottom: `1px solid ${c.border}` }}>
+                  <div style={{ fontSize: 11, color: '#92400e', fontWeight: 600, marginBottom: 2 }}>Not Configured</div>
+                  <div style={{ fontSize: 11, color: '#92400e' }}>Set WHATSAPP_PHONE_NUMBER_ID and WHATSAPP_ACCESS_TOKEN in .env</div>
+                </div>
+              )}
+              {waContactFormOpen && (
+                <div style={{ padding: 12, borderBottom: `1px solid ${c.border}`, background: c.bg }}>
+                  <input value={waContactForm.name} onChange={e => setWaContactForm(p => ({ ...p, name: e.target.value }))}
+                    placeholder="Name *"
+                    style={{ width: '100%', padding: '7px 10px', border: `1px solid ${c.border}`, borderRadius: 6, fontSize: 12, marginBottom: 6, outline: 'none', boxSizing: 'border-box' }} />
+                  <input value={waContactForm.phone} onChange={e => setWaContactForm(p => ({ ...p, phone: e.target.value }))}
+                    placeholder="Phone with country code (e.g. 919876543210) *"
+                    style={{ width: '100%', padding: '7px 10px', border: `1px solid ${c.border}`, borderRadius: 6, fontSize: 12, marginBottom: 6, outline: 'none', boxSizing: 'border-box' }} />
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={saveWaContact}
+                      style={{ flex: 1, background: '#25d366', color: '#fff', border: 'none', borderRadius: 6, padding: '6px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Save</button>
+                    <button onClick={() => setWaContactFormOpen(false)}
+                      style={{ padding: '6px 10px', border: `1px solid ${c.border}`, borderRadius: 6, background: 'none', cursor: 'pointer', fontSize: 12, color: c.textMuted }}>Cancel</button>
+                  </div>
+                </div>
+              )}
+              <div style={{ flex: 1, overflowY: 'auto' }}>
+                {waContacts.length === 0 && (
+                  <div style={{ padding: 24, textAlign: 'center', color: c.textMuted, fontSize: 12 }}>No contacts yet.<br />Add a contact to start messaging.</div>
+                )}
+                {waContacts.map(contact => (
+                  <div key={contact.id}
+                    onClick={() => { setWaActivePhone(contact.phone); fetchWaMessages(contact.phone); }}
+                    style={{ padding: '10px 14px', borderBottom: `1px solid ${c.border}`, cursor: 'pointer', background: waActivePhone === contact.phone ? c.primaryLight : 'transparent', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: waActivePhone === contact.phone ? c.primary : c.text }}>{contact.name}</div>
+                      <div style={{ fontSize: 11, color: c.textMuted }}>{contact.phone}</div>
+                    </div>
+                    <button onClick={e => { e.stopPropagation(); deleteWaContact(contact.id); }}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: c.textMuted, padding: 2 }}>x</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: '#e5ddd5' }}>
+              {!waActivePhone ? (
+                <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 48, marginBottom: 12 }}>💬</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: c.text }}>Select a contact to start messaging</div>
+                    <div style={{ fontSize: 12, color: c.textMuted, marginTop: 4 }}>Messages sent via WhatsApp Business API</div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div style={{ padding: '10px 16px', background: '#075e54', color: '#fff', display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#25d366', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 700 }}>
+                      {(waContacts.find(ct => ct.phone === waActivePhone)?.name || waActivePhone)[0].toUpperCase()}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 600 }}>{waContacts.find(ct => ct.phone === waActivePhone)?.name || waActivePhone}</div>
+                      <div style={{ fontSize: 11, opacity: 0.8 }}>{waActivePhone}</div>
+                    </div>
+                  </div>
+                  <div style={{ flex: 1, overflowY: 'auto', padding: '16px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    {waLoading && <div style={{ textAlign: 'center', color: c.textMuted, fontSize: 12 }}>Loading...</div>}
+                    {!waLoading && waMessages.length === 0 && (
+                      <div style={{ textAlign: 'center', color: c.textMuted, fontSize: 12, marginTop: 40 }}>No messages yet. Send the first message!</div>
+                    )}
+                    {waMessages.map(msg => (
+                      <div key={msg.id} style={{ display: 'flex', justifyContent: msg.direction === 'outbound' ? 'flex-end' : 'flex-start' }}>
+                        <div style={{ maxWidth: '70%', background: msg.direction === 'outbound' ? '#dcf8c6' : '#fff', borderRadius: 8, padding: '8px 12px', boxShadow: '0 1px 2px rgba(0,0,0,0.1)' }}>
+                          <div style={{ fontSize: 13, color: '#1f2937', lineHeight: 1.5 }}>{msg.message_text}</div>
+                          <div style={{ fontSize: 10, color: '#6b7280', marginTop: 4, textAlign: 'right' }}>
+                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {msg.direction === 'outbound' && <span style={{ marginLeft: 4 }}>{msg.status === 'sent' ? '✓' : '✓✓'}</span>}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ padding: '10px 12px', background: '#f0f0f0', display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input value={waMessage} onChange={e => setWaMessage(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendWaMessage()}
+                      placeholder={waConfigured ? 'Type a message...' : 'WhatsApp not configured'}
+                      disabled={!waConfigured}
+                      style={{ flex: 1, padding: '10px 14px', border: 'none', borderRadius: 20, fontSize: 13, outline: 'none', background: '#fff', opacity: waConfigured ? 1 : 0.6 }} />
+                    <button onClick={sendWaMessage} disabled={waSending || !waConfigured || !waMessage.trim()}
+                      style={{ width: 40, height: 40, borderRadius: '50%', background: waSending || !waConfigured ? '#ccc' : '#25d366', border: 'none', cursor: waSending || !waConfigured ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
+                      &#x27A4;
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
         ) : activeNav === 'ooo' ? (
           <div style={{ flex: 1, overflowY: 'auto', padding: 24, maxWidth: 640 }}>
             <div style={{ fontSize: 20, fontWeight: 700, color: c.text, marginBottom: 4 }}>Out of Office</div>
@@ -1347,20 +1526,17 @@ export default function WebmailDashboard() {
                   placeholder={f.placeholder}
                   style={{ width: '100%', padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, marginBottom: 10, outline: 'none', boxSizing: 'border-box' }} />
               ))}
-                  placeholder={f.placeholder}
-                  style={{ width: '100%', padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, marginBottom: 10, outline: 'none', boxSizing: 'border-box' }} />
-              ))}
               <textarea value={compose.body_html} onChange={e => setCompose(p => ({ ...p, body_html: e.target.value }))}
                 placeholder="Message" rows={8}
                 style={{ width: '100%', padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, resize: 'vertical', outline: 'none', boxSizing: 'border-box' }} />
             </div>
             <div style={{ padding: '12px 20px', borderTop: `1px solid ${c.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, color: c.textMuted }}>{draftSaving ? '💾 Saving draft...' : draftId ? '✓ Draft saved' : ''}</span>
+              <span style={{ fontSize: 11, color: c.textMuted }}>{draftSaving ? 'Saving draft...' : draftId ? 'Draft saved' : ''}</span>
               <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={() => { discardDraft(draftId); setDraftId(null); setComposeOpen(false); }} style={{ padding: '8px 18px', border: `1px solid ${c.border}`, borderRadius: 7, background: 'none', cursor: 'pointer', fontSize: 13, color: c.text }}>Cancel</button>
               <button onClick={sendEmail} disabled={sending}
                 style={{ padding: '8px 20px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 7, cursor: sending ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600, opacity: sending ? 0.7 : 1 }}>
-                {sending ? 'Sending...' : '➤ Send'}
+                {sending ? 'Sending...' : 'Send'}
               </button>
               </div>
             </div>
