@@ -55,6 +55,10 @@ export default function WebmailDashboard() {
   const [sigEditing, setSigEditing] = useState(false);
   const [toSuggestions, setToSuggestions] = useState([]);
   const [showToSuggestions, setShowToSuggestions] = useState(false);
+  const [draftId, setDraftId] = useState(null);
+  const [draftSaving, setDraftSaving] = useState(false);
+  const [lastUnread, setLastUnread] = useState(null);
+  const [toast, setToast] = useState(null);
 
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const token = localStorage.getItem('webmail_token');
@@ -70,6 +74,40 @@ export default function WebmailDashboard() {
   useEffect(() => {
     if (activeNav === 'inbox') fetchEmails();
   }, [folder, page, search]);
+
+  useEffect(() => {
+    document.title = unread > 0 ? `(${unread}) SSGzone Mail` : 'SSGzone Mail';
+  }, [unread]);
+
+  useEffect(() => {
+    if (!token) return;
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${API}/folders/counts`, { headers: auth });
+        const data = await res.json();
+        if (!data.success) return;
+        const currentUnread = data.data?.inbox?.unread || 0;
+        if (lastUnread !== null && currentUnread > lastUnread) {
+          const diff = currentUnread - lastUnread;
+          showToastNotification(`📬 ${diff} new email${diff > 1 ? 's' : ''} arrived`);
+          if (activeNav === 'inbox' && folder === 'inbox') fetchEmails();
+          fetchFolderCounts();
+        }
+        setLastUnread(currentUnread);
+      } catch {}
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [lastUnread, activeNav, folder, token]);
+
+  useEffect(() => {
+    if (!composeOpen) return;
+    const timer = setTimeout(() => {
+      if (compose.subject || compose.body_html || compose.to) {
+        saveDraft(compose, draftId);
+      }
+    }, 30000);
+    return () => clearTimeout(timer);
+  }, [compose, composeOpen]);
 
   const fetchEmails = async () => {
     setLoading(true);
@@ -132,6 +170,41 @@ export default function WebmailDashboard() {
       } else alert(data.error);
     } catch (err) { alert(err.message); }
     setTplSaving(false);
+  };
+
+  const saveDraft = async (composeData, existingDraftId) => {
+    setDraftSaving(true);
+    try {
+      if (existingDraftId) {
+        await fetch(`${API}/drafts/${existingDraftId}`, {
+          method: 'PUT',
+          headers: { ...auth, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subject: composeData.subject, to: composeData.to, cc: composeData.cc, html_content: composeData.body_html, text_content: composeData.body_html })
+        });
+      } else {
+        const res = await fetch(`${API}/drafts`, {
+          method: 'POST',
+          headers: { ...auth, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ subject: composeData.subject, to: composeData.to, cc: composeData.cc, html_content: composeData.body_html, text_content: composeData.body_html })
+        });
+        const data = await res.json();
+        if (data.success) setDraftId(data.data.id);
+      }
+    } catch {}
+    setDraftSaving(false);
+  };
+
+  const discardDraft = async (id) => {
+    if (!id) return;
+    try {
+      await fetch(`${API}/drafts/${id}`, { method: 'DELETE', headers: auth });
+    } catch {}
+    setDraftId(null);
+  };
+
+  const showToastNotification = (message) => {
+    setToast(message);
+    setTimeout(() => setToast(null), 4000);
   };
 
   const fetchContacts = async (search = '') => {
@@ -367,6 +440,12 @@ export default function WebmailDashboard() {
   };
 
   const openEmail = async (email) => {
+    if (email.folder === 'drafts') {
+      setDraftId(email.id);
+      setCompose({ to: email.to_email || '', cc: '', subject: email.subject || '', body_html: email.html_content || email.preview || '' });
+      setComposeOpen(true);
+      return;
+    }
     if (!email.read_status) {
       await fetch(`${API}/email/${email.id}/read`, {
         method: 'PATCH', headers: { ...auth, 'Content-Type': 'application/json' },
@@ -397,6 +476,7 @@ export default function WebmailDashboard() {
   const sendEmail = async () => {
     if (!compose.to || !compose.subject) return alert('To and Subject required');
     setSending(true);
+    const currentDraftId = draftId;
     try {
       const res = await fetch(`${API}/send`, {
         method: 'POST',
@@ -1274,14 +1354,24 @@ export default function WebmailDashboard() {
                 placeholder="Message" rows={8}
                 style={{ width: '100%', padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, resize: 'vertical', outline: 'none', boxSizing: 'border-box' }} />
             </div>
-            <div style={{ padding: '12px 20px', borderTop: `1px solid ${c.border}`, display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
-              <button onClick={() => setComposeOpen(false)} style={{ padding: '8px 18px', border: `1px solid ${c.border}`, borderRadius: 7, background: 'none', cursor: 'pointer', fontSize: 13, color: c.text }}>Cancel</button>
+            <div style={{ padding: '12px 20px', borderTop: `1px solid ${c.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: c.textMuted }}>{draftSaving ? '💾 Saving draft...' : draftId ? '✓ Draft saved' : ''}</span>
+              <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={() => { discardDraft(draftId); setDraftId(null); setComposeOpen(false); }} style={{ padding: '8px 18px', border: `1px solid ${c.border}`, borderRadius: 7, background: 'none', cursor: 'pointer', fontSize: 13, color: c.text }}>Cancel</button>
               <button onClick={sendEmail} disabled={sending}
                 style={{ padding: '8px 20px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 7, cursor: sending ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600, opacity: sending ? 0.7 : 1 }}>
                 {sending ? 'Sending...' : '➤ Send'}
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Toast notification */}
+      {toast && (
+        <div style={{ position: 'fixed', bottom: 24, right: 24, background: '#1f2937', color: '#fff', padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 600, zIndex: 2000, boxShadow: '0 4px 20px rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          {toast}
+          <span onClick={() => setToast(null)} style={{ cursor: 'pointer', marginLeft: 8, opacity: 0.7, fontSize: 16 }}>×</span>
         </div>
       )}
 

@@ -440,4 +440,41 @@ router.get('/email/:id/tracking', webmailAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// POST /api/v1/webmail/drafts
+router.post('/drafts', webmailAuth, async (req, res) => {
+  const { subject, to, cc, html_content, text_content } = req.body;
+  try {
+    const result = await pool.query(
+      `INSERT INTO emails (tenant_id, from_email, to_email, subject, html_content, text_content, folder, read_status, tracking_token)
+       VALUES ($1,$2,$3,$4,$5,$6,'drafts',true,$7) RETURNING id`,
+      [String(req.user.tenant_id), req.user.email, to || '', subject || '', html_content || '', text_content || '', require('crypto').randomBytes(32).toString('hex')]
+    );
+    res.json({ success: true, data: { id: result.rows[0].id } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// PUT /api/v1/webmail/drafts/:id
+router.put('/drafts/:id', webmailAuth, async (req, res) => {
+  const { subject, to, html_content, text_content } = req.body;
+  try {
+    await pool.query(
+      `UPDATE emails SET subject=$1, to_email=$2, html_content=$3, text_content=$4, created_at=NOW()
+       WHERE id=$5 AND from_email=$6 AND folder='drafts'`,
+      [subject || '', to || '', html_content || '', text_content || '', req.params.id, req.user.email]
+    );
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// DELETE /api/v1/webmail/drafts/:id
+router.delete('/drafts/:id', webmailAuth, async (req, res) => {
+  try {
+    await pool.query(
+      `UPDATE emails SET archived=true WHERE id=$1 AND from_email=$2 AND folder='drafts'`,
+      [req.params.id, req.user.email]
+    );
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 module.exports = router;
