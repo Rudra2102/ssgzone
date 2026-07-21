@@ -146,6 +146,30 @@ function initChatSocket(io) {
       }
     });
 
+    // ── Pin Message ───────────────────────────────────────────────
+    socket.on('pin_message', async ({ messageId, roomId }) => {
+      if (!socket.userId || !messageId || !roomId) return;
+      try {
+        await pool.query(
+          `INSERT INTO chat_pinned_messages (room_id, message_id, pinned_by)
+           VALUES ($1,$2,$3) ON CONFLICT (room_id, message_id) DO NOTHING`,
+          [roomId, messageId, socket.userId]
+        );
+        io.to(`room:${roomId}`).emit('message_pinned', { messageId, roomId, pinnedBy: socket.userId });
+      } catch (err) { socket.emit('error', { message: 'Failed to pin message' }); }
+    });
+
+    socket.on('unpin_message', async ({ messageId, roomId }) => {
+      if (!socket.userId || !messageId || !roomId) return;
+      try {
+        await pool.query(
+          `DELETE FROM chat_pinned_messages WHERE room_id=$1 AND message_id=$2`,
+          [roomId, messageId]
+        );
+        io.to(`room:${roomId}`).emit('message_unpinned', { messageId, roomId });
+      } catch (err) { socket.emit('error', { message: 'Failed to unpin message' }); }
+    });
+
     // ── Read Receipt ──────────────────────────────────────────────
     socket.on('mark_read', async ({ roomId }) => {
       if (!socket.userId || !roomId) return;

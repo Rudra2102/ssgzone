@@ -697,4 +697,74 @@ router.post('/email/spam-check', async (req, res) => {
   }
 });
 
+// GET /api/v1/communication/chat/messages/search?room_id=&q=
+router.get('/chat/messages/search', async (req, res) => {
+  const { room_id, q } = req.query;
+  if (!room_id || !q) return res.status(400).json({ success: false, error: 'room_id and q required' });
+  try {
+    const result = await pool.query(
+      `SELECT id, user_id, user_name, message, created_at
+       FROM chat_messages
+       WHERE room_id=$1 AND message ILIKE $2 AND deleted_at IS NULL
+       ORDER BY created_at DESC LIMIT 30`,
+      [room_id, `%${q}%`]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// GET /api/v1/communication/chat/rooms/:room_id/pinned
+router.get('/chat/rooms/:room_id/pinned', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT pm.*, cm.message, cm.user_name, cm.created_at as msg_created_at
+       FROM chat_pinned_messages pm
+       JOIN chat_messages cm ON cm.id = pm.message_id
+       WHERE pm.room_id=$1
+       ORDER BY pm.pinned_at DESC`,
+      [req.params.room_id]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/v1/communication/chat/rooms/:room_id/pinned
+router.post('/chat/rooms/:room_id/pinned', async (req, res) => {
+  const { message_id, pinned_by } = req.body;
+  if (!message_id || !pinned_by) return res.status(400).json({ success: false, error: 'message_id and pinned_by required' });
+  try {
+    await pool.query(
+      `INSERT INTO chat_pinned_messages (room_id, message_id, pinned_by)
+       VALUES ($1,$2,$3) ON CONFLICT (room_id, message_id) DO NOTHING`,
+      [req.params.room_id, message_id, pinned_by]
+    );
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// DELETE /api/v1/communication/chat/rooms/:room_id/pinned/:message_id
+router.delete('/chat/rooms/:room_id/pinned/:message_id', async (req, res) => {
+  try {
+    await pool.query(
+      `DELETE FROM chat_pinned_messages WHERE room_id=$1 AND message_id=$2`,
+      [req.params.room_id, req.params.message_id]
+    );
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// PUT /api/v1/communication/chat/rooms/:room_id/settings
+router.put('/chat/rooms/:room_id/settings', async (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ success: false, error: 'name required' });
+  try {
+    const result = await pool.query(
+      `UPDATE chat_rooms SET name=$1 WHERE id=$2 RETURNING id, name`,
+      [name, req.params.room_id]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Room not found' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 module.exports = router;

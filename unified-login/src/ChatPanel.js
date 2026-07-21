@@ -80,6 +80,14 @@ export default function ChatPanel({ userData, tenantId }) {
   const [showNewRoom, setShowNewRoom] = useState(false);
   const [newRoomName, setNewRoomName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [pinnedMessages, setPinnedMessages] = useState([]);
+  const [showPinned, setShowPinned] = useState(false);
+  const [showRoomSettings, setShowRoomSettings] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  const [pinnedIds, setPinnedIds] = useState(new Set());
   const socketRef = useRef(null);
   const bottomRef = useRef(null);
   const typingTimer = useRef(null);
@@ -129,6 +137,13 @@ export default function ChatPanel({ userData, tenantId }) {
       if (uid !== userId) return;
       setRooms(p => p.map(r => r.id === roomId ? { ...r, unread_count: 0 } : r));
     });
+    socket.on('message_pinned', ({ messageId }) => {
+      setPinnedIds(prev => new Set([...prev, messageId]));
+    });
+    socket.on('message_unpinned', ({ messageId }) => {
+      setPinnedIds(prev => { const s = new Set(prev); s.delete(messageId); return s; });
+      setPinnedMessages(prev => prev.filter(p => p.message_id !== messageId));
+    });
 
     return () => { socket.disconnect(); socketRef.current = null; };
   }, [userId, tenantId, userName]);
@@ -156,10 +171,22 @@ export default function ChatPanel({ userData, tenantId }) {
       socketRef.current.emit('mark_read', { roomId: room.id });
     }
     try {
-      const res = await fetch(`${API_BASE}/chat/messages?room_id=${room.id}&limit=50`);
-      const data = await res.json();
-      setMessages(data.messages || []);
+      const [msgRes, pinRes] = await Promise.all([
+        fetch(`${API_BASE}/chat/messages?room_id=${room.id}&limit=50`),
+        fetch(`${API_BASE}/chat/rooms/${room.id}/pinned`)
+      ]);
+      const msgData = await msgRes.json();
+      const pinData = await pinRes.json();
+      setMessages(msgData.messages || []);
       setRooms(p => p.map(r => r.id === room.id ? { ...r, unread_count: 0 } : r));
+      if (pinData.success) {
+        setPinnedMessages(pinData.data);
+        setPinnedIds(new Set(pinData.data.map(p => p.message_id)));
+      }
+      setSearchOpen(false);
+      setSearchQuery('');
+      setSearchResults([]);
+      setShowPinned(false);
     } catch (e) {}
     setLoading(false);
   }, []);
@@ -196,6 +223,56 @@ export default function ChatPanel({ userData, tenantId }) {
   };
 
   // Create room
+  const searchMessages = async (q) => {
+    if (!q.trim() || !activeRoom) { setSearchResults([]); return; }
+    try {
+      const res = await fetch(`${API_BASE}/chat/messages/search?room_id=${activeRoom.id}&q=${encodeURIComponent(q)}`);
+      const data = await res.json();
+      if (data.success) setSearchResults(data.data);
+    } catch {}
+  };
+
+  const loadPinned = async (roomId) => {
+    try {
+      const res = await fetch(`${API_BASE}/chat/rooms/${roomId}/pinned`);
+      const data = await res.json();
+      if (data.success) {
+        setPinnedMessages(data.data);
+        setPinnedIds(new Set(data.data.map(p => p.message_id)));
+      }
+    } catch {}
+  };
+
+  const pinMessage = (messageId) => {
+    if (!socketRef.current || !activeRoom) return;
+    socketRef.current.emit('pin_message', { messageId, roomId: activeRoom.id });
+    setPinnedIds(prev => new Set([...prev, messageId]));
+  };
+
+  const unpinMessage = (messageId) => {
+    if (!socketRef.current || !activeRoom) return;
+    socketRef.current.emit('unpin_message', { messageId, roomId: activeRoom.id });
+    setPinnedIds(prev => { const s = new Set(prev); s.delete(messageId); return s; });
+    setPinnedMessages(prev => prev.filter(p => p.message_id !== messageId));
+  };
+
+  const renameRoom = async () => {
+    if (!renameValue.trim() || !activeRoom) return;
+    try {
+      const res = await fetch(`${API_BASE}/chat/rooms/${activeRoom.id}/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: renameValue.trim() })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setActiveRoom(p => ({ ...p, name: data.data.name }));
+        setRooms(p => p.map(r => r.id === activeRoom.id ? { ...r, name: data.data.name } : r));
+        setShowRoomSettings(false);
+      }
+    } catch {}
+  };
+
   const handleCreateRoom = async () => {
     if (!newRoomName.trim()) return;
     try {
@@ -279,14 +356,64 @@ export default function ChatPanel({ userData, tenantId }) {
               <div style={S.avatar(getAvatarColor(activeRoom.name))}>
                 {activeRoom.type === 'direct' ? '💬' : activeRoom.name[0]?.toUpperCase()}
               </div>
-              <div>
+              <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: '#1f2937' }}>{activeRoom.name}</div>
                 <div style={{ fontSize: 11, color: '#9ca3af' }}>
                   {activeRoom.member_count} members
                   {onlineUsers.length > 0 && <span> · <span style={S.onlineDot} />{onlineUsers.length} online</span>}
                 </div>
               </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button onClick={() => { setSearchOpen(p => !p); setShowPinned(false); }}
+                  style={{ background: searchOpen ? '#eff6ff' : 'none', border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer', color: searchOpen ? '#6366f1' : '#6b7280' }}>🔍</button>
+                <button onClick={() => { setShowPinned(p => !p); setSearchOpen(false); if (!showPinned) loadPinned(activeRoom.id); }}
+                  style={{ background: showPinned ? '#eff6ff' : 'none', border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer', color: showPinned ? '#6366f1' : '#6b7280' }}>📌 {pinnedIds.size > 0 ? pinnedIds.size : ''}</button>
+                <button onClick={() => { setShowRoomSettings(true); setRenameValue(activeRoom.name); }}
+                  style={{ background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer', color: '#6b7280' }}>⚙️</button>
+              </div>
             </div>
+
+            {searchOpen && (
+              <div style={{ padding: '8px 16px', borderBottom: '1px solid #e5e7eb', background: '#fafafa' }}>
+                <input
+                  value={searchQuery}
+                  onChange={e => { setSearchQuery(e.target.value); searchMessages(e.target.value); }}
+                  placeholder="Search messages in this room..."
+                  style={{ width: '100%', padding: '7px 12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box' }}
+                  autoFocus
+                />
+                {searchResults.length > 0 && (
+                  <div style={{ marginTop: 8, maxHeight: 200, overflowY: 'auto' }}>
+                    {searchResults.map(msg => (
+                      <div key={msg.id} style={{ padding: '6px 8px', borderRadius: 6, background: '#fff', border: '1px solid #e5e7eb', marginBottom: 4, fontSize: 12 }}>
+                        <span style={{ fontWeight: 600, color: '#6366f1' }}>{msg.user_name}: </span>
+                        <span style={{ color: '#1f2937' }}>{msg.message}</span>
+                        <span style={{ color: '#9ca3af', marginLeft: 8 }}>{new Date(msg.created_at).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {searchQuery && searchResults.length === 0 && (
+                  <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 6 }}>No messages found</div>
+                )}
+              </div>
+            )}
+
+            {showPinned && (
+              <div style={{ padding: '8px 16px', borderBottom: '1px solid #e5e7eb', background: '#fffbeb', maxHeight: 160, overflowY: 'auto' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#92400e', marginBottom: 6 }}>📌 Pinned Messages</div>
+                {pinnedMessages.length === 0 && <div style={{ fontSize: 12, color: '#9ca3af' }}>No pinned messages</div>}
+                {pinnedMessages.map(p => (
+                  <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '4px 0', borderBottom: '1px solid #fde68a' }}>
+                    <div style={{ fontSize: 12, color: '#1f2937' }}>
+                      <span style={{ fontWeight: 600, color: '#6366f1' }}>{p.user_name}: </span>{p.message}
+                    </div>
+                    <button onClick={() => unpinMessage(p.message_id)}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12, color: '#9ca3af', flexShrink: 0, marginLeft: 8 }}>×</button>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Messages */}
             <div style={S.messages}>
@@ -333,6 +460,7 @@ export default function ChatPanel({ userData, tenantId }) {
                           <div style={{ display: 'flex', gap: 4, marginTop: 2, justifyContent: isOwn ? 'flex-end' : 'flex-start' }}>
                             <button onClick={() => setReplyTo(msg)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#9ca3af', padding: '0 2px' }} title="Reply">↩</button>
                             <button onClick={() => setEmojiTarget(emojiTarget === msg.id ? null : msg.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#9ca3af', padding: '0 2px' }} title="React">😊</button>
+                            <button onClick={() => pinnedIds.has(msg.id) ? unpinMessage(msg.id) : pinMessage(msg.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: pinnedIds.has(msg.id) ? '#f59e0b' : '#9ca3af', padding: '0 2px' }} title={pinnedIds.has(msg.id) ? 'Unpin' : 'Pin'}>📌</button>
                             {isOwn && <button onClick={() => { setEditingId(msg.id); setBody(msg.message); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#9ca3af', padding: '0 2px' }} title="Edit">✏️</button>}
                             {isOwn && <button onClick={() => socketRef.current?.emit('delete_message', { messageId: msg.id, roomId: activeRoom.id })} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#9ca3af', padding: '0 2px' }} title="Delete">🗑</button>}
                           </div>
@@ -404,6 +532,27 @@ export default function ChatPanel({ userData, tenantId }) {
           </>
         )}
       </div>
+
+      {/* Room Settings Modal */}
+      {showRoomSettings && activeRoom && (
+        <div style={S.modalOverlay} onClick={() => setShowRoomSettings(false)}>
+          <div style={S.modal} onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: '#1f2937', marginBottom: 16 }}>⚙️ Room Settings</div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', marginBottom: 4, display: 'block' }}>Room Name</label>
+            <input
+              style={S.input}
+              value={renameValue}
+              onChange={e => setRenameValue(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && renameRoom()}
+              autoFocus
+            />
+            <div style={S.modalBtns}>
+              <button style={S.cancelBtn} onClick={() => setShowRoomSettings(false)}>Cancel</button>
+              <button style={S.confirmBtn} onClick={renameRoom}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* New Room Modal */}
       {showNewRoom && (
