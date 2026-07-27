@@ -292,6 +292,72 @@ router.post('/keys/regenerate', saasAdminAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// PATCH /api/saas-admin/tenants/:id/status
+router.patch('/tenants/:id/status', saasAdminAuth, async (req, res) => {
+  const { status } = req.body;
+  if (!['active','suspended'].includes(status)) return res.status(400).json({ success: false, error: 'Invalid status' });
+  try {
+    const result = await pool.query(
+      `UPDATE tenant_companies SET status=$1 WHERE id=$2 AND saas_app_id=$3 RETURNING *`,
+      [status, req.params.id, req.decoded.saas_id]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Tenant not found' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// GET /api/saas-admin/tenants/:id/users
+router.get('/tenants/:id/users', saasAdminAuth, async (req, res) => {
+  try {
+    const check = await pool.query('SELECT id FROM tenant_companies WHERE id=$1 AND saas_app_id=$2', [req.params.id, req.decoded.saas_id]);
+    if (!check.rows.length) return res.status(404).json({ success: false, error: 'Tenant not found' });
+    const result = await pool.query(
+      `SELECT id, username, email, first_name, last_name, role, status, last_login, created_at
+       FROM tenant_users WHERE tenant_id=$1 ORDER BY created_at DESC`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// PATCH /api/saas-admin/tenants/:id/limits
+router.patch('/tenants/:id/limits', saasAdminAuth, async (req, res) => {
+  const { max_users, plan_type } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE tenant_companies SET max_users=$1, plan_type=$2 WHERE id=$3 AND saas_app_id=$4 RETURNING *`,
+      [max_users, plan_type, req.params.id, req.decoded.saas_id]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Tenant not found' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// GET /api/saas-admin/analytics
+router.get('/analytics', saasAdminAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT tc.id, tc.company_name, tc.domain, tc.status, tc.plan_type, tc.max_users,
+         COUNT(DISTINCT tu.id) as user_count,
+         COUNT(DISTINCT e.id) as email_count
+       FROM tenant_companies tc
+       LEFT JOIN tenant_users tu ON tu.tenant_id::text = tc.id::text AND tu.status='active'
+       LEFT JOIN emails e ON e.tenant_id::text = tc.id::text
+       WHERE tc.saas_app_id = $1
+       GROUP BY tc.id ORDER BY user_count DESC`,
+      [req.decoded.saas_id]
+    );
+    const rows = result.rows;
+    const totals = {
+      total_tenants: rows.length,
+      active_tenants: rows.filter(r => r.status === 'active').length,
+      total_users: rows.reduce((s, r) => s + parseInt(r.user_count), 0),
+      total_emails: rows.reduce((s, r) => s + parseInt(r.email_count), 0)
+    };
+    res.json({ success: true, data: { tenants: rows, totals } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 // GET /api/saas-admin/branding
 router.get('/branding', saasAdminAuth, async (req, res) => {
   try {

@@ -21,6 +21,12 @@ export default function SaasAdminDashboard() {
   const [branding, setBranding] = useState(null);
   const [brandingForm, setBrandingForm] = useState({ platform_name: '', tagline: '', primary_color: '#6366f1', secondary_color: '#8b5cf6', custom_domain: '', support_email: '' });
   const [brandingSaving, setBrandingSaving] = useState(false);
+  const [tenantUsers, setTenantUsers] = useState([]);
+  const [tenantUsersModal, setTenantUsersModal] = useState(null);
+  const [editLimitsModal, setEditLimitsModal] = useState(null);
+  const [limitsForm, setLimitsForm] = useState({ max_users: 50, plan_type: 'free' });
+  const [analytics, setAnalytics] = useState(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
 
   const user = JSON.parse(localStorage.getItem('user_data') || '{}');
   const token = localStorage.getItem('saas_admin_token');
@@ -137,9 +143,48 @@ export default function SaasAdminDashboard() {
 
   const logout = () => { localStorage.clear(); window.location.href = '/'; };
 
+  const toggleTenantStatus = async (tenant) => {
+    const newStatus = tenant.status === 'active' ? 'suspended' : 'active';
+    const res = await fetch(`${API}/api/saas-admin/tenants/${tenant.id}/status`, {
+      method: 'PATCH', headers: { ...auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: newStatus })
+    });
+    const data = await res.json();
+    if (data.success) setTenants(prev => prev.map(t => t.id === tenant.id ? { ...t, status: newStatus } : t));
+    else alert(data.error);
+  };
+
+  const loadTenantUsers = async (tenant) => {
+    const res = await fetch(`${API}/api/saas-admin/tenants/${tenant.id}/users`, { headers: auth });
+    const data = await res.json();
+    if (data.success) { setTenantUsers(data.data); setTenantUsersModal(tenant); }
+    else alert(data.error);
+  };
+
+  const saveLimits = async () => {
+    const res = await fetch(`${API}/api/saas-admin/tenants/${editLimitsModal.id}/limits`, {
+      method: 'PATCH', headers: { ...auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify(limitsForm)
+    });
+    const data = await res.json();
+    if (data.success) {
+      setTenants(prev => prev.map(t => t.id === editLimitsModal.id ? { ...t, ...limitsForm } : t));
+      setEditLimitsModal(null);
+    } else alert(data.error);
+  };
+
+  const loadAnalytics = async () => {
+    setAnalyticsLoading(true);
+    const res = await fetch(`${API}/api/saas-admin/analytics`, { headers: auth });
+    const data = await res.json();
+    if (data.success) setAnalytics(data.data);
+    setAnalyticsLoading(false);
+  };
+
   const nav = [
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
     { id: 'tenants', label: 'Tenants', icon: '🏢' },
+    { id: 'analytics', label: 'Analytics', icon: '📈' },
     { id: 'permissions', label: 'Tenant Permissions', icon: '🔑' },
     { id: 'api-keys', label: 'API Keys', icon: '🗝' },
     { id: 'developer', label: 'Developer', icon: '⚡' },
@@ -154,7 +199,7 @@ export default function SaasAdminDashboard() {
       </div>
       <div style={{ flex: 1, padding: '12px 8px' }}>
         {nav.map(item => (
-          <div key={item.id} onClick={() => { setSection(item.id); if (item.id === 'api-keys') loadApiKeys(); if (item.id === 'developer') { loadApiKeys(); loadWebhookCfg(); } if (item.id === 'branding') loadBranding(); }}
+          <div key={item.id} onClick={() => { setSection(item.id); if (item.id === 'api-keys') loadApiKeys(); if (item.id === 'developer') { loadApiKeys(); loadWebhookCfg(); } if (item.id === 'branding') loadBranding(); if (item.id === 'analytics') loadAnalytics(); }}
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 10px', borderRadius: 6, cursor: 'pointer', marginBottom: 2, background: section === item.id ? c.primaryLight : 'transparent', color: section === item.id ? c.primary : c.text, fontWeight: section === item.id ? 600 : 400, fontSize: 13 }}>
             <span>{item.icon}</span>{item.label}
           </div>
@@ -202,7 +247,7 @@ export default function SaasAdminDashboard() {
       <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead><tr style={{ background: c.bg, borderBottom: `1px solid ${c.border}` }}>
-            {['Company', 'Domain', 'Plan', 'Users', 'Status'].map(h => <th key={h} style={{ textAlign: 'left', padding: '12px 16px', color: c.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>)}
+            {['Company', 'Domain', 'Plan', 'Users', 'Status', 'Actions'].map(h => <th key={h} style={{ textAlign: 'left', padding: '12px 16px', color: c.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>)}
           </tr></thead>
           <tbody>
             {tenants.map(t => (
@@ -214,12 +259,76 @@ export default function SaasAdminDashboard() {
                 <td style={{ padding: '12px 16px' }}>
                   <span style={{ background: t.status === 'active' ? c.successLight : c.warningLight, color: t.status === 'active' ? c.success : c.warning, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>{t.status}</span>
                 </td>
+                <td style={{ padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => loadTenantUsers(t)}
+                      style={{ background: 'none', border: `1px solid ${c.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: c.text }}>👥 Users</button>
+                    <button onClick={() => { setEditLimitsModal(t); setLimitsForm({ max_users: t.max_users, plan_type: t.plan_type || 'free' }); }}
+                      style={{ background: 'none', border: `1px solid ${c.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: c.text }}>✏️ Limits</button>
+                    <button onClick={() => toggleTenantStatus(t)}
+                      style={{ background: 'none', border: `1px solid ${t.status === 'active' ? c.danger : c.success}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: t.status === 'active' ? c.danger : c.success, fontWeight: 600 }}>
+                      {t.status === 'active' ? 'Suspend' : 'Activate'}
+                    </button>
+                  </div>
+                </td>
               </tr>
             ))}
-            {!tenants.length && <tr><td colSpan={5} style={{ padding: 30, textAlign: 'center', color: c.textMuted }}>No tenants yet</td></tr>}
+            {!tenants.length && <tr><td colSpan={6} style={{ padding: 30, textAlign: 'center', color: c.textMuted }}>No tenants yet</td></tr>}
           </tbody>
         </table>
       </div>
+
+      {tenantUsersModal && (
+        <div style={{ position: 'fixed', inset: 0, background: '#0008', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: c.card, borderRadius: 14, padding: 28, width: 700, maxHeight: '80vh', overflow: 'auto', boxShadow: '0 20px 60px #0003' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div style={{ fontSize: 17, fontWeight: 700, color: c.text }}>Users — {tenantUsersModal.company_name}</div>
+              <button onClick={() => setTenantUsersModal(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: c.textMuted }}>✕</button>
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead><tr style={{ background: c.bg, borderBottom: `1px solid ${c.border}` }}>
+                {['Email','Name','Role','Status','Last Login'].map(h => <th key={h} style={{ textAlign: 'left', padding: '10px 12px', color: c.textMuted, fontWeight: 600, fontSize: 11 }}>{h}</th>)}
+              </tr></thead>
+              <tbody>
+                {tenantUsers.map(u => (
+                  <tr key={u.id} style={{ borderBottom: `1px solid ${c.border}` }}>
+                    <td style={{ padding: '10px 12px', fontFamily: 'monospace', fontSize: 12 }}>{u.email}</td>
+                    <td style={{ padding: '10px 12px' }}>{[u.first_name, u.last_name].filter(Boolean).join(' ') || u.username}</td>
+                    <td style={{ padding: '10px 12px', color: c.textMuted }}>{u.role}</td>
+                    <td style={{ padding: '10px 12px' }}>
+                      <span style={{ background: u.status === 'active' ? c.successLight : c.warningLight, color: u.status === 'active' ? c.success : c.warning, borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>{u.status}</span>
+                    </td>
+                    <td style={{ padding: '10px 12px', color: c.textMuted, fontSize: 12 }}>{u.last_login ? new Date(u.last_login).toLocaleDateString() : '—'}</td>
+                  </tr>
+                ))}
+                {!tenantUsers.length && <tr><td colSpan={5} style={{ padding: 20, textAlign: 'center', color: c.textMuted }}>No users</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {editLimitsModal && (
+        <div style={{ position: 'fixed', inset: 0, background: '#0008', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: c.card, borderRadius: 14, padding: 28, width: 380, boxShadow: '0 20px 60px #0003' }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: c.text, marginBottom: 20 }}>Edit Limits — {editLimitsModal.company_name}</div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: c.textMuted, display: 'block', marginBottom: 4 }}>Max Users</label>
+            <input type="number" value={limitsForm.max_users} onChange={e => setLimitsForm(p => ({ ...p, max_users: parseInt(e.target.value) }))}
+              style={{ width: '100%', padding: '10px 12px', border: `1px solid ${c.border}`, borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box', marginBottom: 14 }} />
+            <label style={{ fontSize: 12, fontWeight: 600, color: c.textMuted, display: 'block', marginBottom: 4 }}>Plan Type</label>
+            <select value={limitsForm.plan_type} onChange={e => setLimitsForm(p => ({ ...p, plan_type: e.target.value }))}
+              style={{ width: '100%', padding: '10px 12px', border: `1px solid ${c.border}`, borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box', marginBottom: 20 }}>
+              {['free','starter','pro','enterprise'].map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={saveLimits}
+                style={{ flex: 1, background: c.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '10px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Save</button>
+              <button onClick={() => setEditLimitsModal(null)}
+                style={{ flex: 1, background: 'none', border: `1px solid ${c.border}`, borderRadius: 8, padding: '10px', fontSize: 13, cursor: 'pointer', color: c.text }}>Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -535,10 +644,53 @@ export default function SaasAdminDashboard() {
     );
   };
 
+  const AnalyticsView = () => {
+    if (analyticsLoading) return <div style={{ textAlign: 'center', padding: 60, color: c.textMuted }}>Loading...</div>;
+    if (!analytics) return null;
+    const { totals, tenants: rows } = analytics;
+    return (
+      <div>
+        <div style={{ fontSize: 22, fontWeight: 700, color: c.text, marginBottom: 20 }}>Analytics</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+          {[['Total Tenants', totals.total_tenants, '🏢'], ['Active Tenants', totals.active_tenants, '✅'], ['Total Users', totals.total_users, '👥'], ['Total Emails', totals.total_emails, '📧']].map(([label, val, icon]) => (
+            <div key={label} style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: 20, textAlign: 'center' }}>
+              <div style={{ fontSize: 28, marginBottom: 4 }}>{icon}</div>
+              <div style={{ fontSize: 26, fontWeight: 700, color: c.text }}>{val || 0}</div>
+              <div style={{ fontSize: 12, color: c.textMuted }}>{label}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead><tr style={{ background: c.bg, borderBottom: `1px solid ${c.border}` }}>
+              {['Company','Domain','Plan','Users','Emails','Status'].map(h => <th key={h} style={{ textAlign: 'left', padding: '12px 16px', color: c.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {rows.map(t => (
+                <tr key={t.id} style={{ borderBottom: `1px solid ${c.border}` }}>
+                  <td style={{ padding: '12px 16px', fontWeight: 600, color: c.text }}>{t.company_name}</td>
+                  <td style={{ padding: '12px 16px', color: c.textMuted, fontSize: 12, fontFamily: 'monospace' }}>{t.domain}</td>
+                  <td style={{ padding: '12px 16px', color: c.text }}>{t.plan_type || 'free'}</td>
+                  <td style={{ padding: '12px 16px', color: c.text }}>{t.user_count} / {t.max_users}</td>
+                  <td style={{ padding: '12px 16px', color: c.text }}>{t.email_count}</td>
+                  <td style={{ padding: '12px 16px' }}>
+                    <span style={{ background: t.status === 'active' ? c.successLight : c.warningLight, color: t.status === 'active' ? c.success : c.warning, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>{t.status}</span>
+                  </td>
+                </tr>
+              ))}
+              {!rows.length && <tr><td colSpan={6} style={{ padding: 30, textAlign: 'center', color: c.textMuted }}>No data</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
   const renderSection = () => {
     switch (section) {
       case 'dashboard': return <Dashboard />;
       case 'tenants': return <TenantsView />;
+      case 'analytics': return <AnalyticsView />;
       case 'permissions': return <PermissionsView />;
       case 'api-keys': return <ApiKeysView />;
       case 'developer': return <DeveloperView />;
