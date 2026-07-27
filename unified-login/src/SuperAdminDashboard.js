@@ -18,6 +18,7 @@ function SuperAdminDashboard() {
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
   const [openApiKeysDialog, setOpenApiKeysDialog] = useState(false);
   const [openBulkImportDialog, setOpenBulkImportDialog] = useState(false);
+  const [dnsModal, setDnsModal] = useState(null); // { domain, password }
   const [editingSaasApp, setEditingSaasApp] = useState(null);
   const [deletingSaasApp, setDeletingSaasApp] = useState(null);
   const [viewingApiKeys, setViewingApiKeys] = useState(null);
@@ -902,7 +903,7 @@ function SuperAdminDashboard() {
         if (data.success) {
           setOpenTenantDialog(false);
           fetchAll();
-          alert(`Tenant created!\nAdmin Password: ${data.data?.admin_credentials?.password}`);
+          setDnsModal({ domain: data.data.domain, password: data.data?.admin_credentials?.password });
         } else alert(data.error);
       } catch (err) { alert(err.message); }
     };
@@ -1081,6 +1082,38 @@ function SuperAdminDashboard() {
           ))}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
             <button style={btnPrimary} onClick={() => setViewingFeatures(null)}>Done</button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* DNS Setup Modal — shown after tenant creation */}
+    {dnsModal && (
+      <div style={modalStyle} onClick={() => setDnsModal(null)}>
+        <div style={{ ...boxStyle, width: 560 }} onClick={e => e.stopPropagation()}>
+          <div style={{ fontSize: 17, fontWeight: 700, color: colors.text, marginBottom: 4 }}>✅ Tenant Created!</div>
+          <div style={{ fontSize: 13, color: colors.textMuted, marginBottom: 4 }}>Domain: <code style={{ fontFamily: 'monospace', background: colors.bg, padding: '2px 6px', borderRadius: 4 }}>{dnsModal.domain}</code></div>
+          {dnsModal.password && <div style={{ fontSize: 13, color: colors.textMuted, marginBottom: 16 }}>Admin password: <code style={{ fontFamily: 'monospace', background: colors.bg, padding: '2px 6px', borderRadius: 4 }}>{dnsModal.password}</code></div>}
+          <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 12 }}>Add these DNS records at your domain provider:</div>
+          {[
+            { type: 'MX',    name: dnsModal.domain,          value: 'mail.ssgzone.in',                                    note: 'Priority: 10' },
+            { type: 'TXT',   name: dnsModal.domain,          value: 'v=spf1 include:ssgzone.in ~all',                     note: 'SPF' },
+            { type: 'TXT',   name: `_dmarc.${dnsModal.domain}`, value: 'v=DMARC1; p=none; rua=mailto:dmarc@ssgzone.in', note: 'DMARC' },
+            { type: 'CNAME', name: `mail.${dnsModal.domain}`, value: 'mail.ssgzone.in',                                  note: 'Webmail' },
+          ].map((r, i) => (
+            <div key={i} style={{ background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 8, padding: '10px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ background: colors.primaryLight, color: colors.primary, borderRadius: 4, padding: '2px 7px', fontSize: 11, fontWeight: 700, minWidth: 44, textAlign: 'center' }}>{r.type}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11, color: colors.textMuted, marginBottom: 2 }}>{r.name} {r.note && <span style={{ color: colors.warning }}>({r.note})</span>}</div>
+                <div style={{ fontFamily: 'monospace', fontSize: 12, color: colors.text, wordBreak: 'break-all' }}>{r.value}</div>
+              </div>
+              <button onClick={() => navigator.clipboard.writeText(r.value)}
+                style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: colors.textMuted, flexShrink: 0 }}>📋 Copy</button>
+            </div>
+          ))}
+          <div style={{ fontSize: 11, color: colors.warning, marginBottom: 16 }}>⚠ DNS propagation may take 5–30 minutes.</div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <button style={btnPrimary} onClick={() => setDnsModal(null)}>Done</button>
           </div>
         </div>
       </div>
@@ -1389,326 +1422,147 @@ function SuperAdminDashboard() {
   };
 
   const MailboxSection = () => {
-    const [mailboxTab, setMailboxTab] = useState('mailboxes');
     const [mailboxes, setMailboxes] = useState([]);
-    const [total, setTotal] = useState(0);
-    const [domain, setDomain] = useState('');
     const [search, setSearch] = useState('');
-    const [openDialog, setOpenDialog] = useState(false);
-    const [editingMailbox, setEditingMailbox] = useState(null);
-    const [validDomains, setValidDomains] = useState([]);
-    const [resetingMailbox, setResetingMailbox] = useState(null);
-    const [newMailboxPassword, setNewMailboxPassword] = useState('');
-    const [form, setForm] = useState({ username: '', domain: 'ssgzone.in', password: '', first_name: '', last_name: '', quota: 1024 });
-    const [editForm, setEditForm] = useState({ first_name: '', last_name: '', quota: 1024 });
-
-    // Alias state
-    const [aliases, setAliases] = useState([]);
-    const [aliasForm, setAliasForm] = useState({ address: '', forwarding: '', domain: '' });
-    const [openAliasDialog, setOpenAliasDialog] = useState(false);
-
-    const fetchAliases = (d) => {
-      const params = new URLSearchParams();
-      if (d || domain) params.append('domain', d || domain);
-      fetch(`${API}/mailbox/aliases?${params}`, { headers: authHeaders })
-        .then(r => r.json()).then(d => { if (d.success) setAliases(d.data); });
-    };
-
-    const createAlias = async () => {
-      if (!aliasForm.address || !aliasForm.forwarding || !aliasForm.domain) return alert('All fields required');
-      const fullAddress = `${aliasForm.address}@${aliasForm.domain}`;
-      const res = await fetch(`${API}/mailbox/aliases`, {
-        method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ address: fullAddress, forwarding: aliasForm.forwarding, domain: aliasForm.domain })
-      });
-      const data = await res.json();
-      if (data.success) { setOpenAliasDialog(false); setAliasForm({ address: '', forwarding: '', domain: '' }); fetchAliases(); }
-      else alert(data.error);
-    };
-
-    const deleteAlias = async (id) => {
-      if (!window.confirm('Delete this alias?')) return;
-      const res = await fetch(`${API}/mailbox/aliases/${id}`, { method: 'DELETE', headers: authHeaders });
-      const data = await res.json();
-      if (data.success) fetchAliases();
-      else alert(data.error);
-    };
-
-    useEffect(() => {
-      fetch(`${API}/mailbox/domains`, { headers: authHeaders })
-        .then(r => r.json()).then(d => { if (d.success) setValidDomains(d.data); });
-    }, []);
+    const [tenantFilter, setTenantFilter] = useState('');
+    const [expandedId, setExpandedId] = useState(null);
+    const [aliases, setAliases] = useState({});
+    const [aliasInput, setAliasInput] = useState({});
 
     const fetchMailboxes = () => {
       const params = new URLSearchParams();
-      if (domain) params.append('domain', domain);
-      fetch(`${API}/mailbox/list?${params}`, { headers: authHeaders })
-        .then(r => r.json()).then(d => { if (d.success) { setMailboxes(d.data); setTotal(d.total); } });
+      if (tenantFilter) params.append('tenant_id', tenantFilter);
+      if (search) params.append('search', search);
+      fetch(`${API}/mailboxes?${params}`, { headers: authHeaders })
+        .then(r => r.json()).then(d => { if (d.success) setMailboxes(d.data); });
     };
-    useEffect(() => { fetchMailboxes(); fetchAliases(); }, [domain]);
 
-    const filteredMailboxes = search
-      ? mailboxes.filter(m => m.username.toLowerCase().includes(search.toLowerCase()) || m.name.toLowerCase().includes(search.toLowerCase()))
+    useEffect(() => { fetchMailboxes(); }, [tenantFilter]);
+
+    const filtered = search
+      ? mailboxes.filter(m => m.email.toLowerCase().includes(search.toLowerCase()))
       : mailboxes;
 
-    const deleteMailboxPermanent = async (m) => {
-      if (!window.confirm(`Permanently delete ${m.username}? This cannot be undone.`)) return;
-      const res = await fetch(`${API}/mailbox/permanent/${encodeURIComponent(m.username)}`, { method: 'DELETE', headers: authHeaders });
-      const data = await res.json();
-      if (data.success) { setEditingMailbox(null); fetchMailboxes(); }
-      else alert(data.error);
-    };
-
-    const updateMailbox = async () => {
-      const res = await fetch(`${API}/mailbox/${encodeURIComponent(editingMailbox.username)}`, {
-        method: 'PUT', headers: { ...authHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify(editForm)
+    const toggleStatus = async (m) => {
+      const newStatus = m.status === 'active' ? 'suspended' : 'active';
+      const res = await fetch(`${API}/mailboxes/${m.id}/status`, {
+        method: 'PATCH', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
       });
       const data = await res.json();
-      if (data.success) { setEditingMailbox(null); fetchMailboxes(); }
+      if (data.success) setMailboxes(mailboxes.map(x => x.id === m.id ? { ...x, status: newStatus } : x));
       else alert(data.error);
     };
 
-    const create = async () => {
-      if (!form.username || !form.password) return alert('Username and password required');
-      try {
-        const res = await fetch(`${API}/mailbox/create`, {
-          method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify(form)
-        });
-        const data = await res.json();
-        if (data.success) { setOpenDialog(false); setForm({ username: '', domain: 'ssgzone.in', password: '', first_name: '', last_name: '', quota: 1024 }); fetchMailboxes(); alert(`Mailbox created: ${data.data.email}`); }
-        else alert(data.error);
-      } catch (e) { alert(e.message); }
-    };
-
-    const toggleActive = async (m) => {
-      const newActive = m.active === 1 ? 0 : 1;
-      const endpoint = newActive === 0 ? `${API}/mailbox/${encodeURIComponent(m.username)}` : null;
-      if (newActive === 0) {
-        if (!window.confirm(`Deactivate ${m.username}?`)) return;
-        const res = await fetch(endpoint, { method: 'DELETE', headers: authHeaders });
-        const data = await res.json();
-        if (data.success) fetchMailboxes();
-      } else {
-        // Reactivate via reset password endpoint workaround — direct DB update via dedicated endpoint
-        const res = await fetch(`${API}/mailbox/reactivate`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ email: m.username }) });
-        const data = await res.json();
-        if (data.success) fetchMailboxes();
-        else alert(data.error || 'Reactivate failed');
-      }
-    };
-
-    const resetMailboxPassword = async () => {
-      if (!newMailboxPassword) return alert('New password required');
-      const res = await fetch(`${API}/mailbox/reset-password`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ email: resetingMailbox.username, new_password: newMailboxPassword }) });
+    const loadAliases = async (mailboxId) => {
+      if (expandedId === mailboxId) { setExpandedId(null); return; }
+      setExpandedId(mailboxId);
+      if (aliases[mailboxId]) return;
+      const res = await fetch(`${API}/aliases?mailbox_id=${mailboxId}`, { headers: authHeaders });
       const data = await res.json();
-      if (data.success) { setResetingMailbox(null); setNewMailboxPassword(''); alert('Password updated!'); }
+      if (data.success) setAliases(a => ({ ...a, [mailboxId]: data.data }));
+    };
+
+    const addAlias = async (mailboxId) => {
+      const email = (aliasInput[mailboxId] || '').trim();
+      if (!email) return alert('Enter alias email');
+      const res = await fetch(`${API}/aliases`, {
+        method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mailbox_id: mailboxId, alias_email: email })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setAliases(a => ({ ...a, [mailboxId]: [...(a[mailboxId] || []), data.data] }));
+        setAliasInput(i => ({ ...i, [mailboxId]: '' }));
+      } else alert(data.error);
+    };
+
+    const deleteAlias = async (mailboxId, aliasId) => {
+      const res = await fetch(`${API}/aliases/${aliasId}`, { method: 'DELETE', headers: authHeaders });
+      const data = await res.json();
+      if (data.success) setAliases(a => ({ ...a, [mailboxId]: a[mailboxId].filter(x => x.id !== aliasId) }));
       else alert(data.error);
     };
 
-    const formatQuota = (bytes) => {
-      if (!bytes) return '0 MB';
-      const mb = Math.round(bytes / 1048576);
-      return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`;
-    };
-
-    const inputS = { width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 13, color: colors.text, background: colors.bg, outline: 'none', boxSizing: 'border-box', marginBottom: 12 };
+    const inputS = { padding: '9px 12px', border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 13, color: colors.text, background: colors.bg, outline: 'none', boxSizing: 'border-box' };
     return (
       <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: colors.text }}>Mailboxes</div>
-            <div style={{ fontSize: 13, color: colors.textMuted }}>Total {total} mailboxes</div>
-          </div>
-          <button onClick={() => mailboxTab === 'mailboxes' ? setOpenDialog(true) : setOpenAliasDialog(true)} style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>{mailboxTab === 'mailboxes' ? '+ Create Mailbox' : '+ Create Alias'}</button>
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 22, fontWeight: 700, color: colors.text }}>Mailboxes</div>
+          <div style={{ fontSize: 13, color: colors.textMuted }}>Tenant user mailboxes — click a row to manage aliases</div>
         </div>
 
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: 4, marginBottom: 16, borderBottom: `1px solid ${colors.border}` }}>
-          {[['mailboxes', '📬 Mailboxes'], ['aliases', '↪ Aliases']].map(([key, label]) => (
-            <button key={key} onClick={() => setMailboxTab(key)}
-              style={{ padding: '8px 16px', border: 'none', borderBottom: mailboxTab === key ? `2px solid ${colors.primary}` : '2px solid transparent', background: 'transparent', color: mailboxTab === key ? colors.primary : colors.textMuted, fontWeight: mailboxTab === key ? 600 : 400, fontSize: 13, cursor: 'pointer', marginBottom: -1 }}>
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* Filters */}
         <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by email or name..."
-            style={{ flex: 1, padding: '10px 14px', border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 13, color: colors.text, background: colors.card, outline: 'none', boxSizing: 'border-box' }} />
-          <input value={domain} onChange={e => setDomain(e.target.value)} placeholder="Filter by domain (e.g. ssgzone.in)"
-            style={{ flex: 1, padding: '10px 14px', border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 13, color: colors.text, background: colors.card, outline: 'none', boxSizing: 'border-box' }} />
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && fetchMailboxes()}
+            placeholder="Search by email... (press Enter)"
+            style={{ ...inputS, flex: 1 }} />
+          <select value={tenantFilter} onChange={e => setTenantFilter(e.target.value)}
+            style={{ ...inputS, minWidth: 200 }}>
+            <option value="">All Tenants</option>
+            {tenants.map(t => <option key={t.id} value={t.id}>{t.company_name}</option>)}
+          </select>
+          <button onClick={fetchMailboxes}
+            style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>🔍 Search</button>
         </div>
 
-        {mailboxTab === 'mailboxes' && (<>
         <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead><tr style={{ background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
-              {['Email', 'Name', 'Domain', 'Quota', 'Status', 'Created', 'Actions'].map(h => <th key={h} style={{ textAlign: 'left', padding: '12px 16px', color: colors.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>)}
+              {['Email', 'Name', 'Tenant', 'Role', 'Status', 'Actions'].map(h =>
+                <th key={h} style={{ textAlign: 'left', padding: '12px 16px', color: colors.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>
+              )}
             </tr></thead>
             <tbody>
-              {filteredMailboxes.map((m, i) => (
-                <tr key={i} style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  <td style={{ padding: '12px 16px', fontWeight: 600, color: colors.text, fontFamily: 'monospace', fontSize: 12 }}>{m.username}</td>
-                  <td style={{ padding: '12px 16px', color: colors.text }}>{m.name}</td>
-                  <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{m.domain}</td>
-                  <td style={{ padding: '12px 16px', color: colors.text }}>{formatQuota(m.quota)}</td>
-                  <td style={{ padding: '12px 16px' }}><span style={{ background: m.active === 1 ? colors.successLight : colors.dangerLight, color: m.active === 1 ? colors.success : colors.danger, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>{m.active === 1 ? 'Active' : 'Inactive'}</span></td>
-                  <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{new Date(m.created).toLocaleDateString()}</td>
-                  <td style={{ padding: '12px 16px' }}>
-                    <div style={{ display: 'flex', gap: 6 }}>
-                      <button onClick={() => { setEditingMailbox(m); setEditForm({ first_name: m.first_name || '', last_name: m.last_name || '', quota: Math.round(m.quota / 1048576) }); }}
-                        style={{ background: colors.bg, color: colors.text, border: `1px solid ${colors.border}`, borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer' }}>✏ Edit</button>
-                      <button onClick={() => { setResetingMailbox(m); setNewMailboxPassword(''); }}
-                        style={{ background: colors.cyanLight, color: colors.cyan, border: 'none', borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer' }}>🔑 Reset</button>
-                      <button onClick={() => toggleActive(m)}
-                        style={{ background: m.active === 1 ? colors.dangerLight : colors.successLight, color: m.active === 1 ? colors.danger : colors.success, border: 'none', borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer' }}>
-                        {m.active === 1 ? '🗑 Deactivate' : '▶ Activate'}
+              {filtered.map((m) => (
+                <React.Fragment key={m.id}>
+                  <tr style={{ borderBottom: `1px solid ${colors.border}`, cursor: 'pointer', background: expandedId === m.id ? colors.primaryLight : 'transparent' }}
+                    onClick={() => loadAliases(m.id)}>
+                    <td style={{ padding: '12px 16px', fontWeight: 600, color: colors.text, fontFamily: 'monospace', fontSize: 12 }}>{m.email}</td>
+                    <td style={{ padding: '12px 16px', color: colors.text }}>{m.first_name} {m.last_name}</td>
+                    <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{m.tenant_name || '—'}</td>
+                    <td style={{ padding: '12px 16px', color: colors.text }}>{m.role}</td>
+                    <td style={{ padding: '12px 16px' }}>
+                      <span style={{ background: m.status === 'active' ? colors.successLight : colors.dangerLight, color: m.status === 'active' ? colors.success : colors.danger, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>{m.status}</span>
+                    </td>
+                    <td style={{ padding: '12px 16px' }} onClick={e => e.stopPropagation()}>
+                      <button onClick={() => toggleStatus(m)}
+                        style={{ background: m.status === 'active' ? colors.warningLight : colors.successLight, color: m.status === 'active' ? colors.warning : colors.success, border: 'none', borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer' }}>
+                        {m.status === 'active' ? '⏸ Suspend' : '▶ Activate'}
                       </button>
-                    </div>
-                  </td>
-                </tr>
+                    </td>
+                  </tr>
+                  {expandedId === m.id && (
+                    <tr key={`aliases-${m.id}`}>
+                      <td colSpan={6} style={{ padding: '12px 24px', background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 8 }}>↪ Aliases for {m.email}</div>
+                        {(aliases[m.id] || []).length === 0
+                          ? <div style={{ fontSize: 12, color: colors.textMuted, marginBottom: 8 }}>No aliases yet</div>
+                          : (aliases[m.id] || []).map(a => (
+                            <div key={a.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                              <span style={{ fontFamily: 'monospace', fontSize: 12, color: colors.text }}>{a.alias_email}</span>
+                              <button onClick={() => deleteAlias(m.id, a.id)}
+                                style={{ background: colors.dangerLight, color: colors.danger, border: 'none', borderRadius: 5, padding: '3px 8px', fontSize: 11, cursor: 'pointer' }}>🗑</button>
+                            </div>
+                          ))
+                        }
+                        <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                          <input value={aliasInput[m.id] || ''}
+                            onChange={e => setAliasInput(i => ({ ...i, [m.id]: e.target.value }))}
+                            placeholder="new-alias@domain.com"
+                            style={{ ...inputS, flex: 1, padding: '7px 10px' }} />
+                          <button onClick={() => addAlias(m.id)}
+                            style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 7, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>+ Add Alias</button>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </React.Fragment>
               ))}
-              {filteredMailboxes.length === 0 && <tr><td colSpan={7} style={{ padding: 30, textAlign: 'center', color: colors.textMuted }}>No mailboxes found</td></tr>}
+              {filtered.length === 0 && <tr><td colSpan={6} style={{ padding: 30, textAlign: 'center', color: colors.textMuted }}>No mailboxes found. Use search/filter above.</td></tr>}
             </tbody>
           </table>
         </div>
-        </>)}
-
-        {mailboxTab === 'aliases' && (
-          <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead><tr style={{ background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
-                {['Alias Address', 'Forwards To', 'Domain', 'Status', 'Actions'].map(h => <th key={h} style={{ textAlign: 'left', padding: '12px 16px', color: colors.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>)}
-              </tr></thead>
-              <tbody>
-                {aliases.map((a, i) => (
-                  <tr key={a.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
-                    <td style={{ padding: '12px 16px', fontWeight: 600, color: colors.text, fontFamily: 'monospace', fontSize: 12 }}>{a.address}</td>
-                    <td style={{ padding: '12px 16px', color: colors.cyan, fontFamily: 'monospace', fontSize: 12 }}>→ {a.forwarding}</td>
-                    <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{a.domain}</td>
-                    <td style={{ padding: '12px 16px' }}><span style={{ background: a.active === 1 ? colors.successLight : colors.dangerLight, color: a.active === 1 ? colors.success : colors.danger, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>{a.active === 1 ? 'Active' : 'Inactive'}</span></td>
-                    <td style={{ padding: '12px 16px' }}>
-                      <button onClick={() => deleteAlias(a.id)} style={{ background: colors.dangerLight, color: colors.danger, border: 'none', borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer' }}>🗑 Delete</button>
-                    </td>
-                  </tr>
-                ))}
-                {aliases.length === 0 && <tr><td colSpan={5} style={{ padding: 30, textAlign: 'center', color: colors.textMuted }}>No aliases found</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Create Dialog */}
-        {openDialog && (
-          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setOpenDialog(false)}>
-            <div style={{ background: colors.card, borderRadius: 12, padding: 28, width: 480 }} onClick={e => e.stopPropagation()}>
-              <div style={{ fontSize: 17, fontWeight: 700, color: colors.text, marginBottom: 20 }}>Create Mailbox</div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>Username *</label>
-              <input style={inputS} value={form.username} onChange={e => setForm({ ...form, username: e.target.value })} placeholder="pradeep" />
-              <label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>Domain *</label>
-              <select style={inputS} value={form.domain} onChange={e => setForm({ ...form, domain: e.target.value })}>
-                {validDomains.map(d => <option key={d} value={d}>{d}</option>)}
-                {validDomains.length === 0 && <option value="ssgzone.in">ssgzone.in</option>}
-              </select>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>First Name</label>
-                  <input style={inputS} value={form.first_name} onChange={e => setForm({ ...form, first_name: e.target.value })} placeholder="Pradeep" />
-                </div>
-                <div>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>Last Name</label>
-                  <input style={inputS} value={form.last_name} onChange={e => setForm({ ...form, last_name: e.target.value })} placeholder="Singh" />
-                </div>
-              </div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>Password *</label>
-              <input type="password" style={inputS} value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} />
-              <label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>Quota</label>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
-                <select style={{ ...inputS, marginBottom: 0, flex: 1 }} value={form.quota} onChange={e => setForm({ ...form, quota: parseInt(e.target.value) })}>
-                  <option value={512}>512 MB</option>
-                  <option value={1024}>1 GB</option>
-                  <option value={2048}>2 GB</option>
-                  <option value={5120}>5 GB</option>
-                  <option value={10240}>10 GB</option>
-                  <option value={20480}>20 GB</option>
-                </select>
-              </div>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                <button style={{ background: colors.bg, color: colors.text, border: `1px solid ${colors.border}`, borderRadius: 8, padding: '10px 20px', fontSize: 13, cursor: 'pointer' }} onClick={() => setOpenDialog(false)}>Cancel</button>
-                <button style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }} onClick={create}>Create</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Create Alias Dialog */}
-        {openAliasDialog && (
-          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setOpenAliasDialog(false)}>
-            <div style={{ background: colors.card, borderRadius: 12, padding: 28, width: 480 }} onClick={e => e.stopPropagation()}>
-              <div style={{ fontSize: 17, fontWeight: 700, color: colors.text, marginBottom: 4 }}>↪ Create Alias</div>
-              <div style={{ fontSize: 13, color: colors.textMuted, marginBottom: 20 }}>Alias forwards all mail to another mailbox</div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>Domain *</label>
-              <select style={inputS} value={aliasForm.domain} onChange={e => setAliasForm({ ...aliasForm, domain: e.target.value })}>
-                <option value="">Select Domain</option>
-                {validDomains.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
-              <label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>Alias Username *</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                <input style={{ ...inputS, marginBottom: 0, flex: 1 }} value={aliasForm.address} onChange={e => setAliasForm({ ...aliasForm, address: e.target.value })} placeholder="e.g. contact" />
-                <span style={{ color: colors.textMuted, fontSize: 13 }}>@{aliasForm.domain || 'domain'}</span>
-              </div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>Forwards To (full email) *</label>
-              <input style={inputS} value={aliasForm.forwarding} onChange={e => setAliasForm({ ...aliasForm, forwarding: e.target.value })} placeholder="e.g. info@allthetruth.in" />
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                <button style={{ background: colors.bg, color: colors.text, border: `1px solid ${colors.border}`, borderRadius: 8, padding: '10px 20px', fontSize: 13, cursor: 'pointer' }} onClick={() => setOpenAliasDialog(false)}>Cancel</button>
-                <button style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }} onClick={createAlias}>Create Alias</button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Reset Password Dialog - Mailbox */}
-        {resetingMailbox && (
-          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setResetingMailbox(null)}>
-            <div style={{ background: colors.card, borderRadius: 12, padding: 28, width: 400 }} onClick={e => e.stopPropagation()}>
-              <div style={{ fontSize: 17, fontWeight: 700, color: colors.text, marginBottom: 4 }}>Reset Mailbox Password</div>
-              <div style={{ fontSize: 13, color: colors.textMuted, marginBottom: 20 }}>{resetingMailbox.username}</div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>New Password *</label>
-              <input type="password" style={inputS} value={newMailboxPassword} onChange={e => setNewMailboxPassword(e.target.value)} placeholder="Enter new password" />
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                <button style={{ background: colors.bg, color: colors.text, border: `1px solid ${colors.border}`, borderRadius: 8, padding: '10px 20px', fontSize: 13, cursor: 'pointer' }} onClick={() => setResetingMailbox(null)}>Cancel</button>
-                <button style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }} onClick={resetMailboxPassword}>Reset Password</button>
-              </div>
-            </div>
-          </div>
-        )}
-        {/* Edit Mailbox Dialog */}
-        {editingMailbox && (
-          <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setEditingMailbox(null)}>
-            <div style={{ background: colors.card, borderRadius: 12, padding: 28, width: 420 }} onClick={e => e.stopPropagation()}>
-              <div style={{ fontSize: 17, fontWeight: 700, color: colors.text, marginBottom: 4 }}>Edit Mailbox</div>
-              <div style={{ fontSize: 13, color: colors.textMuted, marginBottom: 20 }}>{editingMailbox.username}</div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div><label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>First Name</label><input style={inputS} value={editForm.first_name} onChange={e => setEditForm({ ...editForm, first_name: e.target.value })} /></div>
-                <div><label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>Last Name</label><input style={inputS} value={editForm.last_name} onChange={e => setEditForm({ ...editForm, last_name: e.target.value })} /></div>
-              </div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>Quota</label>
-              <select style={inputS} value={editForm.quota} onChange={e => setEditForm({ ...editForm, quota: parseInt(e.target.value) })}>
-                {[512, 1024, 2048, 5120, 10240, 20480].map(q => <option key={q} value={q}>{q >= 1024 ? `${q/1024} GB` : `${q} MB`}</option>)}
-              </select>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <button style={{ background: colors.dangerLight, color: colors.danger, border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }} onClick={() => deleteMailboxPermanent(editingMailbox)}>🗑 Delete Permanently</button>
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <button style={{ background: colors.bg, color: colors.text, border: `1px solid ${colors.border}`, borderRadius: 8, padding: '10px 20px', fontSize: 13, cursor: 'pointer' }} onClick={() => setEditingMailbox(null)}>Cancel</button>
-                  <button style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }} onClick={updateMailbox}>Update</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     );
   };

@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS email_aliases (
+  id SERIAL PRIMARY KEY,
+  mailbox_id VARCHAR(100) NOT NULL,
+  alias_email VARCHAR(255) NOT NULL UNIQUE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);

@@ -1129,4 +1129,85 @@ router.delete('/admins/:id', superAdminAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// PATCH /tenants/:id/status
+router.patch('/tenants/:id/status', superAdminAuth, async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!['active', 'suspended'].includes(status)) return res.status(400).json({ success: false, error: 'invalid status' });
+    const result = await db.query(
+      'UPDATE tenant_companies SET status=$1 WHERE id=$2 RETURNING *',
+      [status, req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Tenant not found' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// GET /mailboxes
+router.get('/mailboxes', superAdminAuth, async (req, res) => {
+  try {
+    const { tenant_id, search } = req.query;
+    const result = await db.query(`
+      SELECT tu.id, tu.email, tu.first_name, tu.last_name, tu.role, tu.status,
+        tu.tenant_id, tc.company_name as tenant_name, tc.domain
+      FROM tenant_users tu
+      LEFT JOIN tenant_companies tc ON tc.id::text = tu.tenant_id::text
+      WHERE ($1::text IS NULL OR tu.tenant_id::text = $1)
+        AND ($2::text IS NULL OR tu.email ILIKE '%'||$2||'%')
+      ORDER BY tu.created_at DESC LIMIT 200
+    `, [tenant_id || null, search || null]);
+    res.json({ success: true, data: result.rows });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// PATCH /mailboxes/:id/status
+router.patch('/mailboxes/:id/status', superAdminAuth, async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!['active', 'suspended'].includes(status)) return res.status(400).json({ success: false, error: 'invalid status' });
+    const result = await db.query(
+      'UPDATE tenant_users SET status=$1 WHERE id=$2 RETURNING id, email, status',
+      [status, req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Mailbox not found' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// GET /aliases
+router.get('/aliases', superAdminAuth, async (req, res) => {
+  try {
+    const { mailbox_id } = req.query;
+    const result = await db.query(
+      `SELECT * FROM email_aliases WHERE ($1::text IS NULL OR mailbox_id::text = $1) ORDER BY created_at DESC`,
+      [mailbox_id || null]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /aliases
+router.post('/aliases', superAdminAuth, async (req, res) => {
+  try {
+    const { mailbox_id, alias_email } = req.body;
+    if (!mailbox_id || !alias_email) return res.status(400).json({ success: false, error: 'mailbox_id and alias_email required' });
+    const result = await db.query(
+      'INSERT INTO email_aliases (mailbox_id, alias_email) VALUES ($1,$2) RETURNING *',
+      [mailbox_id, alias_email]
+    );
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    if (err.code === '23505') return res.status(400).json({ success: false, error: 'Alias already exists' });
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /aliases/:id
+router.delete('/aliases/:id', superAdminAuth, async (req, res) => {
+  try {
+    await db.query('DELETE FROM email_aliases WHERE id=$1', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 module.exports = router;
