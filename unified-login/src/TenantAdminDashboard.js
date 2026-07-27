@@ -13,9 +13,9 @@ const c = {
 
 const inp = { width: '100%', padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 8, fontSize: 13, color: c.text, background: c.bg, outline: 'none', boxSizing: 'border-box', marginBottom: 12 };
 const lbl = { fontSize: 12, fontWeight: 600, color: c.textMuted, display: 'block', marginBottom: 4 };
-const btn = (bg, color) => ({ background: bg, color, border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' });
+const mkBtn = (bg, color) => ({ background: bg, color, border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' });
 
-export default function TenantAdminDashboard() {
+function TenantAdminDashboard() {
   const [activeNav, setActiveNav] = useState('dashboard');
   const [stats, setStats] = useState({ totalUsers: 0, activeUsers: 0, emailsSent: 0, chatMessages: 0, whatsappMessages: 0 });
   const [users, setUsers] = useState([]);
@@ -230,7 +230,7 @@ export default function TenantAdminDashboard() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div style={{ fontSize: 22, fontWeight: 700, color: c.text }}>Employees</div>
-        <button onClick={() => { setEditingUser(null); setUserForm({ username: '', email: '', first_name: '', last_name: '', department_id: '', role: 'user', phone: '' }); setModalError(''); setOpenUserModal(true); }} style={btn(c.primary, '#fff')}>+ Add Employee</button>
+        <button onClick={() => { setEditingUser(null); setUserForm({ username: '', email: '', first_name: '', last_name: '', department_id: '', role: 'user', phone: '' }); setModalError(''); setOpenUserModal(true); }} style={mkBtn(c.primary, '#fff')}>+ Add Employee</button>
       </div>
       <div style={{ marginBottom: 14 }}>
         <input value={userSearch} onChange={e => setUserSearch(e.target.value)} placeholder="Search by name or email…"
@@ -278,7 +278,7 @@ export default function TenantAdminDashboard() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div style={{ fontSize: 22, fontWeight: 700, color: c.text }}>Departments</div>
-        <button onClick={() => { setEditingDept(null); setDeptForm({ name: '', description: '', head_user_id: '' }); setModalError(''); setOpenDeptModal(true); }} style={btn(c.primary, '#fff')}>+ Add Department</button>
+        <button onClick={() => { setEditingDept(null); setDeptForm({ name: '', description: '', head_user_id: '' }); setModalError(''); setOpenDeptModal(true); }} style={mkBtn(c.primary, '#fff')}>+ Add Department</button>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
         {departments.map(d => (
@@ -287,8 +287,8 @@ export default function TenantAdminDashboard() {
             <div style={{ fontSize: 13, color: c.textMuted, marginBottom: 12, minHeight: 36 }}>{d.description || '—'}</div>
             <div style={{ fontSize: 12, color: c.textMuted, marginBottom: 14 }}>Head: {d.head_name || 'Not assigned'}</div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={() => openEditDept(d)} style={{ ...btn('none', c.text), border: `1px solid ${c.border}`, fontSize: 12, padding: '5px 12px' }}>✏️ Edit</button>
-              <button onClick={() => handleDeleteDept(d.id)} style={{ ...btn('none', c.danger), border: `1px solid ${c.danger}`, fontSize: 12, padding: '5px 12px' }}>🗑 Delete</button>
+              <button onClick={() => openEditDept(d)} style={{ ...mkBtn('none', c.text), border: `1px solid ${c.border}`, fontSize: 12, padding: '5px 12px' }}>✏️ Edit</button>
+              <button onClick={() => handleDeleteDept(d.id)} style={{ ...mkBtn('none', c.danger), border: `1px solid ${c.danger}`, fontSize: 12, padding: '5px 12px' }}>🗑 Delete</button>
             </div>
           </div>
         ))}
@@ -332,7 +332,7 @@ export default function TenantAdminDashboard() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div style={{ fontSize: 22, fontWeight: 700, color: c.text }}>Analytics</div>
-        <button onClick={fetchDashboardData} style={{ ...btn('none', c.text), border: `1px solid ${c.border}`, fontSize: 12 }}>↻ Refresh</button>
+        <button onClick={fetchDashboardData} style={{ ...mkBtn('none', c.text), border: `1px solid ${c.border}`, fontSize: 12 }}>↻ Refresh</button>
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
         <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: 20 }}>
@@ -426,7 +426,6 @@ export default function TenantAdminDashboard() {
         {renderSection()}
       </div>
 
-      {/* User Modal */}
       {openUserModal && (
         <ModalOverlay>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -452,13 +451,12 @@ export default function TenantAdminDashboard() {
             <option value="admin">Admin</option>
           </select>
           <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={saveUser} style={{ ...btn(c.primary, '#fff'), flex: 1 }}>{editingUser ? 'Update' : 'Create'} Employee</button>
-            <button onClick={() => setOpenUserModal(false)} style={{ ...btn('none', c.text), flex: 1, border: `1px solid ${c.border}` }}>Cancel</button>
+            <button onClick={saveUser} style={{ ...mkBtn(c.primary, '#fff'), flex: 1 }}>{editingUser ? 'Update' : 'Create'} Employee</button>
+            <button onClick={() => setOpenUserModal(false)} style={{ ...mkBtn('none', c.text), flex: 1, border: `1px solid ${c.border}` }}>Cancel</button>
           </div>
         </ModalOverlay>
       )}
 
-      {/* Department Modal */}
       {openDeptModal && (
         <ModalOverlay>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -474,18 +472,17 @@ export default function TenantAdminDashboard() {
           <label style={lbl}>Department Head</label>
           <select value={deptForm.head_user_id} onChange={e => setDeptForm(p => ({ ...p, head_user_id: e.target.value }))} style={{ ...inp, marginBottom: 20 }}>
             <option value="">— Select Head —</option>
-            {users.filter(u => ['manager','admin'].includes(u.role)).map(u => (
+            {users.filter(u => ['manager', 'admin'].includes(u.role)).map(u => (
               <option key={u.id} value={u.id}>{u.first_name} {u.last_name}</option>
             ))}
           </select>
           <div style={{ display: 'flex', gap: 10 }}>
-            <button onClick={saveDept} style={{ ...btn(c.primary, '#fff'), flex: 1 }}>{editingDept ? 'Update' : 'Create'} Department</button>
-            <button onClick={() => setOpenDeptModal(false)} style={{ ...btn('none', c.text), flex: 1, border: `1px solid ${c.border}` }}>Cancel</button>
+            <button onClick={saveDept} style={{ ...mkBtn(c.primary, '#fff'), flex: 1 }}>{editingDept ? 'Update' : 'Create'} Department</button>
+            <button onClick={() => setOpenDeptModal(false)} style={{ ...mkBtn('none', c.text), flex: 1, border: `1px solid ${c.border}` }}>Cancel</button>
           </div>
         </ModalOverlay>
       )}
 
-      {/* Toast */}
       {toast && (
         <div style={{ position: 'fixed', bottom: 24, right: 24, background: toast.type === 'error' ? c.danger : c.success, color: '#fff', borderRadius: 10, padding: '12px 20px', fontSize: 13, fontWeight: 600, zIndex: 2000, boxShadow: '0 4px 20px #0003', maxWidth: 360 }}>
           {toast.type === 'error' ? '❌' : '✅'} {toast.msg}
