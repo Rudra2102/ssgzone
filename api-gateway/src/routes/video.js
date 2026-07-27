@@ -48,7 +48,7 @@ router.get('/rooms', auth, async (req, res) => {
     const result = await pool.query(
       `SELECT vr.*, tu.first_name || ' ' || tu.last_name as host_name
        FROM video_rooms vr
-       JOIN tenant_users tu ON tu.id = vr.created_by
+       LEFT JOIN tenant_users tu ON tu.id::text = vr.created_by::text
        WHERE vr.tenant_id = $1 AND vr.is_active = true
        ORDER BY vr.started_at DESC
        LIMIT 20`,

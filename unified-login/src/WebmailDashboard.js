@@ -1463,6 +1463,8 @@ export default function WebmailDashboard() {
                         <div style={{ display: 'flex', gap: 8 }}>
                           <button onClick={() => setActiveRoom(room)}
                             style={{ background: '#d1fae5', color: '#10b981', border: 'none', borderRadius: 7, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Join</button>
+                          <button onClick={() => window.open(`https://meet.jit.si/${room.room_name}`, '_blank')}
+                            style={{ background: '#eff6ff', color: '#6366f1', border: 'none', borderRadius: 7, padding: '8px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>↗ New Tab</button>
                           {String(room.created_by) === String(userData.id) && (
                             <button onClick={() => endRoom(room.id)}
                               style={{ background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: 7, padding: '8px 12px', fontSize: 12, cursor: 'pointer' }}>End</button>
