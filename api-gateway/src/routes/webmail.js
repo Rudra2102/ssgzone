@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 const nodemailer = require('nodemailer');
@@ -19,7 +19,7 @@ const webmailAuth = (req, res, next) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) return res.status(401).json({ success: false, error: 'Token required' });
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET || 'super-admin-secret');
+    req.user = jwt.verify(token, process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'));
     next();
   } catch {
     res.status(401).json({ success: false, error: 'Invalid token' });
@@ -45,7 +45,7 @@ router.post('/auth/login', async (req, res) => {
     if (!valid) return res.status(401).json({ success: false, error: 'Invalid credentials' });
     const token = jwt.sign(
       { type: 'user', id: user.id, tenant_id: user.tenant_id, saas_id: user.saas_app_id, email: user.email, role: user.role },
-      process.env.JWT_SECRET || 'super-admin-secret',
+      process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'),
       { expiresIn: '8h' }
     );
     res.json({

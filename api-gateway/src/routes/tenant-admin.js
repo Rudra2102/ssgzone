@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
@@ -49,7 +49,7 @@ router.post('/auth/login', async (req, res) => {
 
     const token = jwt.sign(
       { type: 'tenant_admin', id: user.id, adminId: user.id, tenant_id: user.tenant_id, tenantId: user.tenant_id, saas_id: saasId, username: user.username, role: user.role },
-      process.env.JWT_SECRET || 'super-admin-secret',
+      process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'),
       { expiresIn: '8h' }
     );
     
@@ -84,7 +84,7 @@ const tenantAdminAuth = async (req, res, next) => {
       return res.status(401).json({ success: false, error: 'Token required' });
     }
     
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'super-admin-secret');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'));
     if (decoded.type !== 'tenant_admin') {
       return res.status(403).json({ success: false, error: 'Tenant admin access required' });
     }

@@ -50,12 +50,35 @@ const { checkAPIUsage } = require('./middleware/usageRateLimit');
 const { csrfProtection } = require('./middleware/security');
 
 
+// JWT_SECRET startup enforcement
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'super-admin-secret') {
+  console.error('FATAL: JWT_SECRET must be set in .env and must not be the default value');
+  if (process.env.NODE_ENV === 'production') process.exit(1);
+}
+
+const rateLimit = require('express-rate-limit');
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { success: false, error: 'Too many login attempts. Try again in 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://mail.ssgzone.in,https://api.ssgzone.in').split(',');
+
 const app = express();
 const PORT = process.env.API_PORT || 4000;
 
 // Security middleware
 app.use(helmet({ frameguard: false }));
-app.use(cors());
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    cb(new Error('Not allowed by CORS'));
+  },
+  credentials: true
+}));
 app.use(metricsMiddleware);
 
 // Body parsing
@@ -71,6 +94,12 @@ app.get('/health', (req, res) => {
 app.get('/test', (req, res) => {
   res.json({ message: 'Test endpoint working' });
 });
+
+// Auth rate limiting
+app.use('/api/v1/super-admin/auth', authLimiter);
+app.use('/api/saas-admin/login', authLimiter);
+app.use('/api/v1/tenant-admin/auth', authLimiter);
+app.use('/api/v1/webmail/auth', authLimiter);
 
 // API routes
 app.use('/api/saas-admin', saasAdminRoutes);

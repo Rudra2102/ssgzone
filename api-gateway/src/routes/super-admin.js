@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
@@ -94,7 +94,7 @@ router.post('/auth/login', async (req, res) => {
     if (admin.totp_enabled) {
       const tempToken = jwt.sign(
         { type: 'super_admin_2fa_pending', adminId: admin.id },
-        process.env.JWT_SECRET || 'super-admin-secret',
+        process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'),
         { expiresIn: '5m' }
       );
       return res.json({ success: true, requires_2fa: true, temp_token: tempToken });
@@ -103,7 +103,7 @@ router.post('/auth/login', async (req, res) => {
     // Generate JWT token
     const token = jwt.sign(
       { type: 'super_admin', adminId: admin.id, username: admin.username, email: admin.email, role: admin.role },
-      process.env.JWT_SECRET || 'super-admin-secret',
+      process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'),
       { expiresIn: '8h' }
     );
     res.json({
@@ -135,7 +135,7 @@ const superAdminAuth = async (req, res, next) => {
       });
     }
     
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'super-admin-secret');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'));
     
     if (decoded.type !== 'super_admin') {
       return res.status(403).json({
@@ -973,7 +973,7 @@ router.post('/2fa/verify', async (req, res) => {
   if (!temp_token || !totp_token) return res.status(400).json({ success: false, error: 'temp_token and totp_token required' });
   try {
     let decoded;
-    try { decoded = jwt.verify(temp_token, process.env.JWT_SECRET || 'super-admin-secret'); }
+    try { decoded = jwt.verify(temp_token, process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret')); }
     catch { return res.status(401).json({ success: false, error: 'Invalid or expired temp token' }); }
     if (decoded.type !== 'super_admin_2fa_pending') return res.status(401).json({ success: false, error: 'Invalid token type' });
     const result = await db.query('SELECT * FROM super_admins WHERE id=$1 AND status=$2', [decoded.adminId, 'active']);
@@ -983,7 +983,7 @@ router.post('/2fa/verify', async (req, res) => {
     if (!valid) return res.status(401).json({ success: false, error: 'Invalid 2FA code' });
     const token = jwt.sign(
       { type: 'super_admin', adminId: admin.id, username: admin.username, email: admin.email },
-      process.env.JWT_SECRET || 'super-admin-secret',
+      process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'),
       { expiresIn: '8h' }
     );
     res.json({ success: true, data: { token, admin: { id: admin.id, username: admin.username, email: admin.email, full_name: admin.full_name, type: 'super_admin' } } });

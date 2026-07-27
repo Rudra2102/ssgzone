@@ -12,7 +12,7 @@ const pool = new Pool({
   password: String(process.env.DB_PASSWORD)
 });
 
-const JWT_SECRET = process.env.JWT_SECRET || 'super-admin-secret';
+const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret');
 
 const saasAdminAuth = async (req, res, next) => {
   const token = req.headers.authorization?.replace('Bearer ', '');

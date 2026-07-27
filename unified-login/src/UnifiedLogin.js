@@ -21,6 +21,11 @@ function UnifiedLogin() {
       try {
         const decoded = atob(sso);
         const parts = decoded.split(':');
+        // SSO token format: email:timestamp:fullName — issued by PEMS integration
+        // TODO: Replace with HMAC-signed token verification before production use with untrusted sources
+        if (parts.length < 2) throw new Error('Invalid SSO token format');
+        const timestamp = parseInt(parts[1]);
+        if (Date.now() - timestamp > 5 * 60 * 1000) throw new Error('SSO token expired');
         if (parts.length >= 3) {
           const email = parts[0];
           const fullName = parts[2];
