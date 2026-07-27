@@ -60,6 +60,9 @@ export default function WebmailDashboard() {
   const [lastUnread, setLastUnread] = useState(null);
   const [toast, setToast] = useState(null);
   const [attachFiles, setAttachFiles] = useState([]);
+  const [twoFAStatus, setTwoFAStatus] = useState(false);
+  const [twoFASetup, setTwoFASetup] = useState(null);
+  const [twoFASaving, setTwoFASaving] = useState(false);
   const [waConfigured, setWaConfigured] = useState(false);
   const [waContacts, setWaContacts] = useState([]);
   const [waMessages, setWaMessages] = useState([]);
@@ -758,6 +761,11 @@ export default function WebmailDashboard() {
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', background: activeNav === 'ooo' ? c.primaryLight : 'transparent', color: activeNav === 'ooo' ? c.primary : c.text, fontWeight: activeNav === 'ooo' ? 600 : 400, fontSize: 13, justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
             <span style={{ fontSize: 14 }}>🏖</span>
             {!sidebarCollapsed && <span>Out of Office</span>}
+          </div>
+          <div onClick={() => { setActiveNav('security'); fetch('https://api.ssgzone.in/api/v1/webmail/2fa/status',{headers:auth}).then(r=>r.json()).then(d=>d.success&&setTwoFAStatus(d.data.enabled)); }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', background: activeNav === 'security' ? c.primaryLight : 'transparent', color: activeNav === 'security' ? c.primary : c.text, fontWeight: activeNav === 'security' ? 600 : 400, fontSize: 13, justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
+            <span style={{ fontSize: 14 }}>🛡️</span>
+            {!sidebarCollapsed && <span>Security (2FA)</span>}
           </div>
         </div>
 
@@ -1505,6 +1513,68 @@ export default function WebmailDashboard() {
                 )}
               </div>
             )}
+          </div>
+        
+        ) : activeNav === 'security' ? (
+          <div style={{ flex: 1, overflowY: 'auto', padding: 24, maxWidth: 520 }}>
+            <div style={{ fontSize: 20, fontWeight: 700, color: c.text, marginBottom: 4 }}>Security — Two-Factor Authentication</div>
+            <div style={{ fontSize: 13, color: c.textMuted, marginBottom: 24 }}>Protect your account with an authenticator app</div>
+            <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: 24 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                <span style={{ fontSize: 28 }}>{twoFAStatus ? '🔒' : '🔓'}</span>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: c.text }}>2FA is {twoFAStatus ? 'Enabled' : 'Disabled'}</div>
+                  <div style={{ fontSize: 12, color: c.textMuted }}>{twoFAStatus ? 'Your account is protected with TOTP' : 'Enable 2FA for extra security'}</div>
+                </div>
+              </div>
+              {!twoFAStatus && !twoFASetup && (
+                <button onClick={async () => {
+                  setTwoFASaving(true);
+                  const res = await fetch('https://api.ssgzone.in/api/v1/webmail/2fa/setup', { method: 'POST', headers: auth });
+                  const d = await res.json();
+                  if (d.success) setTwoFASetup(d.data);
+                  setTwoFASaving(false);
+                }} disabled={twoFASaving} style={{ background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                  {twoFASaving ? 'Loading...' : 'Setup 2FA'}
+                </button>
+              )}
+              {twoFASetup && (() => {
+                const [localCode, setLocalCode] = React.useState('');
+                return (
+                  <div>
+                    <div style={{ fontSize: 13, color: c.textMuted, marginBottom: 12 }}>Scan this QR code with Google Authenticator or Authy:</div>
+                    <img src={twoFASetup.qr_code} alt="QR" style={{ width: 180, height: 180, border: `1px solid ${c.border}`, borderRadius: 8, marginBottom: 12 }} />
+                    <div style={{ fontSize: 11, color: c.textMuted, marginBottom: 12, fontFamily: 'monospace', background: c.bg, padding: '6px 10px', borderRadius: 6 }}>Secret: {twoFASetup.secret}</div>
+                    <input value={localCode} onChange={e => setLocalCode(e.target.value)} maxLength={6} placeholder="Enter 6-digit code"
+                      style={{ width: '100%', padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 16, textAlign: 'center', letterSpacing: 6, outline: 'none', boxSizing: 'border-box', marginBottom: 10 }} />
+                    <button onClick={async () => {
+                      setTwoFASaving(true);
+                      const res = await fetch('https://api.ssgzone.in/api/v1/webmail/2fa/enable', {
+                        method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ token: localCode })
+                      });
+                      const d = await res.json();
+                      if (d.success) { setTwoFAStatus(true); setTwoFASetup(null); showToastNotification('✅ 2FA enabled!'); }
+                      else alert(d.error);
+                      setTwoFASaving(false);
+                    }} disabled={twoFASaving || localCode.length !== 6}
+                      style={{ background: '#10b981', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: localCode.length !== 6 ? 0.6 : 1 }}>
+                      {twoFASaving ? 'Verifying...' : 'Enable 2FA'}
+                    </button>
+                  </div>
+                );
+              })()}
+              {twoFAStatus && (
+                <button onClick={async () => {
+                  if (!window.confirm('Disable 2FA?')) return;
+                  const res = await fetch('https://api.ssgzone.in/api/v1/webmail/2fa/disable', { method: 'POST', headers: auth });
+                  const d = await res.json();
+                  if (d.success) { setTwoFAStatus(false); showToastNotification('2FA disabled'); }
+                }} style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                  Disable 2FA
+                </button>
+              )}
+            </div>
           </div>
         ) : (
           <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>

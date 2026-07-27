@@ -17,6 +17,15 @@ const mkBtn = (bg, color) => ({ background: bg, color, border: 'none', borderRad
 
 function TenantAdminDashboard() {
   const [activeNav, setActiveNav] = useState('dashboard');
+  const [twoFAStatus, setTwoFAStatus] = useState(false);
+  const [twoFASetup, setTwoFASetup] = useState(null);
+  const [twoFACode, setTwoFACode] = useState('');
+  const [twoFASaving, setTwoFASaving] = useState(false);
+  const [userPermsPanel, setUserPermsPanel] = useState(null);
+  const [userPerms, setUserPerms] = useState([]);
+  const [userPermsLoading, setUserPermsLoading] = useState(false);
+  const [userPermsSaving, setUserPermsSaving] = useState(false);
+
   const [stats, setStats] = useState({ totalUsers: 0, activeUsers: 0, emailsSent: 0, chatMessages: 0, whatsappMessages: 0 });
   const [users, setUsers] = useState([]);
   const [departments, setDepartments] = useState([]);
@@ -183,7 +192,7 @@ function TenantAdminDashboard() {
       <div style={{ flex: 1, padding: '12px 8px' }}>
         {nav.map(item => (
           <div key={item.id}
-            onClick={() => { setActiveNav(item.id); if (item.id === 'ooo') fetchOooList(); }}
+            onClick={() => { setActiveNav(item.id); if (item.id === 'ooo') fetchOooList(); if (item.id === 'security') fetch('https://api.ssgzone.in/api/v1/tenant-admin/2fa/status',{headers:{Authorization:'Bearer '+token}}).then(r=>r.json()).then(d=>d.success&&setTwoFAStatus(d.data.enabled)); }}
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 10px', borderRadius: 6, cursor: 'pointer', marginBottom: 2, background: activeNav === item.id ? c.primaryLight : 'transparent', color: activeNav === item.id ? c.primary : c.text, fontWeight: activeNav === item.id ? 600 : 400, fontSize: 13 }}>
             <span>{item.icon}</span>{item.label}
           </div>
@@ -262,6 +271,8 @@ function TenantAdminDashboard() {
                       {u.status === 'active' ? 'Suspend' : 'Activate'}
                     </button>
                     <button onClick={() => resetUserPassword(u.id)} style={{ background: 'none', border: `1px solid ${c.border}`, borderRadius: 6, padding: '3px 9px', fontSize: 11, cursor: 'pointer', color: c.warning }}>🔑</button>
+                    <button onClick={() => { setUserPermsPanel(u.id); fetchUserPerms(u.id); }} style={{ background: 'none', border: `1px solid ${c.border}`, borderRadius: 6, padding: '3px 9px', fontSize: 11, cursor: 'pointer', color: '#6366f1' }}>🔐 Perms</button>
+                    <button onClick={() => { setUserPermsPanel(u.id); fetchUserPerms(u.id); }} style={{ background: 'none', border: `1px solid ${c.border}`, borderRadius: 6, padding: '3px 9px', fontSize: 11, cursor: 'pointer', color: '#6366f1' }}>🔐 Perms</button>
                     <button onClick={() => handleDeleteUser(u.id)} style={{ background: 'none', border: `1px solid ${c.danger}`, borderRadius: 6, padding: '3px 9px', fontSize: 11, cursor: 'pointer', color: c.danger }}>🗑</button>
                   </div>
                 </td>
@@ -399,6 +410,97 @@ function TenantAdminDashboard() {
     </div>
   );
 
+
+  const fetchUserPerms = async (userId) => {
+    setUserPermsLoading(true);
+    try {
+      const res = await fetch(`https://api.ssgzone.in/api/v1/tenant-admin/users/${userId}/permissions`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.success) setUserPerms(data.data);
+    } catch {}
+    setUserPermsLoading(false);
+  };
+
+  const saveUserPerms = async (userId) => {
+    setUserPermsSaving(true);
+    const permsObj = {};
+    userPerms.forEach(p => { permsObj[p.feature_key] = p.is_enabled; });
+    try {
+      const res = await fetch(`https://api.ssgzone.in/api/v1/tenant-admin/users/${userId}/permissions`, {
+        method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ permissions: permsObj })
+      });
+      const data = await res.json();
+      if (data.success) { setUserPermsPanel(null); showToast('Permissions saved'); }
+      else alert(data.error);
+    } catch (err) { alert(err.message); }
+    setUserPermsSaving(false);
+  };
+
+  const SecuritySection = () => {
+    const [localCode, setLocalCode] = React.useState('');
+    const setup2FA = async () => {
+      setTwoFASaving(true);
+      const res = await fetch('https://api.ssgzone.in/api/v1/tenant-admin/2fa/setup', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      const d = await res.json();
+      if (d.success) setTwoFASetup(d.data);
+      setTwoFASaving(false);
+    };
+    const enable2FA = async () => {
+      setTwoFASaving(true);
+      const res = await fetch('https://api.ssgzone.in/api/v1/tenant-admin/2fa/enable', {
+        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: localCode })
+      });
+      const d = await res.json();
+      if (d.success) { setTwoFAStatus(true); setTwoFASetup(null); setLocalCode(''); showToast('2FA enabled!'); }
+      else alert(d.error);
+      setTwoFASaving(false);
+    };
+    const disable2FA = async () => {
+      if (!window.confirm('Disable 2FA?')) return;
+      const res = await fetch('https://api.ssgzone.in/api/v1/tenant-admin/2fa/disable', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      const d = await res.json();
+      if (d.success) { setTwoFAStatus(false); showToast('2FA disabled'); }
+    };
+    return (
+      <div style={{ maxWidth: 520 }}>
+        <div style={{ fontSize: 22, fontWeight: 700, color: c.text, marginBottom: 20 }}>Security — Two-Factor Authentication</div>
+        <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: 24 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+            <span style={{ fontSize: 28 }}>{twoFAStatus ? '🔒' : '🔓'}</span>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: c.text }}>2FA is {twoFAStatus ? 'Enabled' : 'Disabled'}</div>
+              <div style={{ fontSize: 12, color: c.textMuted }}>{twoFAStatus ? 'Your account is protected with TOTP' : 'Enable 2FA for extra security'}</div>
+            </div>
+          </div>
+          {!twoFAStatus && !twoFASetup && (
+            <button onClick={setup2FA} disabled={twoFASaving} style={{ background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              {twoFASaving ? 'Loading...' : 'Setup 2FA'}
+            </button>
+          )}
+          {twoFASetup && (
+            <div>
+              <div style={{ fontSize: 13, color: c.textMuted, marginBottom: 12 }}>Scan this QR code with Google Authenticator or Authy:</div>
+              <img src={twoFASetup.qr_code} alt="QR" style={{ width: 180, height: 180, border: `1px solid ${c.border}`, borderRadius: 8, marginBottom: 12 }} />
+              <div style={{ fontSize: 11, color: c.textMuted, marginBottom: 12, fontFamily: 'monospace', background: c.bg, padding: '6px 10px', borderRadius: 6 }}>Secret: {twoFASetup.secret}</div>
+              <input value={localCode} onChange={e => setLocalCode(e.target.value)} maxLength={6} placeholder="Enter 6-digit code"
+                style={{ width: '100%', padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 16, textAlign: 'center', letterSpacing: 6, outline: 'none', boxSizing: 'border-box', marginBottom: 10 }} />
+              <button onClick={enable2FA} disabled={twoFASaving || localCode.length !== 6}
+                style={{ background: '#10b981', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: localCode.length !== 6 ? 0.6 : 1 }}>
+                {twoFASaving ? 'Verifying...' : 'Enable 2FA'}
+              </button>
+            </div>
+          )}
+          {twoFAStatus && (
+            <button onClick={disable2FA} style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Disable 2FA</button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+
   const renderSection = () => {
     switch (activeNav) {
       case 'dashboard': return <DashboardSection />;
@@ -407,6 +509,8 @@ function TenantAdminDashboard() {
       case 'settings': return <SettingsSection />;
       case 'analytics': return <AnalyticsSection />;
       case 'ooo': return <OooSection />;
+      case 'security': return <SecuritySection />;
+      case 'security': return <SecuritySection />;
       default: return <DashboardSection />;
     }
   };
@@ -425,6 +529,92 @@ function TenantAdminDashboard() {
       <div style={{ marginLeft: 220, flex: 1, padding: 28 }}>
         {renderSection()}
       </div>
+
+
+      {userPermsPanel && (
+        <div style={{ position: 'fixed', inset: 0, background: '#0008', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 520, maxHeight: '80vh', overflow: 'auto', boxShadow: '0 20px 60px #0003' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#1f2937' }}>🔐 User Permissions</div>
+              <button onClick={() => setUserPermsPanel(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#6b7280' }}>×</button>
+            </div>
+            {userPermsLoading && <div style={{ color: '#6b7280', fontSize: 13 }}>Loading...</div>}
+            {!userPermsLoading && userPerms.length === 0 && <div style={{ color: '#6b7280', fontSize: 13 }}>No feature definitions found.</div>}
+            {!userPermsLoading && userPerms.length > 0 && (
+              <div>
+                {Object.entries(userPerms.reduce((acc, p) => { (acc[p.category||'general'] = acc[p.category||'general']||[]).push(p); return acc; }, {})).map(([cat, perms]) => (
+                  <div key={cat} style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>{cat}</div>
+                    {perms.map(p => (
+                      <div key={p.feature_key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #e5e7eb' }}>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: '#1f2937' }}>{p.feature_name || p.feature_key}</div>
+                          <div style={{ fontSize: 11, color: '#6b7280' }}>{p.feature_key}</div>
+                        </div>
+                        <div onClick={() => setUserPerms(prev => prev.map(x => x.feature_key === p.feature_key ? { ...x, is_enabled: !x.is_enabled } : x))}
+                          style={{ width: 44, height: 24, borderRadius: 12, background: p.is_enabled ? '#10b981' : '#e5e7eb', cursor: 'pointer', position: 'relative', flexShrink: 0, transition: 'background 0.2s' }}>
+                          <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: p.is_enabled ? 23 : 3, transition: 'left 0.2s' }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+                <div style={{ fontSize: 11, color: '#f59e0b', marginBottom: 14 }}>⚠️ Cannot grant features not enabled at tenant level</div>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                  <button onClick={() => setUserPermsPanel(null)} style={{ padding: '8px 18px', border: '1px solid #e5e7eb', borderRadius: 7, background: 'none', cursor: 'pointer', fontSize: 13, color: '#6b7280' }}>Cancel</button>
+                  <button onClick={() => saveUserPerms(userPermsPanel)} disabled={userPermsSaving}
+                    style={{ background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', border: 'none', borderRadius: 7, padding: '8px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: userPermsSaving ? 0.7 : 1 }}>
+                    {userPermsSaving ? 'Saving...' : 'Save Permissions'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+
+      {userPermsPanel && (
+        <div style={{ position: 'fixed', inset: 0, background: '#0008', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 520, maxHeight: '80vh', overflow: 'auto', boxShadow: '0 20px 60px #0003' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#1f2937' }}>🔐 User Permissions</div>
+              <button onClick={() => setUserPermsPanel(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#6b7280' }}>×</button>
+            </div>
+            {userPermsLoading && <div style={{ color: '#6b7280', fontSize: 13 }}>Loading...</div>}
+            {!userPermsLoading && userPerms.length === 0 && <div style={{ color: '#6b7280', fontSize: 13 }}>No feature definitions found.</div>}
+            {!userPermsLoading && userPerms.length > 0 && (
+              <div>
+                {Object.entries(userPerms.reduce((acc, p) => { (acc[p.category||'general'] = acc[p.category||'general']||[]).push(p); return acc; }, {})).map(([cat, perms]) => (
+                  <div key={cat} style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>{cat}</div>
+                    {perms.map(p => (
+                      <div key={p.feature_key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #e5e7eb' }}>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: '#1f2937' }}>{p.feature_name || p.feature_key}</div>
+                          <div style={{ fontSize: 11, color: '#6b7280' }}>{p.feature_key}</div>
+                        </div>
+                        <div onClick={() => setUserPerms(prev => prev.map(x => x.feature_key === p.feature_key ? { ...x, is_enabled: !x.is_enabled } : x))}
+                          style={{ width: 44, height: 24, borderRadius: 12, background: p.is_enabled ? '#10b981' : '#e5e7eb', cursor: 'pointer', position: 'relative', flexShrink: 0, transition: 'background 0.2s' }}>
+                          <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: p.is_enabled ? 23 : 3, transition: 'left 0.2s' }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+                <div style={{ fontSize: 11, color: '#f59e0b', marginBottom: 14 }}>⚠️ Cannot grant features not enabled at tenant level</div>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                  <button onClick={() => setUserPermsPanel(null)} style={{ padding: '8px 18px', border: '1px solid #e5e7eb', borderRadius: 7, background: 'none', cursor: 'pointer', fontSize: 13, color: '#6b7280' }}>Cancel</button>
+                  <button onClick={() => saveUserPerms(userPermsPanel)} disabled={userPermsSaving}
+                    style={{ background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', border: 'none', borderRadius: 7, padding: '8px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: userPermsSaving ? 0.7 : 1 }}>
+                    {userPermsSaving ? 'Saving...' : 'Save Permissions'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {openUserModal && (
         <ModalOverlay>

@@ -1218,4 +1218,21 @@ router.delete('/aliases/:id', superAdminAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// POST /api/v1/super-admin/tenants/:id/verify-dns
+router.post('/tenants/:id/verify-dns', superAdminAuth, async (req, res) => {
+  const dns = require('dns').promises;
+  try {
+    const result = await db.query('SELECT domain FROM tenant_companies WHERE id=$1', [req.params.id]);
+    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Tenant not found' });
+    const domain = result.rows[0].domain;
+    const checks = { mx: false, spf: false, dmarc: false };
+    try { const mx = await dns.resolveMx(domain); checks.mx = mx.some(r => r.exchange.includes('ssgzone.in')); } catch {}
+    try { const txt = await dns.resolveTxt(domain); checks.spf = txt.flat().join(' ').includes('include:ssgzone.in'); } catch {}
+    try { const dmarc = await dns.resolveTxt(`_dmarc.${domain}`); checks.dmarc = dmarc.flat().join(' ').includes('v=DMARC1'); } catch {}
+    const allPassed = Object.values(checks).every(Boolean);
+    if (allPassed) await db.query('UPDATE tenant_companies SET dns_verified=true WHERE id=$1', [req.params.id]);
+    res.json({ success: true, data: { domain, checks, all_passed: allPassed } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 module.exports = router;

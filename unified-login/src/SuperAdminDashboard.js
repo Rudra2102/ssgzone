@@ -18,7 +18,9 @@ function SuperAdminDashboard() {
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
   const [openApiKeysDialog, setOpenApiKeysDialog] = useState(false);
   const [openBulkImportDialog, setOpenBulkImportDialog] = useState(false);
-  const [dnsModal, setDnsModal] = useState(null); // { domain, password }
+  const [dnsModal, setDnsModal] = useState(null); // { domain, password, id }
+  const [dnsCheck, setDnsCheck] = useState(null); // { checks, all_passed }
+  const [dnsChecking, setDnsChecking] = useState(false);
   const [editingSaasApp, setEditingSaasApp] = useState(null);
   const [deletingSaasApp, setDeletingSaasApp] = useState(null);
   const [viewingApiKeys, setViewingApiKeys] = useState(null);
@@ -791,7 +793,10 @@ function SuperAdminDashboard() {
                 <td style={{ padding: '12px 16px', color: colors.text }}>{t.user_count || 0}</td>
                 <td style={{ padding: '12px 16px', color: colors.text }}>{t.max_users}</td>
                 <td style={{ padding: '12px 16px' }}>
-                  <span style={{ background: t.status === 'active' ? colors.successLight : colors.warningLight, color: t.status === 'active' ? colors.success : colors.warning, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>{t.status || 'active'}</span>
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    <span style={{ background: t.status === 'active' ? colors.successLight : colors.warningLight, color: t.status === 'active' ? colors.success : colors.warning, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>{t.status || 'active'}</span>
+                    <span style={{ background: t.dns_verified ? '#d1fae5' : '#f3f4f6', color: t.dns_verified ? '#065f46' : '#9ca3af', borderRadius: 20, padding: '3px 8px', fontSize: 10, fontWeight: 600 }}>{t.dns_verified ? '✅ DNS' : '⏳ DNS'}</span>
+                  </div>
                 </td>
                 <td style={{ padding: '12px 16px' }}>
                   <div style={{ display: 'flex', gap: 6 }}>

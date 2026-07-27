@@ -44,6 +44,16 @@ router.post('/auth/login', async (req, res) => {
     // Update last login
     await db.query('UPDATE tenant_users SET last_login = NOW() WHERE id = $1', [user.id]);
     
+    // Check 2FA
+    if (user.totp_enabled) {
+      const tempToken = jwt.sign(
+        { type: 'tenant_admin_2fa_pending', adminId: user.id },
+        process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'),
+        { expiresIn: '5m' }
+      );
+      return res.json({ success: true, requires_2fa: true, temp_token: tempToken });
+    }
+
     const saasRow = await db.query('SELECT saas_app_id FROM tenant_companies WHERE id = $1', [user.tenant_id]);
     const saasId = saasRow.rows[0]?.saas_app_id;
 
@@ -518,6 +528,123 @@ router.post('/users/:id/reset-password', tenantAdminAuth, async (req, res) => {
     const hash = await bcrypt.hash(newPassword, 10);
     await db.query('UPDATE tenant_users SET password_hash=$1 WHERE id=$2', [hash, req.params.id]);
     res.json({ success: true, data: { new_password: newPassword } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/v1/tenant-admin/2fa/setup
+router.post('/2fa/setup', tenantAdminAuth, async (req, res) => {
+  const speakeasy = require('speakeasy');
+  const QRCode = require('qrcode');
+  try {
+    const secret = speakeasy.generateSecret({ name: `SSGzone Tenant (${req.admin.username})`, length: 20 });
+    await db.query('UPDATE tenant_users SET totp_secret=$1 WHERE id=$2', [secret.base32, req.admin.adminId]);
+    const qrDataUrl = await QRCode.toDataURL(secret.otpauth_url);
+    res.json({ success: true, data: { secret: secret.base32, qr_code: qrDataUrl } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/v1/tenant-admin/2fa/enable
+router.post('/2fa/enable', tenantAdminAuth, async (req, res) => {
+  const speakeasy = require('speakeasy');
+  const { token } = req.body;
+  if (!token) return res.status(400).json({ success: false, error: 'token required' });
+  try {
+    const result = await db.query('SELECT totp_secret FROM tenant_users WHERE id=$1', [req.admin.adminId]);
+    const secret = result.rows[0]?.totp_secret;
+    if (!secret) return res.status(400).json({ success: false, error: 'Run /2fa/setup first' });
+    const valid = speakeasy.totp.verify({ secret, encoding: 'base32', token, window: 1 });
+    if (!valid) return res.status(400).json({ success: false, error: 'Invalid token' });
+    await db.query('UPDATE tenant_users SET totp_enabled=true WHERE id=$1', [req.admin.adminId]);
+    res.json({ success: true, message: '2FA enabled' });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/v1/tenant-admin/2fa/disable
+router.post('/2fa/disable', tenantAdminAuth, async (req, res) => {
+  try {
+    await db.query('UPDATE tenant_users SET totp_enabled=false, totp_secret=NULL WHERE id=$1', [req.admin.adminId]);
+    res.json({ success: true, message: '2FA disabled' });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// GET /api/v1/tenant-admin/2fa/status
+router.get('/2fa/status', tenantAdminAuth, async (req, res) => {
+  try {
+    const result = await db.query('SELECT totp_enabled FROM tenant_users WHERE id=$1', [req.admin.adminId]);
+    res.json({ success: true, data: { enabled: result.rows[0]?.totp_enabled || false } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/v1/tenant-admin/2fa/verify (no auth)
+router.post('/2fa/verify', async (req, res) => {
+  const speakeasy = require('speakeasy');
+  const { temp_token, totp_token } = req.body;
+  if (!temp_token || !totp_token) return res.status(400).json({ success: false, error: 'temp_token and totp_token required' });
+  try {
+    let decoded;
+    try { decoded = jwt.verify(temp_token, process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret')); }
+    catch { return res.status(401).json({ success: false, error: 'Invalid or expired temp token' }); }
+    if (decoded.type !== 'tenant_admin_2fa_pending') return res.status(401).json({ success: false, error: 'Invalid token type' });
+    const result = await db.query(
+      `SELECT tu.*, tc.company_name, tc.company_slug, tc.saas_app_id
+       FROM tenant_users tu JOIN tenant_companies tc ON tc.id = tu.tenant_id
+       WHERE tu.id=$1 AND tu.status='active'`,
+      [decoded.adminId]
+    );
+    if (!result.rows.length) return res.status(401).json({ success: false, error: 'Admin not found' });
+    const user = result.rows[0];
+    const valid = speakeasy.totp.verify({ secret: user.totp_secret, encoding: 'base32', token: totp_token, window: 1 });
+    if (!valid) return res.status(401).json({ success: false, error: 'Invalid 2FA code' });
+    const token = jwt.sign(
+      { type: 'tenant_admin', id: user.id, adminId: user.id, tenant_id: user.tenant_id, tenantId: user.tenant_id, saas_id: user.saas_app_id, username: user.username, role: user.role },
+      process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'),
+      { expiresIn: '8h' }
+    );
+    res.json({ success: true, data: { token, admin: { id: user.id, username: user.username, email: user.email, full_name: `${user.first_name} ${user.last_name}`, tenantId: user.tenant_id, company_name: user.company_name, company_slug: user.company_slug, role: user.role, type: 'tenant_admin' } } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// GET /api/v1/tenant-admin/users/:id/permissions
+router.get('/users/:id/permissions', tenantAdminAuth, async (req, res) => {
+  try {
+    const check = await db.query('SELECT id FROM tenant_users WHERE id=$1 AND tenant_id=$2', [req.params.id, req.admin.tenantId]);
+    if (!check.rows.length) return res.status(404).json({ success: false, error: 'User not found' });
+    const result = await db.query(
+      `SELECT fd.feature_key, fd.feature_name, fd.category,
+              COALESCE(ufp.is_enabled, tfp.is_enabled, sfp.is_enabled, false) as is_enabled
+       FROM feature_definitions fd
+       JOIN tenant_companies tc ON tc.id=$1
+       LEFT JOIN saas_feature_permissions sfp ON sfp.feature_key=fd.feature_key AND sfp.saas_id=tc.saas_app_id
+       LEFT JOIN tenant_feature_permissions tfp ON tfp.feature_key=fd.feature_key AND tfp.tenant_id=$1
+       LEFT JOIN user_feature_permissions ufp ON ufp.feature_key=fd.feature_key AND ufp.user_id=$2
+       ORDER BY fd.category, fd.feature_key`,
+      [req.admin.tenantId, req.params.id]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// PUT /api/v1/tenant-admin/users/:id/permissions
+router.put('/users/:id/permissions', tenantAdminAuth, async (req, res) => {
+  const { permissions } = req.body;
+  try {
+    const check = await db.query('SELECT id FROM tenant_users WHERE id=$1 AND tenant_id=$2', [req.params.id, req.admin.tenantId]);
+    if (!check.rows.length) return res.status(404).json({ success: false, error: 'User not found' });
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      for (const [feature_key, is_enabled] of Object.entries(permissions)) {
+        await client.query(
+          `INSERT INTO user_feature_permissions (user_id, feature_key, is_enabled, assigned_by)
+           VALUES ($1,$2,$3,$4)
+           ON CONFLICT (user_id, feature_key) DO UPDATE SET is_enabled=$3, assigned_by=$4`,
+          [req.params.id, feature_key, is_enabled, req.admin.adminId]
+        );
+      }
+      await client.query('COMMIT');
+    } catch (e) { await client.query('ROLLBACK'); throw e; }
+    finally { client.release(); }
+    res.json({ success: true, message: 'User permissions updated' });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 

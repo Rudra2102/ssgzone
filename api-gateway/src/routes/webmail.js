@@ -44,6 +44,17 @@ router.post('/auth/login', async (req, res) => {
     const user = result.rows[0];
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) return res.status(401).json({ success: false, error: 'Invalid credentials' });
+
+    // Check 2FA
+    if (user.totp_enabled) {
+      const tempToken = jwt.sign(
+        { type: 'webmail_2fa_pending', userId: user.id },
+        process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'),
+        { expiresIn: '5m' }
+      );
+      return res.json({ success: true, requires_2fa: true, temp_token: tempToken });
+    }
+
     const token = jwt.sign(
       { type: 'user', id: user.id, tenant_id: user.tenant_id, saas_id: user.saas_app_id, email: user.email, role: user.role },
       process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'),
@@ -482,6 +493,80 @@ router.delete('/drafts/:id', webmailAuth, async (req, res) => {
       [req.params.id, req.user.email]
     );
     res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/v1/webmail/2fa/setup
+router.post('/2fa/setup', webmailAuth, async (req, res) => {
+  const speakeasy = require('speakeasy');
+  const QRCode = require('qrcode');
+  try {
+    const secret = speakeasy.generateSecret({ name: `SSGzone Mail (${req.user.email})`, length: 20 });
+    await pool.query('UPDATE tenant_users SET totp_secret=$1 WHERE id=$2', [secret.base32, req.user.id]);
+    const qrDataUrl = await QRCode.toDataURL(secret.otpauth_url);
+    res.json({ success: true, data: { secret: secret.base32, qr_code: qrDataUrl } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/v1/webmail/2fa/enable
+router.post('/2fa/enable', webmailAuth, async (req, res) => {
+  const speakeasy = require('speakeasy');
+  const { token } = req.body;
+  if (!token) return res.status(400).json({ success: false, error: 'token required' });
+  try {
+    const result = await pool.query('SELECT totp_secret FROM tenant_users WHERE id=$1', [req.user.id]);
+    const secret = result.rows[0]?.totp_secret;
+    if (!secret) return res.status(400).json({ success: false, error: 'Run /2fa/setup first' });
+    const valid = speakeasy.totp.verify({ secret, encoding: 'base32', token, window: 1 });
+    if (!valid) return res.status(400).json({ success: false, error: 'Invalid token' });
+    await pool.query('UPDATE tenant_users SET totp_enabled=true WHERE id=$1', [req.user.id]);
+    res.json({ success: true, message: '2FA enabled' });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/v1/webmail/2fa/disable
+router.post('/2fa/disable', webmailAuth, async (req, res) => {
+  try {
+    await pool.query('UPDATE tenant_users SET totp_enabled=false, totp_secret=NULL WHERE id=$1', [req.user.id]);
+    res.json({ success: true, message: '2FA disabled' });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// GET /api/v1/webmail/2fa/status
+router.get('/2fa/status', webmailAuth, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT totp_enabled FROM tenant_users WHERE id=$1', [req.user.id]);
+    res.json({ success: true, data: { enabled: result.rows[0]?.totp_enabled || false } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/v1/webmail/2fa/verify (no auth)
+router.post('/2fa/verify', async (req, res) => {
+  const speakeasy = require('speakeasy');
+  const bcrypt = require('bcryptjs');
+  const { temp_token, totp_token } = req.body;
+  if (!temp_token || !totp_token) return res.status(400).json({ success: false, error: 'temp_token and totp_token required' });
+  try {
+    let decoded;
+    try { decoded = jwt.verify(temp_token, process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret')); }
+    catch { return res.status(401).json({ success: false, error: 'Invalid or expired temp token' }); }
+    if (decoded.type !== 'webmail_2fa_pending') return res.status(401).json({ success: false, error: 'Invalid token type' });
+    const result = await pool.query(
+      `SELECT tu.*, tc.saas_app_id, tc.company_slug
+       FROM tenant_users tu JOIN tenant_companies tc ON tc.id = tu.tenant_id
+       WHERE tu.id=$1 AND tu.status='active'`,
+      [decoded.userId]
+    );
+    if (!result.rows.length) return res.status(401).json({ success: false, error: 'User not found' });
+    const user = result.rows[0];
+    const valid = speakeasy.totp.verify({ secret: user.totp_secret, encoding: 'base32', token: totp_token, window: 1 });
+    if (!valid) return res.status(401).json({ success: false, error: 'Invalid 2FA code' });
+    const token = jwt.sign(
+      { type: 'user', id: user.id, tenant_id: user.tenant_id, saas_id: user.saas_app_id, email: user.email, role: user.role },
+      process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'),
+      { expiresIn: '8h' }
+    );
+    res.json({ success: true, data: { token, user: { id: user.id, email: user.email, full_name: `${user.first_name} ${user.last_name}`, role: user.role, tenant_id: user.tenant_id, type: 'user' } } });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 

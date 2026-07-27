@@ -1,0 +1,3 @@
+ALTER TABLE tenant_users
+  ADD COLUMN IF NOT EXISTS totp_enabled BOOLEAN DEFAULT false,
+  ADD COLUMN IF NOT EXISTS totp_secret VARCHAR(64);

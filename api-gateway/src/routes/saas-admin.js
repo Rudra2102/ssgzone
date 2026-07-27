@@ -54,6 +54,15 @@ router.post('/login', async (req, res) => {
     const permissions = {};
     permsResult.rows.forEach(r => { permissions[r.feature_key] = r.is_enabled; });
 
+    // Check 2FA
+    if (user.totp_enabled) {
+      const tempToken = jwt.sign(
+        { type: 'saas_admin_2fa_pending', adminId: user.id },
+        JWT_SECRET, { expiresIn: '5m' }
+      );
+      return res.json({ success: true, requires_2fa: true, temp_token: tempToken });
+    }
+
     const token = jwt.sign(
       { type: 'saas_admin', id: user.id, adminId: user.id, saas_id: user.saas_id, saas_slug: user.saas_slug, email: user.email, permissions },
       JWT_SECRET,
@@ -397,6 +406,113 @@ router.post('/branding/logo', saasAdminAuth, async (req, res) => {
     );
     res.json({ success: true, data: { url: result.rows[0][field] } });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/saas-admin/2fa/setup
+router.post('/2fa/setup', saasAdminAuth, async (req, res) => {
+  const speakeasy = require('speakeasy');
+  const QRCode = require('qrcode');
+  try {
+    const secret = speakeasy.generateSecret({ name: `SSGzone SaaS (${req.decoded.email})`, length: 20 });
+    await pool.query('UPDATE saas_admin_users SET totp_secret=$1 WHERE id=$2', [secret.base32, req.decoded.id]);
+    const qrDataUrl = await QRCode.toDataURL(secret.otpauth_url);
+    res.json({ success: true, data: { secret: secret.base32, qr_code: qrDataUrl } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/saas-admin/2fa/enable
+router.post('/2fa/enable', saasAdminAuth, async (req, res) => {
+  const speakeasy = require('speakeasy');
+  const { token } = req.body;
+  if (!token) return res.status(400).json({ success: false, error: 'token required' });
+  try {
+    const result = await pool.query('SELECT totp_secret FROM saas_admin_users WHERE id=$1', [req.decoded.id]);
+    const secret = result.rows[0]?.totp_secret;
+    if (!secret) return res.status(400).json({ success: false, error: 'Run /2fa/setup first' });
+    const valid = speakeasy.totp.verify({ secret, encoding: 'base32', token, window: 1 });
+    if (!valid) return res.status(400).json({ success: false, error: 'Invalid token' });
+    await pool.query('UPDATE saas_admin_users SET totp_enabled=true WHERE id=$1', [req.decoded.id]);
+    res.json({ success: true, message: '2FA enabled' });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/saas-admin/2fa/disable
+router.post('/2fa/disable', saasAdminAuth, async (req, res) => {
+  try {
+    await pool.query('UPDATE saas_admin_users SET totp_enabled=false, totp_secret=NULL WHERE id=$1', [req.decoded.id]);
+    res.json({ success: true, message: '2FA disabled' });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// GET /api/saas-admin/2fa/status
+router.get('/2fa/status', saasAdminAuth, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT totp_enabled FROM saas_admin_users WHERE id=$1', [req.decoded.id]);
+    res.json({ success: true, data: { enabled: result.rows[0]?.totp_enabled || false } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/saas-admin/2fa/verify (no auth)
+router.post('/2fa/verify', async (req, res) => {
+  const speakeasy = require('speakeasy');
+  const { temp_token, totp_token } = req.body;
+  if (!temp_token || !totp_token) return res.status(400).json({ success: false, error: 'temp_token and totp_token required' });
+  try {
+    let decoded;
+    try { decoded = jwt.verify(temp_token, JWT_SECRET); }
+    catch { return res.status(401).json({ success: false, error: 'Invalid or expired temp token' }); }
+    if (decoded.type !== 'saas_admin_2fa_pending') return res.status(401).json({ success: false, error: 'Invalid token type' });
+    const result = await pool.query(
+      `SELECT sau.*, sa.saas_name, sa.saas_slug, sa.id as saas_id
+       FROM saas_admin_users sau JOIN saas_applications sa ON sa.id = sau.saas_app_id
+       WHERE sau.id=$1 AND sau.is_active=true`,
+      [decoded.adminId]
+    );
+    if (!result.rows.length) return res.status(401).json({ success: false, error: 'Admin not found' });
+    const user = result.rows[0];
+    const valid = speakeasy.totp.verify({ secret: user.totp_secret, encoding: 'base32', token: totp_token, window: 1 });
+    if (!valid) return res.status(401).json({ success: false, error: 'Invalid 2FA code' });
+    const permsResult = await pool.query('SELECT feature_key, is_enabled FROM saas_feature_permissions WHERE saas_id=$1', [user.saas_id]);
+    const permissions = {};
+    permsResult.rows.forEach(r => { permissions[r.feature_key] = r.is_enabled; });
+    const token = jwt.sign(
+      { type: 'saas_admin', id: user.id, adminId: user.id, saas_id: user.saas_id, saas_slug: user.saas_slug, email: user.email, permissions },
+      JWT_SECRET, { expiresIn: '8h' }
+    );
+    res.json({ success: true, data: { token, admin: { id: user.id, email: user.email, name: user.name, saas_id: user.saas_id, saas_name: user.saas_name, saas_slug: user.saas_slug, type: 'saas_admin', permissions } } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/saas-admin/tenants — SaaS Admin creates tenant under their saas_id
+router.post('/tenants', saasAdminAuth, async (req, res) => {
+  const { company_name, slug, admin_name, max_users } = req.body;
+  if (!company_name || !slug || !admin_name) return res.status(400).json({ success: false, error: 'company_name, slug, admin_name required' });
+  try {
+    const saasResult = await pool.query('SELECT saas_slug FROM saas_applications WHERE id=$1', [req.decoded.saas_id]);
+    if (!saasResult.rows.length) return res.status(400).json({ success: false, error: 'SaaS app not found' });
+    const saasSlug = saasResult.rows[0].saas_slug;
+    const domain = `${slug}.${saasSlug}.ssgzone.in`;
+    const tenantAdminEmail = `admin@${domain}`;
+    const tenantResult = await pool.query(
+      `INSERT INTO tenant_companies (saas_app_id, company_name, company_slug, domain, admin_name, admin_email, max_users)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       RETURNING id, company_name, company_slug, domain, admin_name, admin_email, max_users, created_at`,
+      [req.decoded.saas_id, company_name, slug, domain, admin_name, tenantAdminEmail, max_users || 50]
+    );
+    const tenant = tenantResult.rows[0];
+    const defaultPassword = 'Welcome@123';
+    const hashedPassword = await bcrypt.hash(defaultPassword, 10);
+    await pool.query(
+      `INSERT INTO tenant_users (tenant_id, username, email, first_name, last_name, role, password_hash)
+       VALUES ($1,'admin',$2,$3,$4,'admin',$5)`,
+      [tenant.id, tenantAdminEmail, admin_name.split(' ')[0], admin_name.split(' ').slice(1).join(' ') || 'Admin', hashedPassword]
+    );
+    await pool.query('INSERT INTO tenant_communication_settings (tenant_id) VALUES ($1)', [tenant.id]);
+    res.json({ success: true, data: { ...tenant, admin_credentials: { username: 'admin', password: defaultPassword, login_url: `https://${domain}/admin` } } });
+  } catch (err) {
+    if (err.code === '23505') return res.status(400).json({ success: false, error: 'Tenant slug already exists' });
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 module.exports = router;

@@ -5,7 +5,7 @@ function UnifiedLogin() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [twoFAState, setTwoFAState] = useState({ pending: false, temp_token: '' });
+  const [twoFAState, setTwoFAState] = useState({ pending: false, temp_token: '', type: '' });
   const [twoFACode, setTwoFACode] = useState('');
   const [ssoLoading, setSsoLoading] = useState(false);
   const [ssoError, setSsoError] = useState('');
@@ -90,7 +90,7 @@ function UnifiedLogin() {
           const data = await response.json();
           if (data.success) {
             if (data.requires_2fa) {
-              setTwoFAState({ pending: true, temp_token: data.temp_token });
+              setTwoFAState({ pending: true, temp_token: data.temp_token, type: config.type });
               setLoading(false);
               return;
             }
@@ -192,19 +192,30 @@ function UnifiedLogin() {
               <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>Enter the 6-digit code from your authenticator app</div>
               <input value={twoFACode} onChange={e => setTwoFACode(e.target.value)} maxLength={6}
                 placeholder="000000" style={{ width: '100%', padding: 12, border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 20, textAlign: 'center', letterSpacing: 8, outline: 'none', boxSizing: 'border-box', marginBottom: 12 }} />
-              <button onClick={async () => {
-                const res = await fetch('https://api.ssgzone.in/api/v1/super-admin/2fa/verify', {
+            <button onClick={async () => {
+                const verifyEndpoints = {
+                  super_admin:  'https://api.ssgzone.in/api/v1/super-admin/2fa/verify',
+                  saas_admin:   'https://api.ssgzone.in/api/saas-admin/2fa/verify',
+                  tenant_admin: 'https://api.ssgzone.in/api/v1/tenant-admin/2fa/verify',
+                  user:         'https://api.ssgzone.in/api/v1/webmail/2fa/verify',
+                };
+                const tokenKeys = { super_admin: 'super_admin_token', saas_admin: 'saas_admin_token', tenant_admin: 'tenant_admin_token', user: 'webmail_token' };
+                const dashRoutes = { super_admin: '/dashboard/super-admin', saas_admin: '/dashboard/saas-admin', tenant_admin: '/dashboard/tenant-admin', user: '/dashboard/webmail' };
+                const endpoint = verifyEndpoints[twoFAState.type] || verifyEndpoints.super_admin;
+                const res = await fetch(endpoint, {
                   method: 'POST', headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ temp_token: twoFAState.temp_token, totp_token: twoFACode })
                 });
                 const d = await res.json();
                 if (d.success) {
-                  localStorage.setItem('super_admin_token', d.data.token);
-                  localStorage.setItem('user_data', JSON.stringify({ ...d.data.admin, type: 'super_admin' }));
-                  window.location.href = '/dashboard/super-admin';
+                  const t = twoFAState.type;
+                  localStorage.setItem(tokenKeys[t] || 'super_admin_token', d.data.token);
+                  localStorage.setItem('user_data', JSON.stringify(d.data.admin || d.data.user));
+                  localStorage.setItem('user_role', t);
+                  window.location.href = dashRoutes[t] || '/dashboard/super-admin';
                 } else { alert(d.error); setTwoFACode(''); }
               }} style={gradBtn}>Verify</button>
-              <div onClick={() => setTwoFAState({ pending: false, temp_token: '' })}
+              <div onClick={() => setTwoFAState({ pending: false, temp_token: '', type: '' })}
                 style={{ textAlign: 'center', marginTop: 12, fontSize: 13, color: '#6b7280', cursor: 'pointer' }}>← Back to login</div>
             </div>
           ) : (

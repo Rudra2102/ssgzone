@@ -27,6 +27,13 @@ export default function SaasAdminDashboard() {
   const [limitsForm, setLimitsForm] = useState({ max_users: 50, plan_type: 'free' });
   const [analytics, setAnalytics] = useState(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [twoFAStatus, setTwoFAStatus] = useState(false);
+  const [twoFASetup, setTwoFASetup] = useState(null);
+  const [twoFACode, setTwoFACode] = useState('');
+  const [twoFASaving, setTwoFASaving] = useState(false);
+  const [showCreateTenant, setShowCreateTenant] = useState(false);
+  const [newTenantForm, setNewTenantForm] = useState({ company_name: '', slug: '', admin_name: '', max_users: 50 });
+  const [dnsModal, setDnsModal] = useState(null);
 
   const user = JSON.parse(localStorage.getItem('user_data') || '{}');
   const token = localStorage.getItem('saas_admin_token');
@@ -199,7 +206,7 @@ export default function SaasAdminDashboard() {
       </div>
       <div style={{ flex: 1, padding: '12px 8px' }}>
         {nav.map(item => (
-          <div key={item.id} onClick={() => { setSection(item.id); if (item.id === 'api-keys') loadApiKeys(); if (item.id === 'developer') { loadApiKeys(); loadWebhookCfg(); } if (item.id === 'branding') loadBranding(); if (item.id === 'analytics') loadAnalytics(); }}
+          <div key={item.id} onClick={() => { setSection(item.id); if (item.id === 'api-keys') loadApiKeys(); if (item.id === 'developer') { loadApiKeys(); loadWebhookCfg(); } if (item.id === 'branding') loadBranding(); if (item.id === 'analytics') loadAnalytics(); if (item.id === 'security') fetch(API+'/api/saas-admin/2fa/status',{headers:auth}).then(r=>r.json()).then(d=>d.success&&setTwoFAStatus(d.data.enabled)); }}
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 10px', borderRadius: 6, cursor: 'pointer', marginBottom: 2, background: section === item.id ? c.primaryLight : 'transparent', color: section === item.id ? c.primary : c.text, fontWeight: section === item.id ? 600 : 400, fontSize: 13 }}>
             <span>{item.icon}</span>{item.label}
           </div>
@@ -243,7 +250,25 @@ export default function SaasAdminDashboard() {
 
   const TenantsView = () => (
     <div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: c.text, marginBottom: 20 }}>Tenants</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div style={{ fontSize: 22, fontWeight: 700, color: c.text }}>Tenants</div>
+          <button onClick={() => setShowCreateTenant(p => !p)} style={{ background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>+ New Tenant</button>
+        </div>
+        {showCreateTenant && (
+          <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: 20, marginBottom: 20 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: c.text, marginBottom: 14 }}>Create New Tenant</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+              <input value={newTenantForm.company_name} onChange={e => setNewTenantForm(p=>({...p,company_name:e.target.value}))} placeholder="Company Name *" style={{ padding:'9px 12px', border:`1px solid ${c.border}`, borderRadius:7, fontSize:13, outline:'none' }} />
+              <input value={newTenantForm.slug} onChange={e => setNewTenantForm(p=>({...p,slug:e.target.value}))} placeholder="Slug (e.g. acme) *" style={{ padding:'9px 12px', border:`1px solid ${c.border}`, borderRadius:7, fontSize:13, outline:'none' }} />
+              <input value={newTenantForm.admin_name} onChange={e => setNewTenantForm(p=>({...p,admin_name:e.target.value}))} placeholder="Admin Name *" style={{ padding:'9px 12px', border:`1px solid ${c.border}`, borderRadius:7, fontSize:13, outline:'none' }} />
+              <input type="number" value={newTenantForm.max_users} onChange={e => setNewTenantForm(p=>({...p,max_users:parseInt(e.target.value)||50}))} placeholder="Max Users" style={{ padding:'9px 12px', border:`1px solid ${c.border}`, borderRadius:7, fontSize:13, outline:'none' }} />
+            </div>
+            <div style={{ display:'flex', gap:10 }}>
+              <button onClick={createTenant} style={{ background:'linear-gradient(135deg,#6366f1,#8b5cf6)', color:'#fff', border:'none', borderRadius:7, padding:'9px 20px', fontSize:13, fontWeight:600, cursor:'pointer' }}>Create</button>
+              <button onClick={() => setShowCreateTenant(false)} style={{ background:'none', border:`1px solid ${c.border}`, borderRadius:7, padding:'9px 16px', fontSize:13, cursor:'pointer', color:c.textMuted }}>Cancel</button>
+            </div>
+          </div>
+        )}
       <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead><tr style={{ background: c.bg, borderBottom: `1px solid ${c.border}` }}>
@@ -686,6 +711,93 @@ export default function SaasAdminDashboard() {
     );
   };
 
+
+  const createTenant = async () => {
+    const { company_name, slug, admin_name, max_users } = newTenantForm;
+    if (!company_name || !slug || !admin_name) return alert('company_name, slug, admin_name required');
+    try {
+      const res = await fetch(API+'/api/saas-admin/tenants', {
+        method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ company_name, slug, admin_name, max_users })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setTenants(prev => [data.data, ...prev]);
+        setShowCreateTenant(false);
+        setNewTenantForm({ company_name: '', slug: '', admin_name: '', max_users: 50 });
+        setDnsModal({ domain: data.data.domain, password: data.data.admin_credentials?.password, id: data.data.id });
+      } else alert(data.error);
+    } catch (err) { alert(err.message); }
+  };
+
+  const SecurityView = () => {
+    const [localCode, setLocalCode] = React.useState('');
+    const setup2FA = async () => {
+      setTwoFASaving(true);
+      const res = await fetch(API+'/api/saas-admin/2fa/setup', { method: 'POST', headers: auth });
+      const d = await res.json();
+      if (d.success) setTwoFASetup(d.data);
+      setTwoFASaving(false);
+    };
+    const enable2FA = async () => {
+      setTwoFASaving(true);
+      const res = await fetch(API+'/api/saas-admin/2fa/enable', {
+        method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: localCode })
+      });
+      const d = await res.json();
+      if (d.success) { setTwoFAStatus(true); setTwoFASetup(null); setLocalCode(''); alert('2FA enabled!'); }
+      else alert(d.error);
+      setTwoFASaving(false);
+    };
+    const disable2FA = async () => {
+      if (!window.confirm('Disable 2FA?')) return;
+      const res = await fetch(API+'/api/saas-admin/2fa/disable', { method: 'POST', headers: auth });
+      const d = await res.json();
+      if (d.success) { setTwoFAStatus(false); alert('2FA disabled'); }
+      else alert(d.error);
+    };
+    return (
+      <div style={{ maxWidth: 520 }}>
+        <div style={{ fontSize: 22, fontWeight: 700, color: c.text, marginBottom: 20 }}>Security — Two-Factor Authentication</div>
+        <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+            <span style={{ fontSize: 28 }}>{twoFAStatus ? '🔒' : '🔓'}</span>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: c.text }}>2FA is {twoFAStatus ? 'Enabled' : 'Disabled'}</div>
+              <div style={{ fontSize: 12, color: c.textMuted }}>{twoFAStatus ? 'Your account is protected with TOTP' : 'Enable 2FA for extra security'}</div>
+            </div>
+          </div>
+          {!twoFAStatus && !twoFASetup && (
+            <button onClick={setup2FA} disabled={twoFASaving}
+              style={{ background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              {twoFASaving ? 'Loading...' : 'Setup 2FA'}
+            </button>
+          )}
+          {twoFASetup && (
+            <div>
+              <div style={{ fontSize: 13, color: c.textMuted, marginBottom: 12 }}>Scan this QR code with Google Authenticator or Authy:</div>
+              <img src={twoFASetup.qr_code} alt="QR" style={{ width: 180, height: 180, border: `1px solid ${c.border}`, borderRadius: 8, marginBottom: 12 }} />
+              <div style={{ fontSize: 11, color: c.textMuted, marginBottom: 12, fontFamily: 'monospace', background: c.bg, padding: '6px 10px', borderRadius: 6 }}>Secret: {twoFASetup.secret}</div>
+              <input value={localCode} onChange={e => setLocalCode(e.target.value)} maxLength={6}
+                placeholder="Enter 6-digit code"
+                style={{ width: '100%', padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 16, textAlign: 'center', letterSpacing: 6, outline: 'none', boxSizing: 'border-box', marginBottom: 10 }} />
+              <button onClick={enable2FA} disabled={twoFASaving || localCode.length !== 6}
+                style={{ background: '#10b981', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: localCode.length !== 6 ? 0.6 : 1 }}>
+                {twoFASaving ? 'Verifying...' : 'Enable 2FA'}
+              </button>
+            </div>
+          )}
+          {twoFAStatus && (
+            <button onClick={disable2FA}
+              style={{ background: '#ef4444', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              Disable 2FA
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
   const renderSection = () => {
     switch (section) {
       case 'dashboard': return <Dashboard />;
@@ -695,6 +807,7 @@ export default function SaasAdminDashboard() {
       case 'api-keys': return <ApiKeysView />;
       case 'developer': return <DeveloperView />;
       case 'branding': return <BrandingView />;
+      case 'security': return <SecurityView />;
       default: return <Dashboard />;
     }
   };
