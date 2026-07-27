@@ -196,6 +196,7 @@ export default function SaasAdminDashboard() {
     { id: 'api-keys', label: 'API Keys', icon: '🗝' },
     { id: 'developer', label: 'Developer', icon: '⚡' },
     { id: 'branding', label: 'White-label', icon: '🎨' },
+    { id: 'security', label: 'Security', icon: '🔒' },
   ];
 
   const Sidebar = () => (

@@ -331,14 +331,14 @@ router.post('/saas-apps', superAdminAuth, requireRole(), async (req, res) => {
 router.put('/saas-apps/:id', superAdminAuth, requireRole(), async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, description, webhook_url, permissions } = req.body;
+    const { name, permissions } = req.body;
     
     const result = await db.query(`
       UPDATE saas_applications 
-      SET name = $1, description = $2, webhook_url = $3, permissions = $4, updated_at = NOW()
-      WHERE id = $5
-      RETURNING id, name, slug, description, webhook_url, permissions, api_key, api_secret, created_at
-    `, [name, description, webhook_url, permissions ? JSON.stringify(permissions) : null, id]);
+      SET saas_name=$1, permissions=$2, updated_at=NOW()
+      WHERE id=$3
+      RETURNING id, saas_name as name, saas_slug as slug, permissions, api_key, api_secret, created_at
+    `, [name, permissions ? JSON.stringify(permissions) : null, id]);
     
     if (result.rows.length === 0) {
       return res.status(404).json({
@@ -410,13 +410,13 @@ router.get('/tenants', superAdminAuth, requireRole('admin', 'support', 'sales'),
       SELECT 
         tc.id, tc.company_name, tc.company_slug, tc.domain, tc.admin_name, tc.admin_email,
         tc.max_users, tc.plan_type, tc.status, tc.created_at,
-        sa.name as saas_app_name,
+        sa.saas_name as saas_app_name,
         COUNT(tu.id) as user_count
       FROM tenant_companies tc
       LEFT JOIN saas_applications sa ON tc.saas_app_id = sa.id
       LEFT JOIN tenant_users tu ON tc.id = tu.tenant_id AND tu.status = 'active'
       GROUP BY tc.id, tc.company_name, tc.company_slug, tc.domain, tc.admin_name, tc.admin_email,
-               tc.max_users, tc.plan_type, tc.status, tc.created_at, sa.name
+               tc.max_users, tc.plan_type, tc.status, tc.created_at, sa.saas_name
       ORDER BY tc.created_at DESC
     `);
     

@@ -177,6 +177,7 @@ function TenantAdminDashboard() {
     { id: 'settings', label: 'Settings', icon: '⚙️' },
     ...(canUse('analytics') ? [{ id: 'analytics', label: 'Analytics', icon: '📈' }] : []),
     ...(canUse('email') ? [{ id: 'ooo', label: 'Team OOO', icon: '🏖️' }] : []),
+    { id: 'security', label: 'Security', icon: '🔒' },
   ];
 
   const filteredUsers = users.filter(u =>
@@ -271,7 +272,6 @@ function TenantAdminDashboard() {
                       {u.status === 'active' ? 'Suspend' : 'Activate'}
                     </button>
                     <button onClick={() => resetUserPassword(u.id)} style={{ background: 'none', border: `1px solid ${c.border}`, borderRadius: 6, padding: '3px 9px', fontSize: 11, cursor: 'pointer', color: c.warning }}>🔑</button>
-                    <button onClick={() => { setUserPermsPanel(u.id); fetchUserPerms(u.id); }} style={{ background: 'none', border: `1px solid ${c.border}`, borderRadius: 6, padding: '3px 9px', fontSize: 11, cursor: 'pointer', color: '#6366f1' }}>🔐 Perms</button>
                     <button onClick={() => { setUserPermsPanel(u.id); fetchUserPerms(u.id); }} style={{ background: 'none', border: `1px solid ${c.border}`, borderRadius: 6, padding: '3px 9px', fontSize: 11, cursor: 'pointer', color: '#6366f1' }}>🔐 Perms</button>
                     <button onClick={() => handleDeleteUser(u.id)} style={{ background: 'none', border: `1px solid ${c.danger}`, borderRadius: 6, padding: '3px 9px', fontSize: 11, cursor: 'pointer', color: c.danger }}>🗑</button>
                   </div>
@@ -510,7 +510,6 @@ function TenantAdminDashboard() {
       case 'analytics': return <AnalyticsSection />;
       case 'ooo': return <OooSection />;
       case 'security': return <SecuritySection />;
-      case 'security': return <SecuritySection />;
       default: return <DashboardSection />;
     }
   };
@@ -529,49 +528,6 @@ function TenantAdminDashboard() {
       <div style={{ marginLeft: 220, flex: 1, padding: 28 }}>
         {renderSection()}
       </div>
-
-
-      {userPermsPanel && (
-        <div style={{ position: 'fixed', inset: 0, background: '#0008', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: 28, width: 520, maxHeight: '80vh', overflow: 'auto', boxShadow: '0 20px 60px #0003' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#1f2937' }}>🔐 User Permissions</div>
-              <button onClick={() => setUserPermsPanel(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#6b7280' }}>×</button>
-            </div>
-            {userPermsLoading && <div style={{ color: '#6b7280', fontSize: 13 }}>Loading...</div>}
-            {!userPermsLoading && userPerms.length === 0 && <div style={{ color: '#6b7280', fontSize: 13 }}>No feature definitions found.</div>}
-            {!userPermsLoading && userPerms.length > 0 && (
-              <div>
-                {Object.entries(userPerms.reduce((acc, p) => { (acc[p.category||'general'] = acc[p.category||'general']||[]).push(p); return acc; }, {})).map(([cat, perms]) => (
-                  <div key={cat} style={{ marginBottom: 16 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>{cat}</div>
-                    {perms.map(p => (
-                      <div key={p.feature_key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #e5e7eb' }}>
-                        <div>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: '#1f2937' }}>{p.feature_name || p.feature_key}</div>
-                          <div style={{ fontSize: 11, color: '#6b7280' }}>{p.feature_key}</div>
-                        </div>
-                        <div onClick={() => setUserPerms(prev => prev.map(x => x.feature_key === p.feature_key ? { ...x, is_enabled: !x.is_enabled } : x))}
-                          style={{ width: 44, height: 24, borderRadius: 12, background: p.is_enabled ? '#10b981' : '#e5e7eb', cursor: 'pointer', position: 'relative', flexShrink: 0, transition: 'background 0.2s' }}>
-                          <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: p.is_enabled ? 23 : 3, transition: 'left 0.2s' }} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ))}
-                <div style={{ fontSize: 11, color: '#f59e0b', marginBottom: 14 }}>⚠️ Cannot grant features not enabled at tenant level</div>
-                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <button onClick={() => setUserPermsPanel(null)} style={{ padding: '8px 18px', border: '1px solid #e5e7eb', borderRadius: 7, background: 'none', cursor: 'pointer', fontSize: 13, color: '#6b7280' }}>Cancel</button>
-                  <button onClick={() => saveUserPerms(userPermsPanel)} disabled={userPermsSaving}
-                    style={{ background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', border: 'none', borderRadius: 7, padding: '8px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: userPermsSaving ? 0.7 : 1 }}>
-                    {userPermsSaving ? 'Saving...' : 'Save Permissions'}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
 
       {userPermsPanel && (
