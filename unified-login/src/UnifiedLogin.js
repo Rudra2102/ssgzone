@@ -1,9 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Box, Card, TextField, Button, Typography, Alert,
-  Container, Avatar, InputAdornment, IconButton, Paper, CircularProgress
-} from '@mui/material';
-import { Visibility, VisibilityOff, Login as LoginIcon } from '@mui/icons-material';
 
 function UnifiedLogin() {
   const [credentials, setCredentials] = useState({ username: '', password: '' });
@@ -15,7 +10,6 @@ function UnifiedLogin() {
   const [ssoLoading, setSsoLoading] = useState(false);
   const [ssoError, setSsoError] = useState('');
 
-  // SSO auto-login on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const ssoToken = params.get('sso_token');
@@ -24,7 +18,6 @@ function UnifiedLogin() {
     const tenant = params.get('tenant') || 'demo';
 
     if (sso) {
-      // PEMS SSO: decode base64 token directly, no API call needed
       try {
         const decoded = atob(sso);
         const parts = decoded.split(':');
@@ -71,30 +64,25 @@ function UnifiedLogin() {
     e.preventDefault();
     setLoading(true);
     setError('');
-
     try {
-      // Try all login endpoints to detect user role
       const endpoints = [
-        { type: 'super_admin', endpoint: 'https://api.ssgzone.in/api/v1/super-admin/auth/login', tokenKey: 'super_admin_token' },
-        { type: 'saas_admin', endpoint: 'https://api.ssgzone.in/api/saas-admin/login', tokenKey: 'saas_admin_token' },
-        { type: 'tenant_admin', endpoint: 'https://api.ssgzone.in/api/v1/tenant-admin/auth/login', tokenKey: 'tenant_admin_token' },
-        { type: 'user', endpoint: 'https://api.ssgzone.in/api/v1/webmail/auth/login', tokenKey: 'webmail_token' }
+        { type: 'super_admin',  endpoint: 'https://api.ssgzone.in/api/v1/super-admin/auth/login',  tokenKey: 'super_admin_token' },
+        { type: 'saas_admin',   endpoint: 'https://api.ssgzone.in/api/saas-admin/login',            tokenKey: 'saas_admin_token' },
+        { type: 'tenant_admin', endpoint: 'https://api.ssgzone.in/api/v1/tenant-admin/auth/login',  tokenKey: 'tenant_admin_token' },
+        { type: 'user',         endpoint: 'https://api.ssgzone.in/api/v1/webmail/auth/login',       tokenKey: 'webmail_token' },
       ];
-
       for (const config of endpoints) {
         try {
           const response = await fetch(config.endpoint, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(
-              (config.type === 'user' || config.type === 'saas_admin') ?
-              { email: credentials.username, password: credentials.password } :
-              credentials
+              (config.type === 'user' || config.type === 'saas_admin')
+                ? { email: credentials.username, password: credentials.password }
+                : credentials
             )
           });
-
           const data = await response.json();
-
           if (data.success) {
             if (data.requires_2fa) {
               setTwoFAState({ pending: true, temp_token: data.temp_token });
@@ -102,8 +90,6 @@ function UnifiedLogin() {
               return;
             }
             localStorage.setItem(config.tokenKey, data.data.token);
-            
-            // Store user info and redirect to appropriate dashboard
             if (config.type === 'super_admin') {
               localStorage.setItem('super_admin_token', data.data.token);
               localStorage.setItem('user_data', JSON.stringify(data.data.admin));
@@ -131,11 +117,8 @@ function UnifiedLogin() {
             }
             return;
           }
-        } catch (err) {
-          // Continue to next endpoint
-        }
+        } catch (err) {}
       }
-      
       setError('Invalid credentials');
     } catch (error) {
       setError('Network error. Please try again.');
@@ -144,81 +127,116 @@ function UnifiedLogin() {
     }
   };
 
+  const pageStyle = {
+    minHeight: '100vh',
+    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16,
+  };
+  const cardStyle = {
+    background: '#fff', borderRadius: 16, width: 420, maxWidth: '100%',
+    boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden',
+  };
+  const gradBtn = {
+    width: '100%', height: 44, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    color: '#fff', border: 'none', borderRadius: 8, fontSize: 15, fontWeight: 600, cursor: 'pointer',
+  };
+
   if (ssoLoading) {
     return (
-      <Box sx={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Paper elevation={24} sx={{ borderRadius: 4, p: 5, textAlign: 'center', minWidth: 320 }}>
-          <CircularProgress size={48} sx={{ color: '#667eea', mb: 3 }} />
-          <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e293b', mb: 1 }}>Signing you in...</Typography>
-          <Typography variant="body2" sx={{ color: '#6b7280' }}>Verifying your SSO credentials</Typography>
-        </Paper>
-      </Box>
+      <div style={pageStyle}>
+        <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+        <div style={{ ...cardStyle, padding: 48, textAlign: 'center' }}>
+          <div style={{ width: 40, height: 40, border: '4px solid #e5e7eb', borderTop: '4px solid #667eea', borderRadius: '50%', animation: 'spin 0.8s linear infinite', margin: '0 auto 24px' }} />
+          <div style={{ fontSize: 17, fontWeight: 700, color: '#1e293b', marginBottom: 6 }}>Signing you in...</div>
+          <div style={{ fontSize: 13, color: '#6b7280' }}>Verifying your SSO credentials</div>
+        </div>
+      </div>
     );
   }
 
   if (ssoError) {
     return (
-      <Box sx={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <Paper elevation={24} sx={{ borderRadius: 4, p: 5, textAlign: 'center', minWidth: 320 }}>
-          <Typography variant="h2" sx={{ mb: 2 }}>⚠️</Typography>
-          <Typography variant="h6" sx={{ fontWeight: 700, color: '#1e293b', mb: 1 }}>SSO Login Failed</Typography>
-          <Typography variant="body2" sx={{ color: '#6b7280', mb: 3 }}>{ssoError}</Typography>
-          <Button variant="contained" onClick={() => { setSsoError(''); window.history.replaceState({}, '', '/'); }}
-            sx={{ background: 'linear-gradient(135deg, #667eea, #764ba2)' }}>
+      <div style={pageStyle}>
+        <div style={{ ...cardStyle, padding: 48, textAlign: 'center' }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
+          <div style={{ fontSize: 17, fontWeight: 700, color: '#1e293b', marginBottom: 8 }}>SSO Login Failed</div>
+          <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 28 }}>{ssoError}</div>
+          <button style={gradBtn} onClick={() => { setSsoError(''); window.history.replaceState({}, '', '/'); }}>
             Back to Login
-          </Button>
-        </Paper>
-      </Box>
+          </button>
+        </div>
+      </div>
     );
   }
 
   return (
-    <Box sx={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', p: 2 }}>
-      <Container maxWidth="sm">
-        <Paper elevation={24} sx={{ borderRadius: 4, overflow: 'hidden' }}>
-          <Box sx={{ p: 4, textAlign: 'center', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white' }}>
-            <Avatar sx={{ width: 80, height: 80, mx: 'auto', mb: 2, bgcolor: 'rgba(255,255,255,0.2)' }}>
-              <LoginIcon />
-            </Avatar>
-            <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>SSGzone Mail</Typography>
-            <Typography variant="body1">Login Portal</Typography>
-          </Box>
+    <div style={pageStyle}>
+      <div style={cardStyle}>
+        {/* Header */}
+        <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', padding: 32, textAlign: 'center' }}>
+          <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', fontSize: 36 }}>✉️</div>
+          <div style={{ fontSize: 28, fontWeight: 700, color: '#fff', marginBottom: 4 }}>SSGzone Mail</div>
+          <div style={{ fontSize: 14, color: '#fff', opacity: 0.85 }}>Login Portal</div>
+        </div>
 
-          <Box sx={{ p: 4 }}>
-            {twoFAState.pending ? (
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8, color: '#1e293b' }}>Two-Factor Authentication</div>
-                <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>Enter the 6-digit code from your authenticator app</div>
-                <input value={twoFACode} onChange={e => setTwoFACode(e.target.value)} maxLength={6}
-                  placeholder="000000" style={{ width: '100%', padding: '12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 20, textAlign: 'center', letterSpacing: 8, outline: 'none', boxSizing: 'border-box', marginBottom: 12 }} />
-                <button onClick={async () => {
-                  const res = await fetch('https://api.ssgzone.in/api/v1/super-admin/2fa/verify', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ temp_token: twoFAState.temp_token, totp_token: twoFACode })
-                  });
-                  const d = await res.json();
-                  if (d.success) {
-                    localStorage.setItem('super_admin_token', d.data.token);
-                    localStorage.setItem('user_data', JSON.stringify({ ...d.data.admin, type: 'super_admin' }));
-                    window.location.href = '/dashboard/super-admin';
-                  } else { alert(d.error); setTwoFACode(''); }
-                }} style={{ width: '100%', background: 'linear-gradient(135deg, #4f46e5, #7c3aed)', color: '#fff', border: 'none', borderRadius: 8, padding: 12, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-                  Verify
-                </button>
-                <div onClick={() => setTwoFAState({ pending: false, temp_token: '' })} style={{ textAlign: 'center', marginTop: 12, fontSize: 13, color: '#6b7280', cursor: 'pointer' }}>← Back to login</div>
-              </div>
-            ) : (
+        {/* Form */}
+        <div style={{ padding: 32 }}>
+          {twoFAState.pending ? (
+            <div>
+              <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8, color: '#1e293b' }}>Two-Factor Authentication</div>
+              <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>Enter the 6-digit code from your authenticator app</div>
+              <input value={twoFACode} onChange={e => setTwoFACode(e.target.value)} maxLength={6}
+                placeholder="000000" style={{ width: '100%', padding: 12, border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 20, textAlign: 'center', letterSpacing: 8, outline: 'none', boxSizing: 'border-box', marginBottom: 12 }} />
+              <button onClick={async () => {
+                const res = await fetch('https://api.ssgzone.in/api/v1/super-admin/2fa/verify', {
+                  method: 'POST', headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ temp_token: twoFAState.temp_token, totp_token: twoFACode })
+                });
+                const d = await res.json();
+                if (d.success) {
+                  localStorage.setItem('super_admin_token', d.data.token);
+                  localStorage.setItem('user_data', JSON.stringify({ ...d.data.admin, type: 'super_admin' }));
+                  window.location.href = '/dashboard/super-admin';
+                } else { alert(d.error); setTwoFACode(''); }
+              }} style={gradBtn}>Verify</button>
+              <div onClick={() => setTwoFAState({ pending: false, temp_token: '' })}
+                style={{ textAlign: 'center', marginTop: 12, fontSize: 13, color: '#6b7280', cursor: 'pointer' }}>← Back to login</div>
+            </div>
+          ) : (
             <form onSubmit={handleSubmit}>
-              {error && <Alert severity="error" sx={{ mb: 3 }}>{error}</Alert>}
-              <TextField fullWidth label="Username / Email" value={credentials.username} onChange={(e) => setCredentials({ ...credentials, username: e.target.value })} required sx={{ mb: 3 }} />
-              <TextField fullWidth label="Password" type={showPassword ? 'text' : 'password'} value={credentials.password} onChange={(e) => setCredentials({ ...credentials, password: e.target.value })} required sx={{ mb: 4 }} InputProps={{ endAdornment: (<InputAdornment position="end"><IconButton onClick={() => setShowPassword(!showPassword)}>{showPassword ? <VisibilityOff /> : <Visibility />}</IconButton></InputAdornment>) }} />
-              <Button type="submit" fullWidth variant="contained" size="large" disabled={loading} startIcon={<LoginIcon />} sx={{ py: 1.5, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>{loading ? 'Signing in...' : 'Sign In'}</Button>
+              {error && (
+                <div style={{ background: '#fee2e2', color: '#991b1b', borderRadius: 8, padding: '10px 14px', fontSize: 13, marginBottom: 16 }}>{error}</div>
+              )}
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 6 }}>Username / Email</label>
+                <input
+                  type="text" required value={credentials.username}
+                  onChange={e => setCredentials({ ...credentials, username: e.target.value })}
+                  style={{ width: '100%', height: 44, padding: '0 12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
+                />
+              </div>
+              <div style={{ marginBottom: 24 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: '#6b7280', display: 'block', marginBottom: 6 }}>Password</label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    type={showPassword ? 'text' : 'password'} required value={credentials.password}
+                    onChange={e => setCredentials({ ...credentials, password: e.target.value })}
+                    style={{ width: '100%', height: 44, padding: '0 44px 0 12px', border: '1px solid #e5e7eb', borderRadius: 8, fontSize: 14, outline: 'none', boxSizing: 'border-box' }}
+                  />
+                  <button type="button" onClick={() => setShowPassword(p => !p)}
+                    style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, padding: 4 }}>
+                    {showPassword ? '🙈' : '👁'}
+                  </button>
+                </div>
+              </div>
+              <button type="submit" disabled={loading} style={{ ...gradBtn, opacity: loading ? 0.75 : 1 }}>
+                {loading ? 'Signing in...' : 'Sign In'}
+              </button>
             </form>
-            )}
-          </Box>
-        </Paper>
-      </Container>
-    </Box>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 

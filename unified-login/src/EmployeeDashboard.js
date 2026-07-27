@@ -73,6 +73,8 @@ export default function EmployeeDashboard() {
   const [pwForm, setPwForm]       = useState({ current_password:'', new_password:'', confirm:'' });
   const [pwMsg, setPwMsg]         = useState(null);
   const [darkMode, setDarkMode]   = useState(false);
+  const [mailboxes, setMailboxes] = useState([]);
+  const [mailboxSearch, setMailboxSearch] = useState('');
 
   const canTickets  = ['support','sales','admin'].includes(role);
   const canSaas     = ['sales','admin'].includes(role);
@@ -116,6 +118,9 @@ export default function EmployeeDashboard() {
       } else if (section === 'tickets') {
         setTickets(await api('/api/v1/super-admin/support-tickets'));
         if (!tenants.length) setTenants(await api('/api/v1/super-admin/tenants'));
+      } else if (section === 'mailboxes') {
+        const data = await api('/api/v1/super-admin/mailboxes?limit=200');
+        setMailboxes(Array.isArray(data) ? data : []);
       }
     })();
   }, [section]);
@@ -350,8 +355,34 @@ export default function EmployeeDashboard() {
           {/* ── Mailboxes ── */}
           {section === 'mailboxes' && canMailbox && (
             <div style={{ ...styles.card, ...dmCard }}>
-              <div style={styles.sectionTitle}>Mailboxes <span style={styles.viewBadge}>View Only</span></div>
-              <div style={{ color:COLORS.textMuted, fontSize:13 }}>Mailbox management coming soon.</div>
+              <div style={styles.searchRow}>
+                <div style={styles.sectionTitle}>Mailboxes <span style={styles.viewBadge}>View Only</span></div>
+                <input placeholder="Search email..." value={mailboxSearch} onChange={e => setMailboxSearch(e.target.value)} style={{ ...styles.input, width: 220 }} />
+              </div>
+              {mailboxes.filter(m => !mailboxSearch || m.email?.toLowerCase().includes(mailboxSearch.toLowerCase())).length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 40, color: COLORS.textMuted, fontSize: 13 }}>📭 No mailboxes found</div>
+              ) : (
+                <table style={styles.table}>
+                  <thead><tr>
+                    <th style={styles.th}>Email</th>
+                    <th style={styles.th}>Name</th>
+                    <th style={styles.th}>Tenant</th>
+                    <th style={styles.th}>Role</th>
+                    <th style={styles.th}>Status</th>
+                  </tr></thead>
+                  <tbody>
+                    {mailboxes.filter(m => !mailboxSearch || m.email?.toLowerCase().includes(mailboxSearch.toLowerCase())).map(m => (
+                      <tr key={m.id}>
+                        <td style={styles.tdMuted}>{m.email}</td>
+                        <td style={styles.td}>{[m.first_name, m.last_name].filter(Boolean).join(' ') || m.username || '—'}</td>
+                        <td style={styles.tdMuted}>{m.tenant_name || m.company_name || '—'}</td>
+                        <td style={styles.td}>{m.role || '—'}</td>
+                        <td style={styles.td}><span style={styles.badge(m.status === 'active' ? COLORS.success : COLORS.danger)}>{m.status || 'active'}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           )}
 
