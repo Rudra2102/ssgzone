@@ -1009,15 +1009,16 @@ router.get('/2fa/status', superAdminAuth, requireRole(), async (req, res) => {
 // GET /api/v1/super-admin/users
 router.get('/users', superAdminAuth, requireRole('admin', 'support'), async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 100;
-    const result = await db.query(`
-      SELECT tu.id, tu.username, tu.email, tu.first_name, tu.last_name, tu.role, tu.status, tu.last_login, tu.created_at,
-        tc.company_name as tenant_name
-      FROM tenant_users tu
-      LEFT JOIN tenant_companies tc ON tu.tenant_id::text = tc.id::text
-      ORDER BY tu.created_at DESC LIMIT $1
-    `, [limit]);
-    res.json({ success: true, data: result.rows });
+    const { limit = 100, search, tenant_id, saas_app_id, status } = req.query;
+    const params = [];
+    let where = 'WHERE 1=1';
+    if (search) { params.push(`%${search}%`); where += ` AND (tu.first_name ILIKE $${params.length} OR tu.last_name ILIKE $${params.length} OR tu.email ILIKE $${params.length} OR tu.username ILIKE $${params.length})`; }
+    if (tenant_id) { params.push(tenant_id); where += ` AND tu.tenant_id::text = $${params.length}`; }
+    if (status) { params.push(status); where += ` AND tu.status = $${params.length}`; }
+    if (saas_app_id) { params.push(saas_app_id); where += ` AND tc.saas_app_id::text = $${params.length}`; }
+    params.push(parseInt(limit));
+    const result = await db.query(`SELECT tu.id, tu.username, tu.email, tu.first_name, tu.last_name, tu.role, tu.status, tu.last_login, tu.created_at, tc.company_name as tenant_name, sa.saas_name as saas_name FROM tenant_users tu LEFT JOIN tenant_companies tc ON tu.tenant_id::text = tc.id::text LEFT JOIN saas_applications sa ON sa.id = tc.saas_app_id ${where} ORDER BY tu.created_at DESC LIMIT $${params.length}`, params);
+    res.json({ success: true, data: result.rows, total: result.rows.length });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
@@ -1129,6 +1130,30 @@ router.post('/admins', superAdminAuth, requireRole(), async (req, res) => {
   }
 });
 
+// PUT /admins/:id
+router.put('/admins/:id', superAdminAuth, requireRole(), async (req, res) => {
+  const { full_name, role, status } = req.body;
+  try {
+    const result = await db.query(
+      `UPDATE platform_admins SET full_name=COALESCE($1,full_name), role=COALESCE($2,role), status=COALESCE($3,status), updated_at=NOW() WHERE id=$4 RETURNING id, username, email, full_name, role, status`,
+      [full_name, role, status, req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Admin not found' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// PATCH /admins/:id/reset-password
+router.patch('/admins/:id/reset-password', superAdminAuth, requireRole(), async (req, res) => {
+  const { new_password } = req.body;
+  if (!new_password) return res.status(400).json({ success: false, error: 'new_password required' });
+  try {
+    const hash = await bcrypt.hash(new_password, 10);
+    await db.query('UPDATE platform_admins SET password_hash=$1, updated_at=NOW() WHERE id=$2', [hash, req.params.id]);
+    res.json({ success: true, message: 'Password reset' });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 // DELETE /admins/:id
 router.delete('/admins/:id', superAdminAuth, requireRole(), async (req, res) => {
   try {
@@ -1214,6 +1239,127 @@ router.post('/aliases', superAdminAuth, async (req, res) => {
 router.delete('/aliases/:id', superAdminAuth, async (req, res) => {
   try {
     await db.query('DELETE FROM email_aliases WHERE id=$1', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// GET/PUT /saas-apps/:id/features
+router.get('/saas-apps/:id/features', superAdminAuth, requireRole('admin', 'sales'), async (req, res) => {
+  try {
+    const result = await db.query('SELECT feature_key, is_enabled FROM saas_feature_permissions WHERE saas_id=$1', [req.params.id]);
+    const map = {};
+    result.rows.forEach(r => { map[r.feature_key] = r.is_enabled; });
+    res.json({ success: true, data: map });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+router.put('/saas-apps/:id/features', superAdminAuth, requireRole(), async (req, res) => {
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    for (const [feature_key, is_enabled] of Object.entries(req.body)) {
+      await client.query(
+        `INSERT INTO saas_feature_permissions (saas_id, feature_key, is_enabled) VALUES ($1,$2,$3)
+         ON CONFLICT (saas_id, feature_key) DO UPDATE SET is_enabled=$3, updated_at=NOW()`,
+        [req.params.id, feature_key, is_enabled]
+      );
+    }
+    await client.query('COMMIT');
+    res.json({ success: true });
+  } catch (err) { await client.query('ROLLBACK'); res.status(500).json({ success: false, error: err.message }); }
+  finally { client.release(); }
+});
+
+// GET/PUT /branding, POST /branding/logo, POST /branding/favicon
+router.get('/branding', async (req, res) => {
+  try {
+    await db.query(`CREATE TABLE IF NOT EXISTS platform_branding (id SERIAL PRIMARY KEY, platform_name TEXT, tagline TEXT, primary_color TEXT, secondary_color TEXT, sidebar_color TEXT, header_color TEXT, sidebar_text_color TEXT, header_text_color TEXT, font_family TEXT, font_size TEXT, from_name TEXT, from_email TEXT, email_footer TEXT, admin_alert_email TEXT, default_max_users INT DEFAULT 100, default_mailbox_quota INT DEFAULT 1024, session_timeout INT DEFAULT 480, password_min_length INT DEFAULT 8, logo_url TEXT, favicon_url TEXT, updated_at TIMESTAMPTZ DEFAULT NOW())`);
+    const result = await db.query('SELECT * FROM platform_branding LIMIT 1');
+    res.json({ success: true, data: result.rows[0] || {} });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+router.put('/branding', superAdminAuth, requireRole(), async (req, res) => {
+  const fields = ['platform_name','tagline','primary_color','secondary_color','sidebar_color','header_color','sidebar_text_color','header_text_color','font_family','font_size','from_name','from_email','email_footer','admin_alert_email','default_max_users','default_mailbox_quota','session_timeout','password_min_length'];
+  const vals = fields.map(f => req.body[f] ?? null);
+  try {
+    const ins = await db.query(
+      `INSERT INTO platform_branding (${fields.join(',')}) VALUES (${fields.map((_,i)=>'$'+(i+1)).join(',')}) ON CONFLICT DO NOTHING RETURNING *`,
+      vals
+    );
+    if (!ins.rows.length) {
+      const sets = fields.map((f,i) => `${f}=$${i+1}`).join(',');
+      const upd = await db.query(`UPDATE platform_branding SET ${sets}, updated_at=NOW() RETURNING *`, vals);
+      return res.json({ success: true, data: upd.rows[0] });
+    }
+    res.json({ success: true, data: ins.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+router.post('/branding/logo', superAdminAuth, requireRole(), async (req, res) => {
+  const multer = require('multer');
+  const upload = multer({ dest: '/opt/ssgzone/uploads/branding/' }).single('logo');
+  upload(req, res, async (err) => {
+    if (err) return res.status(400).json({ success: false, error: err.message });
+    if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' });
+    const logo_url = `/uploads/branding/${req.file.filename}`;
+    await db.query('UPDATE platform_branding SET logo_url=$1 WHERE id=(SELECT id FROM platform_branding LIMIT 1)', [logo_url]);
+    res.json({ success: true, data: { logo_url } });
+  });
+});
+
+router.post('/branding/favicon', superAdminAuth, requireRole(), async (req, res) => {
+  const multer = require('multer');
+  const upload = multer({ dest: '/opt/ssgzone/uploads/branding/' }).single('favicon');
+  upload(req, res, async (err) => {
+    if (err) return res.status(400).json({ success: false, error: err.message });
+    if (!req.file) return res.status(400).json({ success: false, error: 'No file uploaded' });
+    const favicon_url = `/uploads/branding/${req.file.filename}`;
+    await db.query('UPDATE platform_branding SET favicon_url=$1 WHERE id=(SELECT id FROM platform_branding LIMIT 1)', [favicon_url]);
+    res.json({ success: true, data: { favicon_url } });
+  });
+});
+
+// Tenant domain routes
+router.get('/tenants/:id/domain/status', superAdminAuth, async (req, res) => {
+  try {
+    const result = await db.query('SELECT domain, dns_verified FROM tenant_companies WHERE id=$1', [req.params.id]);
+    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Tenant not found' });
+    const { domain, dns_verified } = result.rows[0];
+    res.json({ success: true, data: { custom_domain: domain, domain_status: dns_verified ? 'verified' : domain ? 'pending' : null } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+router.post('/tenants/:id/domain/setup', superAdminAuth, requireRole(), async (req, res) => {
+  const { custom_domain } = req.body;
+  if (!custom_domain) return res.status(400).json({ success: false, error: 'custom_domain required' });
+  try {
+    await db.query('UPDATE tenant_companies SET domain=$1, dns_verified=false WHERE id=$2', [custom_domain, req.params.id]);
+    res.json({ success: true, data: { custom_domain, domain_status: 'pending', verification: { value: `ssgzone-verify=${require('crypto').randomBytes(8).toString('hex')}` } } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+router.post('/tenants/:id/domain/verify', superAdminAuth, requireRole(), async (req, res) => {
+  const dns = require('dns').promises;
+  try {
+    const result = await db.query('SELECT domain FROM tenant_companies WHERE id=$1', [req.params.id]);
+    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Tenant not found' });
+    const domain = result.rows[0].domain;
+    let mxOk = false, spfOk = false;
+    try { const mx = await dns.resolveMx(domain); mxOk = mx.some(r => r.exchange.includes('ssgzone.in')); } catch {}
+    try { const txt = await dns.resolveTxt(domain); spfOk = txt.flat().join(' ').includes('ssgzone.in'); } catch {}
+    if (mxOk && spfOk) {
+      await db.query('UPDATE tenant_companies SET dns_verified=true WHERE id=$1', [req.params.id]);
+      res.json({ success: true, data: { verified: true } });
+    } else {
+      res.json({ success: false, error: `DNS not ready. MX: ${mxOk ? '✅' : '❌'}, SPF: ${spfOk ? '✅' : '❌'}` });
+    }
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+router.delete('/tenants/:id/domain', superAdminAuth, requireRole(), async (req, res) => {
+  try {
+    await db.query('UPDATE tenant_companies SET dns_verified=false WHERE id=$1', [req.params.id]);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
