@@ -33,8 +33,9 @@ router.post('/auth/login', async (req, res) => {
     }
     
     // Find super admin or platform employee
+    let isEmployee = false;
     let result = await db.query(
-      'SELECT *, \'super_admin\' as role FROM super_admins WHERE username = $1 AND status = $2',
+      "SELECT *, 'super_admin' as computed_role FROM super_admins WHERE username = $1 AND status = $2",
       [username, 'active']
     );
     if (result.rows.length === 0) {
@@ -42,6 +43,7 @@ router.post('/auth/login', async (req, res) => {
         'SELECT *, id::text as id FROM platform_admins WHERE username = $1 AND status = $2',
         [username, 'active']
       );
+      isEmployee = result.rows.length > 0;
     }
     
     console.log('Database result:', result.rows.length > 0 ? 'User found' : 'User not found');
@@ -77,6 +79,9 @@ router.post('/auth/login', async (req, res) => {
     //   [admin.id]
     // );
     
+    // For super_admins, force role to 'super_admin'
+    if (!isEmployee) admin.role = 'super_admin';
+
     // Check if 2FA is enabled
     if (admin.totp_enabled) {
       const tempToken = jwt.sign(
@@ -131,11 +136,17 @@ const superAdminAuth = async (req, res, next) => {
       });
     }
     
-    // Verify admin still exists and is active
-    const result = await db.query(
+    // Verify admin still exists and is active (check both tables)
+    let result = await db.query(
       'SELECT id, username, email FROM super_admins WHERE id = $1 AND status = $2',
       [decoded.adminId, 'active']
     );
+    if (result.rows.length === 0) {
+      result = await db.query(
+        'SELECT id::text as id, username, email FROM platform_admins WHERE id::text = $1 AND status = $2',
+        [String(decoded.adminId), 'active']
+      );
+    }
     
     if (result.rows.length === 0) {
       return res.status(401).json({
