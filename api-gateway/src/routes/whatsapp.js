@@ -86,7 +86,7 @@ router.post('/webhook', async (req, res) => {
       if (msg.type !== 'text') continue;
       await pool.query(
         `INSERT INTO whatsapp_messages (user_id, tenant_id, direction, from_number, to_number, message_text, wa_message_id, status)
-         VALUES ('inbound','0','inbound',$1,$2,$3,$4,'received')
+         VALUES ('inbound','0'::varchar,'inbound',$1,$2,$3,$4,'received')
          ON CONFLICT DO NOTHING`,
         [msg.from, WA_PHONE_ID, msg.text?.body || '', msg.id]
       );
