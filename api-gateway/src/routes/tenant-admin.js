@@ -477,4 +477,48 @@ router.put('/communication/settings', tenantAdminAuth, async (req, res) => {
   }
 });
 
+// GET /api/v1/tenant-admin/team/ooo
+router.get('/team/ooo', tenantAdminAuth, async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT ar.id, ar.subject, ar.message, ar.start_date, ar.end_date, ar.is_active,
+         tu.first_name, tu.last_name, tu.email as user_email
+       FROM autoresponders ar
+       JOIN tenant_users tu ON tu.id = ar.user_id
+       WHERE tu.tenant_id = $1 AND ar.is_active = true
+       ORDER BY ar.created_at DESC`,
+      [req.admin.tenantId]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// PATCH /api/v1/tenant-admin/users/:id/status
+router.patch('/users/:id/status', tenantAdminAuth, async (req, res) => {
+  const { status } = req.body;
+  if (!['active','suspended'].includes(status)) return res.status(400).json({ success: false, error: 'Invalid status' });
+  if (req.params.id === req.admin.adminId) return res.status(400).json({ success: false, error: 'Cannot suspend yourself' });
+  try {
+    const result = await db.query(
+      `UPDATE tenant_users SET status=$1 WHERE id=$2 AND tenant_id=$3 RETURNING id, email, status`,
+      [status, req.params.id, req.admin.tenantId]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, error: 'User not found' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/v1/tenant-admin/users/:id/reset-password
+router.post('/users/:id/reset-password', tenantAdminAuth, async (req, res) => {
+  try {
+    const check = await db.query('SELECT id FROM tenant_users WHERE id=$1 AND tenant_id=$2', [req.params.id, req.admin.tenantId]);
+    if (!check.rows.length) return res.status(404).json({ success: false, error: 'User not found' });
+    const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+    const newPassword = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    const hash = await bcrypt.hash(newPassword, 10);
+    await db.query('UPDATE tenant_users SET password_hash=$1 WHERE id=$2', [hash, req.params.id]);
+    res.json({ success: true, data: { new_password: newPassword } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 module.exports = router;
