@@ -2,6 +2,14 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
+const nodemailer = require('nodemailer');
+
+const mailer = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'email-smtp.ap-south-1.amazonaws.com',
+  port: parseInt(process.env.SMTP_PORT) || 587,
+  secure: false,
+  auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+});
 
 const router = express.Router();
 
@@ -35,12 +43,12 @@ router.post('/auth/login', async (req, res) => {
     // Find super admin or platform employee
     let isEmployee = false;
     let result = await db.query(
-      "SELECT *, 'super_admin' as computed_role FROM super_admins WHERE username = $1 AND status = $2",
+      'SELECT * FROM super_admins WHERE username = $1 AND status = $2',
       [username, 'active']
     );
     if (result.rows.length === 0) {
       result = await db.query(
-        'SELECT *, id::text as id FROM platform_admins WHERE username = $1 AND status = $2',
+        'SELECT id::text as id, username, email, full_name, password_hash, role, status, totp_enabled, totp_secret FROM platform_admins WHERE username = $1 AND status = $2',
         [username, 'active']
       );
       isEmployee = result.rows.length > 0;
@@ -79,7 +87,7 @@ router.post('/auth/login', async (req, res) => {
     //   [admin.id]
     // );
     
-    // For super_admins, force role to 'super_admin'
+    // super_admins table has no role column — force it
     if (!isEmployee) admin.role = 'super_admin';
 
     // Check if 2FA is enabled
@@ -143,8 +151,8 @@ const superAdminAuth = async (req, res, next) => {
     );
     if (result.rows.length === 0) {
       result = await db.query(
-        'SELECT id::text as id, username, email FROM platform_admins WHERE id::text = $1 AND status = $2',
-        [String(decoded.adminId), 'active']
+        'SELECT id::text as id, username, email FROM platform_admins WHERE id = $1 AND status = $2',
+        [decoded.adminId, 'active']
       );
     }
     
@@ -1040,6 +1048,84 @@ router.patch('/support-tickets/:id/status', superAdminAuth, async (req, res) => 
     );
     if (!result.rows.length) return res.status(404).json({ success: false, error: 'Ticket not found' });
     res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// Change Password (employee profile)
+router.patch('/profile/change-password', superAdminAuth, async (req, res) => {
+  try {
+    const { current_password, new_password } = req.body;
+    if (!current_password || !new_password) return res.status(400).json({ success: false, error: 'current_password and new_password required' });
+
+    // Try super_admins first, then platform_admins
+    let row = (await db.query('SELECT id, password_hash FROM super_admins WHERE id = $1', [req.admin.adminId])).rows[0];
+    let table = 'super_admins';
+    if (!row) {
+      row = (await db.query('SELECT id, password_hash FROM platform_admins WHERE id = $1', [req.admin.adminId])).rows[0];
+      table = 'platform_admins';
+    }
+    if (!row) return res.status(404).json({ success: false, error: 'User not found' });
+
+    const cleanHash = row.password_hash.replace(/\\/g, '');
+    const valid = await bcrypt.compare(current_password, cleanHash);
+    if (!valid) return res.status(400).json({ success: false, error: 'Current password is incorrect' });
+
+    const newHash = await bcrypt.hash(new_password, 10);
+    await db.query(`UPDATE ${table} SET password_hash=$1, updated_at=NOW() WHERE id=$2`, [newHash, row.id]);
+    res.json({ success: true, message: 'Password changed successfully' });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// GET /admins — list platform employees
+router.get('/admins', superAdminAuth, async (req, res) => {
+  try {
+    const result = await db.query(
+      'SELECT id, username, email, full_name, role, status, created_at, last_login FROM platform_admins ORDER BY created_at DESC'
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /admins — create platform employee with welcome email
+router.post('/admins', superAdminAuth, async (req, res) => {
+  try {
+    const { username, email, full_name, role, password } = req.body;
+    if (!username || !email || !role) return res.status(400).json({ success: false, error: 'username, email, role required' });
+    const plainPassword = password || 'Welcome@123';
+    const hash = await bcrypt.hash(plainPassword, 10);
+    const result = await db.query(
+      `INSERT INTO platform_admins (username, email, full_name, role, password_hash, status, created_by)
+       VALUES ($1,$2,$3,$4,$5,'active',$6) RETURNING id, username, email, full_name, role, status, created_at`,
+      [username, email, full_name || username, role, hash, req.admin.adminId]
+    );
+    const newAdmin = result.rows[0];
+    // Send welcome email (best-effort)
+    if (email) {
+      mailer.sendMail({
+        from: `"SSGzone" <${process.env.SMTP_USER}>`,
+        to: email,
+        subject: 'Your SSGzone Employee Account',
+        html: `<h2>Welcome to SSGzone</h2>
+               <p>Your employee account has been created.</p>
+               <p><strong>Username:</strong> ${username}</p>
+               <p><strong>Password:</strong> ${plainPassword}</p>
+               <p><strong>Role:</strong> ${role}</p>
+               <p>Login at: <a href="https://mail.ssgzone.in">https://mail.ssgzone.in</a></p>
+               <p>Please change your password after first login.</p>`
+      }).catch(e => console.error('Welcome email failed:', e.message));
+    }
+    res.json({ success: true, data: newAdmin });
+  } catch (err) {
+    if (err.code === '23505') return res.status(400).json({ success: false, error: 'Username or email already exists' });
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// DELETE /admins/:id
+router.delete('/admins/:id', superAdminAuth, async (req, res) => {
+  try {
+    await db.query('DELETE FROM platform_admins WHERE id = $1', [req.params.id]);
+    res.json({ success: true });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
