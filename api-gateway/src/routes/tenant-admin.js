@@ -84,7 +84,7 @@ const tenantAdminAuth = async (req, res, next) => {
       return res.status(401).json({ success: false, error: 'Token required' });
     }
     
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'tenant-admin-secret');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'super-admin-secret');
     if (decoded.type !== 'tenant_admin') {
       return res.status(403).json({ success: false, error: 'Tenant admin access required' });
     }

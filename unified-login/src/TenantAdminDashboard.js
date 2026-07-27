@@ -8,6 +8,7 @@ import {
 } from '@mui/icons-material';
 
 function TenantAdminDashboard() {
+  const API = 'https://api.ssgzone.in';
   const [activeTab, setActiveTab] = useState(0);
   const [stats, setStats] = useState({
     totalUsers: 0,
@@ -67,7 +68,7 @@ function TenantAdminDashboard() {
   const fetchDashboardData = async () => {
     try {
       // Fetch stats
-      const statsResponse = await fetch('/api/v1/tenant-admin/dashboard/stats', {
+      const statsResponse = await fetch(`${API}/api/v1/tenant-admin/dashboard/stats`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (statsResponse.ok) {
@@ -76,7 +77,7 @@ function TenantAdminDashboard() {
       }
 
       // Fetch users
-      const usersResponse = await fetch('/api/v1/tenant-admin/users', {
+      const usersResponse = await fetch(`${API}/api/v1/tenant-admin/users`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (usersResponse.ok) {
@@ -85,7 +86,7 @@ function TenantAdminDashboard() {
       }
 
       // Fetch departments
-      const deptsResponse = await fetch('/api/v1/tenant-admin/departments', {
+      const deptsResponse = await fetch(`${API}/api/v1/tenant-admin/departments`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (deptsResponse.ok) {
@@ -94,7 +95,7 @@ function TenantAdminDashboard() {
       }
 
       // Fetch communication settings
-      const settingsResponse = await fetch('/api/v1/tenant-admin/communication/settings', {
+      const settingsResponse = await fetch(`${API}/api/v1/tenant-admin/communication/settings`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (settingsResponse.ok) {
@@ -118,8 +119,8 @@ function TenantAdminDashboard() {
       }
       
       const url = editingUser 
-        ? `/api/v1/tenant-admin/users/${editingUser.id}`
-        : '/api/v1/tenant-admin/users';
+        ? `${API}/api/v1/tenant-admin/users/${editingUser.id}`
+        : `${API}/api/v1/tenant-admin/users`;
       
       const method = editingUser ? 'PUT' : 'POST';
       
@@ -188,7 +189,7 @@ function TenantAdminDashboard() {
       setError('');
       setSuccess('');
       
-      const response = await fetch(`/api/v1/tenant-admin/users/${userId}`, {
+      const response = await fetch(`${API}/api/v1/tenant-admin/users/${userId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -222,8 +223,8 @@ function TenantAdminDashboard() {
       }
       
       const url = editingDept 
-        ? `/api/v1/tenant-admin/departments/${editingDept.id}`
-        : '/api/v1/tenant-admin/departments';
+        ? `${API}/api/v1/tenant-admin/departments/${editingDept.id}`
+        : `${API}/api/v1/tenant-admin/departments`;
       
       const method = editingDept ? 'PUT' : 'POST';
       
@@ -283,7 +284,7 @@ function TenantAdminDashboard() {
       setError('');
       setSuccess('');
       
-      const response = await fetch(`/api/v1/tenant-admin/departments/${deptId}`, {
+      const response = await fetch(`${API}/api/v1/tenant-admin/departments/${deptId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`
@@ -335,7 +336,7 @@ function TenantAdminDashboard() {
     try {
       const updatedSettings = { ...communicationSettings, [setting]: value };
       
-      const response = await fetch('/api/v1/tenant-admin/communication/settings', {
+      const response = await fetch(`${API}/api/v1/tenant-admin/communication/settings`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
