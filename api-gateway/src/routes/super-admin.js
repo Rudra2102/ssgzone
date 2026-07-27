@@ -123,6 +123,14 @@ router.post('/auth/login', async (req, res) => {
   }
 });
 
+// Role-based access control for platform employees
+const requireRole = (...allowedRoles) => (req, res, next) => {
+  const role = req.admin?.role;
+  if (role === 'super_admin') return next();
+  if (allowedRoles.includes(role)) return next();
+  return res.status(403).json({ success: false, error: 'Insufficient permissions for your role' });
+};
+
 // Super Admin Authentication Middleware
 const superAdminAuth = async (req, res, next) => {
   try {
@@ -218,7 +226,7 @@ router.get('/dashboard/stats', superAdminAuth, async (req, res) => {
 });
 
 // Get SaaS Applications
-router.get('/saas-apps', superAdminAuth, async (req, res) => {
+router.get('/saas-apps', superAdminAuth, requireRole('admin', 'sales'), async (req, res) => {
   try {
     const result = await db.query(`
       SELECT 
@@ -244,7 +252,7 @@ router.get('/saas-apps', superAdminAuth, async (req, res) => {
 });
 
 // Get Single SaaS Application with API Keys
-router.get('/saas-apps/:id', superAdminAuth, async (req, res) => {
+router.get('/saas-apps/:id', superAdminAuth, requireRole('admin', 'sales'), async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -281,7 +289,7 @@ router.get('/saas-apps/:id', superAdminAuth, async (req, res) => {
 });
 
 // Create SaaS Application
-router.post('/saas-apps', superAdminAuth, async (req, res) => {
+router.post('/saas-apps', superAdminAuth, requireRole(), async (req, res) => {
   try {
     const { saas_name, saas_slug, description, webhook_url, permissions } = req.body;
     
@@ -320,7 +328,7 @@ router.post('/saas-apps', superAdminAuth, async (req, res) => {
 });
 
 // Update SaaS Application
-router.put('/saas-apps/:id', superAdminAuth, async (req, res) => {
+router.put('/saas-apps/:id', superAdminAuth, requireRole(), async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, webhook_url, permissions } = req.body;
@@ -353,7 +361,7 @@ router.put('/saas-apps/:id', superAdminAuth, async (req, res) => {
 });
 
 // Delete SaaS Application
-router.delete('/saas-apps/:id', superAdminAuth, async (req, res) => {
+router.delete('/saas-apps/:id', superAdminAuth, requireRole(), async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -396,7 +404,7 @@ router.delete('/saas-apps/:id', superAdminAuth, async (req, res) => {
 });
 
 // Get Tenants
-router.get('/tenants', superAdminAuth, async (req, res) => {
+router.get('/tenants', superAdminAuth, requireRole('admin', 'support', 'sales'), async (req, res) => {
   try {
     const result = await db.query(`
       SELECT 
@@ -426,7 +434,7 @@ router.get('/tenants', superAdminAuth, async (req, res) => {
 });
 
 // Create Tenant
-router.post('/tenants', superAdminAuth, async (req, res) => {
+router.post('/tenants', superAdminAuth, requireRole(), async (req, res) => {
   try {
     const { company_name, slug, saas_app_id, admin_name, admin_email, max_users } = req.body;
     
@@ -931,7 +939,7 @@ router.post('/tenants/import-csv', superAdminAuth, async (req, res) => {
 });
 
 // POST /api/v1/super-admin/2fa/setup
-router.post('/2fa/setup', superAdminAuth, async (req, res) => {
+router.post('/2fa/setup', superAdminAuth, requireRole(), async (req, res) => {
   const speakeasy = require('speakeasy');
   const QRCode = require('qrcode');
   try {
@@ -943,7 +951,7 @@ router.post('/2fa/setup', superAdminAuth, async (req, res) => {
 });
 
 // POST /api/v1/super-admin/2fa/enable
-router.post('/2fa/enable', superAdminAuth, async (req, res) => {
+router.post('/2fa/enable', superAdminAuth, requireRole(), async (req, res) => {
   const speakeasy = require('speakeasy');
   const { token } = req.body;
   if (!token) return res.status(400).json({ success: false, error: 'token required' });
@@ -959,7 +967,7 @@ router.post('/2fa/enable', superAdminAuth, async (req, res) => {
 });
 
 // POST /api/v1/super-admin/2fa/disable
-router.post('/2fa/disable', superAdminAuth, async (req, res) => {
+router.post('/2fa/disable', superAdminAuth, requireRole(), async (req, res) => {
   try {
     await db.query('UPDATE super_admins SET totp_enabled=false, totp_secret=NULL WHERE id=$1', [req.admin.adminId]);
     res.json({ success: true, message: '2FA disabled' });
@@ -991,7 +999,7 @@ router.post('/2fa/verify', async (req, res) => {
 });
 
 // GET /api/v1/super-admin/2fa/status
-router.get('/2fa/status', superAdminAuth, async (req, res) => {
+router.get('/2fa/status', superAdminAuth, requireRole(), async (req, res) => {
   try {
     const result = await db.query('SELECT totp_enabled FROM super_admins WHERE id=$1', [req.admin.adminId]);
     res.json({ success: true, data: { enabled: result.rows[0]?.totp_enabled || false } });
@@ -999,7 +1007,7 @@ router.get('/2fa/status', superAdminAuth, async (req, res) => {
 });
 
 // GET /api/v1/super-admin/users
-router.get('/users', superAdminAuth, async (req, res) => {
+router.get('/users', superAdminAuth, requireRole('admin', 'support'), async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 100;
     const result = await db.query(`
@@ -1014,7 +1022,7 @@ router.get('/users', superAdminAuth, async (req, res) => {
 });
 
 // Support Tickets
-router.get('/support-tickets', superAdminAuth, async (req, res) => {
+router.get('/support-tickets', superAdminAuth, requireRole('admin', 'support', 'sales'), async (req, res) => {
   try {
     const { status } = req.query;
     let query = `SELECT st.*, tc.company_name as tenant_name FROM support_tickets st LEFT JOIN tenant_companies tc ON tc.id::text = st.tenant_id`;
@@ -1026,7 +1034,7 @@ router.get('/support-tickets', superAdminAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-router.post('/support-tickets', superAdminAuth, async (req, res) => {
+router.post('/support-tickets', superAdminAuth, requireRole('admin', 'support', 'sales'), async (req, res) => {
   try {
     const { subject, description, tenant_id, priority } = req.body;
     if (!subject) return res.status(400).json({ success: false, error: 'subject required' });
@@ -1038,7 +1046,7 @@ router.post('/support-tickets', superAdminAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
-router.patch('/support-tickets/:id/status', superAdminAuth, async (req, res) => {
+router.patch('/support-tickets/:id/status', superAdminAuth, requireRole('admin', 'support', 'sales'), async (req, res) => {
   try {
     const { status } = req.body;
     if (!['open','in_progress','resolved'].includes(status)) return res.status(400).json({ success: false, error: 'invalid status' });
@@ -1077,7 +1085,7 @@ router.patch('/profile/change-password', superAdminAuth, async (req, res) => {
 });
 
 // GET /admins — list platform employees
-router.get('/admins', superAdminAuth, async (req, res) => {
+router.get('/admins', superAdminAuth, requireRole(), async (req, res) => {
   try {
     const result = await db.query(
       'SELECT id, username, email, full_name, role, status, created_at, last_login FROM platform_admins ORDER BY created_at DESC'
@@ -1087,7 +1095,7 @@ router.get('/admins', superAdminAuth, async (req, res) => {
 });
 
 // POST /admins — create platform employee with welcome email
-router.post('/admins', superAdminAuth, async (req, res) => {
+router.post('/admins', superAdminAuth, requireRole(), async (req, res) => {
   try {
     const { username, email, full_name, role, password } = req.body;
     if (!username || !email || !role) return res.status(400).json({ success: false, error: 'username, email, role required' });
@@ -1122,7 +1130,7 @@ router.post('/admins', superAdminAuth, async (req, res) => {
 });
 
 // DELETE /admins/:id
-router.delete('/admins/:id', superAdminAuth, async (req, res) => {
+router.delete('/admins/:id', superAdminAuth, requireRole(), async (req, res) => {
   try {
     await db.query('DELETE FROM platform_admins WHERE id = $1', [req.params.id]);
     res.json({ success: true });

@@ -6,6 +6,7 @@ const inputValidation = require('../middleware/inputValidation');
 const { startEmailScheduler } = require('../jobs/emailScheduler');
 const emailService = require('../services/emailService');
 const { checkSpam } = require('../services/spamService');
+const { requireFeature } = require('../middleware/permissions');
 const router = express.Router();
 const { Pool } = require('pg');
 
@@ -108,7 +109,7 @@ router.get('/email/stats/:tenant_id', async (req, res) => {
 });
 
 // Chat Management Routes
-router.post('/chat/rooms', async (req, res) => {
+router.post('/chat/rooms', requireFeature('chat'), async (req, res) => {
   try {
     const { tenant_id, name, description, type = 'group', created_by } = req.body;
 
@@ -128,7 +129,7 @@ router.post('/chat/rooms', async (req, res) => {
   }
 });
 
-router.get('/chat/rooms/:tenant_id', async (req, res) => {
+router.get('/chat/rooms/:tenant_id', requireFeature('chat'), async (req, res) => {
   try {
     const { tenant_id } = req.params;
 
@@ -154,7 +155,7 @@ router.get('/chat/rooms/:tenant_id', async (req, res) => {
   }
 });
 
-router.post('/chat/messages', async (req, res) => {
+router.post('/chat/messages', requireFeature('chat'), async (req, res) => {
   try {
     const { room_id, user_id, message, message_type = 'text' } = req.body;
 
@@ -350,7 +351,7 @@ router.get('/dashboard/stats/:tenant_id', async (req, res) => {
 // ── Enhanced Chat Endpoints ──────────────────────────────────────────────────
 
 // GET messages for a room (paginated, excludes deleted)
-router.get('/chat/messages', async (req, res) => {
+router.get('/chat/messages', requireFeature('chat'), async (req, res) => {
   try {
     const { room_id, limit = 50, before_id } = req.query;
     if (!room_id) return res.status(400).json({ error: 'room_id required' });
@@ -385,7 +386,7 @@ router.get('/chat/messages', async (req, res) => {
 });
 
 // PUT edit a message (owner only)
-router.put('/chat/messages/:messageId', async (req, res) => {
+router.put('/chat/messages/:messageId', requireFeature('chat'), async (req, res) => {
   try {
     const { messageId } = req.params;
     const { user_id, new_message } = req.body;
@@ -406,7 +407,7 @@ router.put('/chat/messages/:messageId', async (req, res) => {
 });
 
 // DELETE a message (soft delete, owner only)
-router.delete('/chat/messages/:messageId', async (req, res) => {
+router.delete('/chat/messages/:messageId', requireFeature('chat'), async (req, res) => {
   try {
     const { messageId } = req.params;
     const { user_id } = req.body;
@@ -427,7 +428,7 @@ router.delete('/chat/messages/:messageId', async (req, res) => {
 });
 
 // POST toggle reaction on a message
-router.post('/chat/messages/:messageId/reactions', async (req, res) => {
+router.post('/chat/messages/:messageId/reactions', requireFeature('chat'), async (req, res) => {
   try {
     const { messageId } = req.params;
     const { user_id, emoji } = req.body;
@@ -456,7 +457,7 @@ router.post('/chat/messages/:messageId/reactions', async (req, res) => {
 });
 
 // POST mark room as read for a user
-router.post('/chat/rooms/:roomId/read', async (req, res) => {
+router.post('/chat/rooms/:roomId/read', requireFeature('chat'), async (req, res) => {
   try {
     const { roomId } = req.params;
     const { user_id } = req.body;
@@ -476,7 +477,7 @@ router.post('/chat/rooms/:roomId/read', async (req, res) => {
 });
 
 // GET unread count per room for a user
-router.get('/chat/rooms/:roomId/unread', async (req, res) => {
+router.get('/chat/rooms/:roomId/unread', requireFeature('chat'), async (req, res) => {
   try {
     const { roomId } = req.params;
     const { user_id } = req.query;
@@ -513,7 +514,7 @@ router.get('/chat/online/:tenant_id', async (req, res) => {
 });
 
 // GET chat rooms for a user (rooms they are participant of)
-router.get('/chat/rooms/:tenant_id/my-rooms', async (req, res) => {
+router.get('/chat/rooms/:tenant_id/my-rooms', requireFeature('chat'), async (req, res) => {
   try {
     const { tenant_id } = req.params;
     const { user_id } = req.query;
@@ -548,7 +549,7 @@ router.get('/chat/rooms/:tenant_id/my-rooms', async (req, res) => {
 });
 
 // POST add participant to a room
-router.post('/chat/rooms/:roomId/participants', async (req, res) => {
+router.post('/chat/rooms/:roomId/participants', requireFeature('chat'), async (req, res) => {
   try {
     const { roomId } = req.params;
     const { user_id, user_email, user_name, role = 'member' } = req.body;
@@ -568,7 +569,7 @@ router.post('/chat/rooms/:roomId/participants', async (req, res) => {
 });
 
 // POST create a direct (1-on-1) room between two users
-router.post('/chat/rooms/direct', async (req, res) => {
+router.post('/chat/rooms/direct', requireFeature('chat'), async (req, res) => {
   try {
     const { tenant_id, user1_id, user1_name, user2_id, user2_name } = req.body;
     if (!tenant_id || !user1_id || !user2_id) {
@@ -698,7 +699,7 @@ router.post('/email/spam-check', async (req, res) => {
 });
 
 // GET /api/v1/communication/chat/messages/search?room_id=&q=
-router.get('/chat/messages/search', async (req, res) => {
+router.get('/chat/messages/search', requireFeature('chat'), async (req, res) => {
   const { room_id, q } = req.query;
   if (!room_id || !q) return res.status(400).json({ success: false, error: 'room_id and q required' });
   try {
@@ -714,7 +715,7 @@ router.get('/chat/messages/search', async (req, res) => {
 });
 
 // GET /api/v1/communication/chat/rooms/:room_id/pinned
-router.get('/chat/rooms/:room_id/pinned', async (req, res) => {
+router.get('/chat/rooms/:room_id/pinned', requireFeature('chat'), async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT pm.*, cm.message, cm.user_name, cm.created_at as msg_created_at
@@ -729,7 +730,7 @@ router.get('/chat/rooms/:room_id/pinned', async (req, res) => {
 });
 
 // POST /api/v1/communication/chat/rooms/:room_id/pinned
-router.post('/chat/rooms/:room_id/pinned', async (req, res) => {
+router.post('/chat/rooms/:room_id/pinned', requireFeature('chat'), async (req, res) => {
   const { message_id, pinned_by } = req.body;
   if (!message_id || !pinned_by) return res.status(400).json({ success: false, error: 'message_id and pinned_by required' });
   try {
@@ -743,7 +744,7 @@ router.post('/chat/rooms/:room_id/pinned', async (req, res) => {
 });
 
 // DELETE /api/v1/communication/chat/rooms/:room_id/pinned/:message_id
-router.delete('/chat/rooms/:room_id/pinned/:message_id', async (req, res) => {
+router.delete('/chat/rooms/:room_id/pinned/:message_id', requireFeature('chat'), async (req, res) => {
   try {
     await pool.query(
       `DELETE FROM chat_pinned_messages WHERE room_id=$1 AND message_id=$2`,
@@ -754,7 +755,7 @@ router.delete('/chat/rooms/:room_id/pinned/:message_id', async (req, res) => {
 });
 
 // PUT /api/v1/communication/chat/rooms/:room_id/settings
-router.put('/chat/rooms/:room_id/settings', async (req, res) => {
+router.put('/chat/rooms/:room_id/settings', requireFeature('chat'), async (req, res) => {
   const { name } = req.body;
   if (!name) return res.status(400).json({ success: false, error: 'name required' });
   try {

@@ -7,49 +7,57 @@ const { scanBuffer } = require('../services/clamavService');
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: {
-    fileSize: parseInt(process.env.MAX_ATTACHMENT_SIZE) || 100 * 1024 * 1024 // 100MB
-  }
+  limits: { fileSize: parseInt(process.env.MAX_ATTACHMENT_SIZE) || 100 * 1024 * 1024 }
 });
 
-// Upload attachment
-router.post('/upload', authenticateToken, upload.single('file'), async (req, res) => {
+// POST /api/v1/attachments/upload — multi-file upload
+router.post('/upload', authenticateToken, upload.array('files', 10), async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file provided' });
-    }
-
-    const scanResult = await scanBuffer(req.file.buffer, req.file.originalname);
-    if (!scanResult.clean) {
-      return res.status(422).json({ error: 'File rejected: virus detected', virus: scanResult.virus });
-    }
+    const files = req.files;
+    if (!files || files.length === 0) return res.status(400).json({ error: 'No files provided' });
 
     const tenantId = req.user.tenant_id;
     const messageId = req.body.message_id || 'temp';
+    const results = [];
 
-    const attachment = await StorageService.uploadAttachment(req.file, tenantId, messageId);
-    
-    res.json({
-      success: true,
-      attachment: {
-        key: attachment.key,
-        filename: attachment.originalName,
-        size: attachment.size,
-        content_type: attachment.contentType
+    for (const file of files) {
+      const scanResult = await scanBuffer(file.buffer, file.originalname);
+      if (!scanResult.clean) {
+        return res.status(422).json({ error: `File rejected: virus detected in ${file.originalname}`, virus: scanResult.virus });
       }
-    });
+      const attachment = await StorageService.uploadAttachment(file, tenantId, messageId);
+      results.push({
+        id: attachment.key,
+        filename: attachment.originalName,
+        file_size: attachment.size,
+        content_type: attachment.contentType,
+        key: attachment.key
+      });
+    }
+
+    res.json({ success: true, data: results });
   } catch (error) {
     console.error('Upload error:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
-// Download attachment
-router.get('/download/:key', authenticateToken, async (req, res) => {
+// GET /api/v1/attachments/:id — download/stream (supports ?token= query param)
+router.get('/:id', async (req, res) => {
   try {
-    const { key } = req.params;
-    const tenantId = req.user.tenant_id;
+    const token = req.query.token || req.headers.authorization?.replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: 'Token required' });
 
+    const jwt = require('jsonwebtoken');
+    let user;
+    try {
+      user = jwt.verify(token, process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'));
+    } catch {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    const key = req.params.id;
+    const tenantId = user.tenant_id;
     const metadata = await StorageService.getAttachmentMetadata(key, tenantId);
     const stream = await StorageService.getAttachment(key, tenantId);
 
@@ -58,7 +66,6 @@ router.get('/download/:key', authenticateToken, async (req, res) => {
       'Content-Length': metadata.size,
       'Content-Disposition': `attachment; filename="${metadata.metadata['original-name']}"`
     });
-
     stream.pipe(res);
   } catch (error) {
     console.error('Download error:', error);
@@ -66,14 +73,33 @@ router.get('/download/:key', authenticateToken, async (req, res) => {
   }
 });
 
-// Delete attachment
+// GET /api/v1/attachments/email/:emailId — list attachments for an email
+router.get('/email/:emailId', authenticateToken, async (req, res) => {
+  try {
+    const { Pool } = require('pg');
+    const pool = new Pool({
+      host: process.env.DB_HOST || 'localhost',
+      port: parseInt(process.env.DB_PORT) || 5432,
+      database: process.env.DB_NAME,
+      user: process.env.DB_USER,
+      password: String(process.env.DB_PASSWORD)
+    });
+    const result = await pool.query(
+      `SELECT id, filename, file_size, content_type, storage_key, created_at
+       FROM email_attachments WHERE email_id = $1`,
+      [req.params.emailId]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('List attachments error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// DELETE /api/v1/attachments/:key
 router.delete('/:key', authenticateToken, async (req, res) => {
   try {
-    const { key } = req.params;
-    const tenantId = req.user.tenant_id;
-
-    await StorageService.deleteAttachment(key, tenantId);
-    
+    await StorageService.deleteAttachment(req.params.key, req.user.tenant_id);
     res.json({ success: true });
   } catch (error) {
     console.error('Delete error:', error);
@@ -81,7 +107,7 @@ router.delete('/:key', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /health - ClamAV health check
+// GET /health
 router.get('/health', async (req, res) => {
   const { checkClamdHealth } = require('../services/clamavService');
   const healthy = await checkClamdHealth();

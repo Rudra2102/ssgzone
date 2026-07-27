@@ -59,6 +59,7 @@ export default function WebmailDashboard() {
   const [draftSaving, setDraftSaving] = useState(false);
   const [lastUnread, setLastUnread] = useState(null);
   const [toast, setToast] = useState(null);
+  const [attachFiles, setAttachFiles] = useState([]);
   const [waConfigured, setWaConfigured] = useState(false);
   const [waContacts, setWaContacts] = useState([]);
   const [waMessages, setWaMessages] = useState([]);
@@ -612,16 +613,36 @@ export default function WebmailDashboard() {
     setSending(true);
     const currentDraftId = draftId;
     try {
+      let attachmentIds = [];
+      if (attachFiles.length > 0) {
+        const formData = new FormData();
+        attachFiles.forEach(f => formData.append('files', f));
+        const uploadRes = await fetch('https://api.ssgzone.in/api/v1/attachments/upload', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData
+        });
+        const uploadData = await uploadRes.json();
+        if (uploadData.success) attachmentIds = uploadData.data.map(a => a.id);
+      }
       const res = await fetch(`${API}/send`, {
         method: 'POST',
         headers: { ...auth, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: compose.to, cc: compose.cc, subject: compose.subject, html_content: compose.body_html, text_content: compose.body_html })
+        body: JSON.stringify({
+          to: compose.to, cc: compose.cc,
+          subject: compose.subject,
+          html_content: compose.body_html,
+          text_content: compose.body_html,
+          attachment_ids: attachmentIds
+        })
       });
       const data = await res.json();
       if (data.success) {
         setComposeOpen(false);
         setCompose({ to: '', cc: '', subject: '', body_html: '' });
-        alert('✅ Email sent!');
+        setAttachFiles([]);
+        if (currentDraftId) discardDraft(currentDraftId);
+        showToastNotification('✅ Email sent!');
         if (folder === 'sent') fetchEmails();
         fetchFolderCounts();
       } else alert(data.error);
@@ -1581,6 +1602,21 @@ export default function WebmailDashboard() {
                         : <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{selectedEmail.text_content || '(empty)'}</pre>
                       }
                     </div>
+                    {selectedEmail.attachments && selectedEmail.attachments.length > 0 && (
+                      <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${c.border}` }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: c.textMuted, marginBottom: 8 }}>📎 Attachments</div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                          {selectedEmail.attachments.map(att => (
+                            <a key={att.id}
+                              href={`https://api.ssgzone.in/api/v1/attachments/${att.id}?token=${token}`}
+                              target="_blank" rel="noreferrer"
+                              style={{ background: '#eff6ff', color: '#6366f1', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600, textDecoration: 'none', border: '1px solid #c7d2fe' }}>
+                              📎 {att.filename} ({(att.file_size / 1024).toFixed(1)}KB)
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -1595,7 +1631,7 @@ export default function WebmailDashboard() {
           <div style={{ background: c.card, borderRadius: 12, width: 560, boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
             <div style={{ padding: '14px 20px', borderBottom: `1px solid ${c.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 15, fontWeight: 700, color: c.text }}>Compose Email</span>
-              <button onClick={() => setComposeOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: c.textMuted }}>×</button>
+              <button onClick={() => { setComposeOpen(false); setAttachFiles([]); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: c.textMuted }}>×</button>
             </div>
             <div style={{ padding: 20 }}>
               <div style={{ position: 'relative', marginBottom: 10 }}>
@@ -1627,11 +1663,27 @@ export default function WebmailDashboard() {
               <textarea value={compose.body_html} onChange={e => setCompose(p => ({ ...p, body_html: e.target.value }))}
                 placeholder="Message" rows={8}
                 style={{ width: '100%', padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, resize: 'vertical', outline: 'none', boxSizing: 'border-box' }} />
+              <div style={{ marginTop: 8 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: c.textMuted, marginBottom: 4, display: 'block' }}>📎 Attachments</label>
+                <input type="file" multiple onChange={e => setAttachFiles(Array.from(e.target.files))}
+                  style={{ fontSize: 12, color: c.textMuted }} />
+                {attachFiles.length > 0 && (
+                  <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {attachFiles.map((f, i) => (
+                      <span key={i} style={{ background: '#eff6ff', color: '#6366f1', borderRadius: 6, padding: '2px 8px', fontSize: 11 }}>
+                        {f.name} ({(f.size / 1024).toFixed(1)}KB)
+                        <button onClick={() => setAttachFiles(prev => prev.filter((_, j) => j !== i))}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', marginLeft: 4, fontSize: 12 }}>×</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             <div style={{ padding: '12px 20px', borderTop: `1px solid ${c.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 11, color: c.textMuted }}>{draftSaving ? 'Saving draft...' : draftId ? 'Draft saved' : ''}</span>
               <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => { discardDraft(draftId); setDraftId(null); setComposeOpen(false); }} style={{ padding: '8px 18px', border: `1px solid ${c.border}`, borderRadius: 7, background: 'none', cursor: 'pointer', fontSize: 13, color: c.text }}>Cancel</button>
+              <button onClick={() => { discardDraft(draftId); setDraftId(null); setComposeOpen(false); setAttachFiles([]); }} style={{ padding: '8px 18px', border: `1px solid ${c.border}`, borderRadius: 7, background: 'none', cursor: 'pointer', fontSize: 13, color: c.text }}>Cancel</button>
               <button onClick={sendEmail} disabled={sending}
                 style={{ padding: '8px 20px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 7, cursor: sending ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600, opacity: sending ? 0.7 : 1 }}>
                 {sending ? 'Sending...' : 'Send'}

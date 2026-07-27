@@ -5,6 +5,7 @@ const nodemailer = require('nodemailer');
 const { checkAndSendAutoResponse } = require('./autoresponder');
 const { applyRulesToEmail } = require('./rules');
 const { notifyNewEmailSms } = require('../jobs/smsNotificationJob');
+const { requireFeature } = require('../middleware/permissions');
 
 const router = express.Router();
 const pool = new Pool({
@@ -61,7 +62,7 @@ router.post('/auth/login', async (req, res) => {
 });
 
 // GET /api/v1/webmail/inbox?folder=inbox&page=1&limit=25&search=
-router.get('/inbox', webmailAuth, async (req, res) => {
+router.get('/inbox', webmailAuth, requireFeature('email'), async (req, res) => {
   const { folder = 'inbox', page = 1, limit = 25, search = '' } = req.query;
   const offset = (parseInt(page) - 1) * parseInt(limit);
   const userEmail = req.user.email;
@@ -118,7 +119,7 @@ router.get('/email/:id', webmailAuth, async (req, res) => {
 });
 
 // POST /api/v1/webmail/send
-router.post('/send', webmailAuth, async (req, res) => {
+router.post('/send', webmailAuth, requireFeature('email'), async (req, res) => {
   const { to, subject, html_content, text_content, cc, bcc } = req.body;
   if (!to || !subject) return res.status(400).json({ success: false, error: 'to and subject required' });
   try {
@@ -272,7 +273,7 @@ router.get('/profile', webmailAuth, async (req, res) => {
 });
 
 // GET /api/v1/webmail/analytics
-router.get('/analytics', webmailAuth, async (req, res) => {
+router.get('/analytics', webmailAuth, requireFeature('analytics'), async (req, res) => {
   const userEmail = req.user.email;
 
   try {
@@ -343,7 +344,7 @@ router.get('/analytics', webmailAuth, async (req, res) => {
 });
 
 // GET /api/v1/webmail/templates
-router.get('/templates', webmailAuth, async (req, res) => {
+router.get('/templates', webmailAuth, requireFeature('email'), async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT * FROM email_templates WHERE tenant_id = $1 AND is_active = true ORDER BY name ASC`,
@@ -354,7 +355,7 @@ router.get('/templates', webmailAuth, async (req, res) => {
 });
 
 // POST /api/v1/webmail/templates
-router.post('/templates', webmailAuth, async (req, res) => {
+router.post('/templates', webmailAuth, requireFeature('email'), async (req, res) => {
   const { name, subject, html_body, category = 'general' } = req.body;
   if (!name || !subject || !html_body) return res.status(400).json({ success: false, error: 'name, subject, html_body required' });
   try {

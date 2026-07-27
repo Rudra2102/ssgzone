@@ -2,6 +2,7 @@
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 const crypto = require('crypto');
+const { requireFeature } = require('../middleware/permissions');
 
 const router = express.Router();
 const pool = new Pool({
@@ -24,7 +25,7 @@ const auth = (req, res, next) => {
 };
 
 // POST /api/v1/video/rooms
-router.post('/rooms', auth, async (req, res) => {
+router.post('/rooms', auth, requireFeature('video'), async (req, res) => {
   const { title } = req.body;
   const tenantId = String(req.user.tenant_id);
   const userId = req.user.id;
@@ -43,7 +44,7 @@ router.post('/rooms', auth, async (req, res) => {
 });
 
 // GET /api/v1/video/rooms
-router.get('/rooms', auth, async (req, res) => {
+router.get('/rooms', auth, requireFeature('video'), async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT vr.*, tu.first_name || ' ' || tu.last_name as host_name
