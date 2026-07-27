@@ -107,7 +107,8 @@ function UnifiedLogin() {
             if (config.type === 'super_admin') {
               localStorage.setItem('user_role', 'super_admin');
               localStorage.setItem('user_data', JSON.stringify(data.data.admin));
-              window.location.href = '/dashboard/super-admin';
+              const payload = JSON.parse(atob(data.data.token.split('.')[1]));
+              window.location.href = payload.role === 'super_admin' ? '/dashboard/super-admin' : '/dashboard/employee';
             } else if (config.type === 'saas_admin') {
               localStorage.setItem('user_role', 'saas_admin');
               localStorage.setItem('user_data', JSON.stringify(data.data.admin));

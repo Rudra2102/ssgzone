@@ -32,11 +32,17 @@ router.post('/auth/login', async (req, res) => {
       });
     }
     
-    // Find super admin
-    const result = await db.query(
-      'SELECT * FROM super_admins WHERE username = $1 AND status = $2',
+    // Find super admin or platform employee
+    let result = await db.query(
+      'SELECT *, \'super_admin\' as role FROM super_admins WHERE username = $1 AND status = $2',
       [username, 'active']
     );
+    if (result.rows.length === 0) {
+      result = await db.query(
+        'SELECT *, id::text as id FROM platform_admins WHERE username = $1 AND status = $2',
+        [username, 'active']
+      );
+    }
     
     console.log('Database result:', result.rows.length > 0 ? 'User found' : 'User not found');
     
@@ -83,7 +89,7 @@ router.post('/auth/login', async (req, res) => {
 
     // Generate JWT token
     const token = jwt.sign(
-      { type: 'super_admin', adminId: admin.id, username: admin.username, email: admin.email },
+      { type: 'super_admin', adminId: admin.id, username: admin.username, email: admin.email, role: admin.role },
       process.env.JWT_SECRET || 'super-admin-secret',
       { expiresIn: '8h' }
     );
@@ -91,7 +97,7 @@ router.post('/auth/login', async (req, res) => {
       success: true,
       data: {
         token,
-        admin: { id: admin.id, username: admin.username, email: admin.email, full_name: admin.full_name, type: 'super_admin' }
+        admin: { id: admin.id, username: admin.username, email: admin.email, full_name: admin.full_name, role: admin.role, type: 'super_admin' }
       }
     });
     
@@ -970,6 +976,59 @@ router.get('/2fa/status', superAdminAuth, async (req, res) => {
   try {
     const result = await db.query('SELECT totp_enabled FROM super_admins WHERE id=$1', [req.admin.adminId]);
     res.json({ success: true, data: { enabled: result.rows[0]?.totp_enabled || false } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// GET /api/v1/super-admin/users
+router.get('/users', superAdminAuth, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 100;
+    const result = await db.query(`
+      SELECT tu.id, tu.username, tu.email, tu.first_name, tu.last_name, tu.role, tu.status, tu.last_login, tu.created_at,
+        tc.company_name as tenant_name
+      FROM tenant_users tu
+      LEFT JOIN tenant_companies tc ON tu.tenant_id::text = tc.id::text
+      ORDER BY tu.created_at DESC LIMIT $1
+    `, [limit]);
+    res.json({ success: true, data: result.rows });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// Support Tickets
+router.get('/support-tickets', superAdminAuth, async (req, res) => {
+  try {
+    const { status } = req.query;
+    let query = `SELECT st.*, tc.company_name as tenant_name FROM support_tickets st LEFT JOIN tenant_companies tc ON tc.id::text = st.tenant_id`;
+    const params = [];
+    if (status) { params.push(status); query += ` WHERE st.status=$1`; }
+    query += ' ORDER BY st.created_at DESC LIMIT 100';
+    const result = await db.query(query, params);
+    res.json({ success: true, data: result.rows });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+router.post('/support-tickets', superAdminAuth, async (req, res) => {
+  try {
+    const { subject, description, tenant_id, priority } = req.body;
+    if (!subject) return res.status(400).json({ success: false, error: 'subject required' });
+    const result = await db.query(
+      `INSERT INTO support_tickets (subject, description, tenant_id, created_by, priority) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [subject, description, tenant_id || null, req.admin.username, priority || 'medium']
+    );
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+router.patch('/support-tickets/:id/status', superAdminAuth, async (req, res) => {
+  try {
+    const { status } = req.body;
+    if (!['open','in_progress','resolved'].includes(status)) return res.status(400).json({ success: false, error: 'invalid status' });
+    const result = await db.query(
+      `UPDATE support_tickets SET status=$1, updated_at=NOW() WHERE id=$2 RETURNING *`,
+      [status, req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Ticket not found' });
+    res.json({ success: true, data: result.rows[0] });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
