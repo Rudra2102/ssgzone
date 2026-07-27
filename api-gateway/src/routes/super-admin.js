@@ -48,7 +48,7 @@ router.post('/auth/login', async (req, res) => {
     );
     if (result.rows.length === 0) {
       result = await db.query(
-        'SELECT id::text as id, username, email, full_name, password_hash, role, status, totp_enabled, totp_secret FROM platform_admins WHERE username = $1 AND status = $2',
+        'SELECT id::text as id, username, email, full_name, password_hash, role, status, NULL::boolean as totp_enabled, NULL as totp_secret FROM platform_admins WHERE username = $1 AND status = $2',
         [username, 'active']
       );
       isEmployee = result.rows.length > 0;
