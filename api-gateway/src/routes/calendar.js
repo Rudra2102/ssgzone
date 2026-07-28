@@ -43,7 +43,7 @@ router.get('/events', webmailAuth, async (req, res) => {
   try {
     const result = await db.query(
       `SELECT * FROM calendar_events WHERE user_id=$1 AND start_time >= $2 AND start_time <= $3 ORDER BY start_time`,
-      [req.user.userId, start || new Date(0).toISOString(), end || new Date('2099-01-01').toISOString()]
+      [req.user.id, start || new Date(0).toISOString(), end || new Date('2099-01-01').toISOString()]
     );
     res.json({ success: true, data: result.rows });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
@@ -56,7 +56,7 @@ router.post('/events', webmailAuth, async (req, res) => {
     const result = await db.query(
       `INSERT INTO calendar_events (user_id, tenant_id, title, description, start_time, end_time, all_day, color)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [req.user.userId, req.user.tenantId || '', title, description || null, start_time, end_time, all_day || false, color || '#6366f1']
+      [req.user.id, req.user.tenant_id || '', title, description || null, start_time, end_time, all_day || false, color || '#6366f1']
     );
     res.json({ success: true, data: result.rows[0] });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
@@ -68,7 +68,7 @@ router.put('/events/:id', webmailAuth, async (req, res) => {
     const result = await db.query(
       `UPDATE calendar_events SET title=$1, description=$2, start_time=$3, end_time=$4, all_day=$5, color=$6
        WHERE id=$7 AND user_id=$8 RETURNING *`,
-      [title, description || null, start_time, end_time, all_day || false, color || '#6366f1', req.params.id, req.user.userId]
+      [title, description || null, start_time, end_time, all_day || false, color || '#6366f1', req.params.id, req.user.id]
     );
     if (!result.rows.length) return res.status(404).json({ success: false, error: 'Event not found' });
     res.json({ success: true, data: result.rows[0] });
@@ -77,7 +77,7 @@ router.put('/events/:id', webmailAuth, async (req, res) => {
 
 router.delete('/events/:id', webmailAuth, async (req, res) => {
   try {
-    await db.query('DELETE FROM calendar_events WHERE id=$1 AND user_id=$2', [req.params.id, req.user.userId]);
+    await db.query('DELETE FROM calendar_events WHERE id=$1 AND user_id=$2', [req.params.id, req.user.id]);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });

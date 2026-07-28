@@ -593,6 +593,90 @@ router.post('/2fa/verify', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// GET /api/v1/webmail/search
+router.get('/search', webmailAuth, async (req, res) => {
+  const { q, folder, from_email, date_from, date_to, has_attachment } = req.query;
+  if (!q) return res.status(400).json({ success: false, error: 'q param required' });
+  const userEmail = req.user.email;
+  const tenantId = String(req.user.tenant_id);
+  try {
+    const params = [userEmail, tenantId, `%${q}%`];
+    let where = `WHERE to_email=$1 AND tenant_id=$2 AND archived=false AND (subject ILIKE $3 OR text_content ILIKE $3 OR from_email ILIKE $3)`;
+    if (folder) { params.push(folder); where += ` AND folder=$${params.length}`; }
+    if (from_email) { params.push(`%${from_email}%`); where += ` AND from_email ILIKE $${params.length}`; }
+    if (date_from) { params.push(date_from); where += ` AND created_at >= $${params.length}`; }
+    if (date_to) { params.push(date_to); where += ` AND created_at <= $${params.length}`; }
+    if (has_attachment === 'true') where += ` AND attachments IS NOT NULL AND attachments != '[]'`;
+    const result = await pool.query(
+      `SELECT id, subject, from_email, to_email, read_status, starred, folder, created_at, attachments, LEFT(text_content, 120) as preview FROM emails ${where} ORDER BY created_at DESC LIMIT 50`,
+      params
+    );
+    res.json({ success: true, data: result.rows, total: result.rows.length });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// Labels tables init
+pool.query(`CREATE TABLE IF NOT EXISTS email_labels (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, tenant_id TEXT NOT NULL, name VARCHAR(50) NOT NULL, color VARCHAR(20) DEFAULT '#6366f1', created_at TIMESTAMPTZ DEFAULT NOW())`).catch(() => {});
+pool.query(`CREATE TABLE IF NOT EXISTS email_label_map (id SERIAL PRIMARY KEY, email_id INTEGER NOT NULL, label_id INTEGER NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW(), UNIQUE(email_id, label_id))`).catch(() => {});
+
+// GET /api/v1/webmail/labels
+router.get('/labels', webmailAuth, async (req, res) => {
+  try {
+    const result = await pool.query(`SELECT * FROM email_labels WHERE user_id=$1 ORDER BY name`, [req.user.id]);
+    res.json({ success: true, data: result.rows });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/v1/webmail/labels
+router.post('/labels', webmailAuth, async (req, res) => {
+  const { name, color } = req.body;
+  if (!name) return res.status(400).json({ success: false, error: 'name required' });
+  try {
+    const result = await pool.query(
+      `INSERT INTO email_labels (user_id, tenant_id, name, color) VALUES ($1,$2,$3,$4) RETURNING *`,
+      [req.user.id, String(req.user.tenant_id), name, color || '#6366f1']
+    );
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// DELETE /api/v1/webmail/labels/:id
+router.delete('/labels/:id', webmailAuth, async (req, res) => {
+  try {
+    await pool.query(`DELETE FROM email_labels WHERE id=$1 AND user_id=$2`, [req.params.id, req.user.id]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// GET /api/v1/webmail/email/:id/labels
+router.get('/email/:id/labels', webmailAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT el.* FROM email_labels el JOIN email_label_map elm ON elm.label_id = el.id WHERE elm.email_id=$1`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/v1/webmail/email/:id/labels
+router.post('/email/:id/labels', webmailAuth, async (req, res) => {
+  const { label_id } = req.body;
+  if (!label_id) return res.status(400).json({ success: false, error: 'label_id required' });
+  try {
+    await pool.query(`INSERT INTO email_label_map (email_id, label_id) VALUES ($1,$2) ON CONFLICT DO NOTHING`, [req.params.id, label_id]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// DELETE /api/v1/webmail/email/:id/labels/:label_id
+router.delete('/email/:id/labels/:label_id', webmailAuth, async (req, res) => {
+  try {
+    await pool.query(`DELETE FROM email_label_map WHERE email_id=$1 AND label_id=$2`, [req.params.id, req.params.label_id]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 // GET /api/v1/webmail/scheduled
 router.get('/scheduled', webmailAuth, async (req, res) => {
   try {

@@ -87,6 +87,15 @@ export default function WebmailDashboard() {
   const [notifPrefsOpen, setNotifPrefsOpen] = useState(false);
   const [notifPrefsSaving, setNotifPrefsSaving] = useState(false);
   const [notifPrefsForm, setNotifPrefsForm] = useState({ notify_new_email: true, notify_chat_mention: true, email_digest: false, email_digest_frequency: 'daily', sms_new_email: false, phone: '' });
+  const [advancedSearch, setAdvancedSearch] = useState(false);
+  const [searchFilters, setSearchFilters] = useState({ from_email: '', date_from: '', date_to: '', has_attachment: false, folder: '' });
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchActive, setSearchActive] = useState(false);
+  const [labels, setLabels] = useState([]);
+  const [labelsLoading, setLabelsLoading] = useState(false);
+  const [labelForm, setLabelForm] = useState({ name: '', color: '#6366f1' });
+  const [labelFormOpen, setLabelFormOpen] = useState(false);
+  const [emailLabels, setEmailLabels] = useState({});
 
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const token = localStorage.getItem('webmail_token');
@@ -119,14 +128,30 @@ export default function WebmailDashboard() {
         if (lastUnread !== null && currentUnread > lastUnread) {
           const diff = currentUnread - lastUnread;
           showToastNotification(`📬 ${diff} new email${diff > 1 ? 's' : ''} arrived`);
+          playNotifSound();
           if (activeNav === 'inbox' && folder === 'inbox') fetchEmails();
           fetchFolderCounts();
         }
         setLastUnread(currentUnread);
       } catch {}
-    }, 30000);
+    }, 15000);
     return () => clearInterval(interval);
   }, [lastUnread, activeNav, folder, token]);
+
+  const playNotifSound = () => {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.1, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.3);
+    } catch {}
+  };
 
   useEffect(() => {
     if (!composeOpen) return;
@@ -720,6 +745,76 @@ export default function WebmailDashboard() {
     setSending(false);
   };
 
+  const fetchLabels = async () => {
+    setLabelsLoading(true);
+    try {
+      const res = await fetch(`${API}/labels`, { headers: auth });
+      const data = await res.json();
+      if (data.success) setLabels(data.data);
+    } catch {}
+    setLabelsLoading(false);
+  };
+
+  const saveLabel = async () => {
+    if (!labelForm.name) return alert('Name required');
+    try {
+      const res = await fetch(`${API}/labels`, {
+        method: 'POST',
+        headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify(labelForm)
+      });
+      const data = await res.json();
+      if (data.success) { setLabels(prev => [...prev, data.data]); setLabelForm({ name: '', color: '#6366f1' }); setLabelFormOpen(false); }
+      else alert(data.error);
+    } catch (err) { alert(err.message); }
+  };
+
+  const deleteLabel = async (id) => {
+    if (!window.confirm('Delete this label?')) return;
+    await fetch(`${API}/labels/${id}`, { method: 'DELETE', headers: auth });
+    setLabels(prev => prev.filter(l => l.id !== id));
+  };
+
+  const fetchEmailLabels = async (emailId) => {
+    try {
+      const res = await fetch(`${API}/email/${emailId}/labels`, { headers: auth });
+      const data = await res.json();
+      if (data.success) setEmailLabels(prev => ({ ...prev, [emailId]: data.data }));
+    } catch {}
+  };
+
+  const addLabelToEmail = async (emailId, labelId) => {
+    try {
+      await fetch(`${API}/email/${emailId}/labels`, {
+        method: 'POST',
+        headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label_id: labelId })
+      });
+      fetchEmailLabels(emailId);
+    } catch {}
+  };
+
+  const removeLabelFromEmail = async (emailId, labelId) => {
+    await fetch(`${API}/email/${emailId}/labels/${labelId}`, { method: 'DELETE', headers: auth });
+    setEmailLabels(prev => ({ ...prev, [emailId]: (prev[emailId] || []).filter(l => l.id !== labelId) }));
+  };
+
+  const runAdvancedSearch = async () => {
+    if (!search.trim()) return alert('Enter a search query');
+    try {
+      const params = new URLSearchParams({ q: search });
+      if (searchFilters.from_email) params.append('from_email', searchFilters.from_email);
+      if (searchFilters.date_from) params.append('date_from', searchFilters.date_from);
+      if (searchFilters.date_to) params.append('date_to', searchFilters.date_to);
+      if (searchFilters.has_attachment) params.append('has_attachment', 'true');
+      if (searchFilters.folder) params.append('folder', searchFilters.folder);
+      const res = await fetch(`${API}/search?${params}`, { headers: auth });
+      const data = await res.json();
+      if (data.success) { setSearchResults(data.data); setSearchActive(true); setAdvancedSearch(false); }
+      else alert(data.error);
+    } catch (err) { alert(err.message); }
+  };
+
   const handleLogout = () => { localStorage.clear(); window.location.href = '/'; };
   const initials = (userData.full_name || userData.email || 'U').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
 
@@ -871,6 +966,21 @@ export default function WebmailDashboard() {
             <span style={{ fontSize: 14 }}>🛡️</span>
             {!sidebarCollapsed && <span>Security (2FA)</span>}
           </div>
+          <div onClick={() => { setActiveNav('labels'); fetchLabels(); }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', background: activeNav === 'labels' ? c.primaryLight : 'transparent', color: activeNav === 'labels' ? c.primary : c.text, fontWeight: activeNav === 'labels' ? 600 : 400, fontSize: 13, justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
+            <span style={{ fontSize: 14 }}>🏷️</span>
+            {!sidebarCollapsed && <span>Labels</span>}
+          </div>
+          {!sidebarCollapsed && labels.length > 0 && (
+            <div style={{ paddingLeft: 28, marginTop: 2 }}>
+              {labels.map(l => (
+                <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 8px', fontSize: 12, color: c.textMuted, cursor: 'pointer' }}>
+                  <span style={{ width: 10, height: 10, borderRadius: '50%', background: l.color, flexShrink: 0, display: 'inline-block' }} />
+                  {l.name}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
         <div style={{ padding: 8, borderTop: `1px solid ${c.border}` }}>
@@ -892,10 +1002,54 @@ export default function WebmailDashboard() {
         {/* Top bar */}
         <div style={{ background: c.card, borderBottom: `1px solid ${c.border}`, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
           <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: c.textMuted }}>☰</button>
-          <div style={{ flex: 1, maxWidth: 400 }}>
-            <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
-              placeholder="Search emails..."
-              style={{ width: '100%', padding: '7px 12px', border: `1px solid ${c.border}`, borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box', background: c.bg }} />
+          <div style={{ flex: 1, maxWidth: 400, position: 'relative' }}>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
+                placeholder="Search emails..."
+                style={{ flex: 1, padding: '7px 12px', border: `1px solid ${c.border}`, borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box', background: c.bg }} />
+              <button onClick={() => setAdvancedSearch(p => !p)} title="Advanced Search"
+                style={{ padding: '7px 10px', border: `1px solid ${advancedSearch ? c.primary : c.border}`, borderRadius: 8, background: advancedSearch ? c.primaryLight : c.bg, cursor: 'pointer', fontSize: 14, color: advancedSearch ? c.primary : c.textMuted }}>🔍</button>
+              {searchActive && (
+                <button onClick={() => { setSearchActive(false); setSearchResults([]); setSearch(''); }} title="Clear Search"
+                  style={{ padding: '7px 10px', border: `1px solid ${c.danger}`, borderRadius: 8, background: '#fee2e2', cursor: 'pointer', fontSize: 12, color: c.danger }}>✕ Clear</button>
+              )}
+            </div>
+            {advancedSearch && (
+              <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#fff', border: `1px solid ${c.border}`, borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 500, padding: 16, marginTop: 4 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: c.text, marginBottom: 10 }}>Advanced Search</div>
+                <input value={searchFilters.from_email} onChange={e => setSearchFilters(p => ({ ...p, from_email: e.target.value }))}
+                  placeholder="From email"
+                  style={{ width: '100%', padding: '7px 10px', border: `1px solid ${c.border}`, borderRadius: 6, fontSize: 12, marginBottom: 8, outline: 'none', boxSizing: 'border-box' }} />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: c.textMuted, marginBottom: 3 }}>Date From</div>
+                    <input type="date" value={searchFilters.date_from} onChange={e => setSearchFilters(p => ({ ...p, date_from: e.target.value }))}
+                      style={{ width: '100%', padding: '7px 10px', border: `1px solid ${c.border}`, borderRadius: 6, fontSize: 12, outline: 'none', boxSizing: 'border-box' }} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: c.textMuted, marginBottom: 3 }}>Date To</div>
+                    <input type="date" value={searchFilters.date_to} onChange={e => setSearchFilters(p => ({ ...p, date_to: e.target.value }))}
+                      style={{ width: '100%', padding: '7px 10px', border: `1px solid ${c.border}`, borderRadius: 6, fontSize: 12, outline: 'none', boxSizing: 'border-box' }} />
+                  </div>
+                </div>
+                <select value={searchFilters.folder} onChange={e => setSearchFilters(p => ({ ...p, folder: e.target.value }))}
+                  style={{ width: '100%', padding: '7px 10px', border: `1px solid ${c.border}`, borderRadius: 6, fontSize: 12, marginBottom: 8, outline: 'none', background: '#fff' }}>
+                  <option value="">All Folders</option>
+                  {FOLDERS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                </select>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: c.text, marginBottom: 12, cursor: 'pointer' }}>
+                  <input type="checkbox" checked={searchFilters.has_attachment} onChange={e => setSearchFilters(p => ({ ...p, has_attachment: e.target.checked }))}
+                    style={{ width: 14, height: 14 }} />
+                  Has attachment
+                </label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={runAdvancedSearch}
+                    style={{ flex: 1, background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', border: 'none', borderRadius: 7, padding: '8px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Search</button>
+                  <button onClick={() => setAdvancedSearch(false)}
+                    style={{ padding: '8px 14px', border: `1px solid ${c.border}`, borderRadius: 7, background: 'none', cursor: 'pointer', fontSize: 12, color: c.textMuted }}>Cancel</button>
+                </div>
+              </div>
+            )}
           </div>
           <div style={{ flex: 1 }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -1758,6 +1912,52 @@ export default function WebmailDashboard() {
               </div>
             )}
           </div>
+        ) : activeNav === 'labels' ? (
+          <div style={{ flex: 1, overflowY: 'auto', padding: 24, maxWidth: 600 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: c.text }}>Labels</div>
+                <div style={{ fontSize: 13, color: c.textMuted }}>Organize emails with colored labels</div>
+              </div>
+              <button onClick={() => setLabelFormOpen(true)}
+                style={{ background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>+ New Label</button>
+            </div>
+            {labelFormOpen && (
+              <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 10, padding: 16, marginBottom: 16 }}>
+                <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                  <input value={labelForm.name} onChange={e => setLabelForm(p => ({ ...p, name: e.target.value }))}
+                    placeholder="Label name *"
+                    style={{ flex: 1, padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, outline: 'none' }} />
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: c.textMuted }}>
+                    Color
+                    <input type="color" value={labelForm.color} onChange={e => setLabelForm(p => ({ ...p, color: e.target.value }))}
+                      style={{ width: 32, height: 32, border: 'none', borderRadius: 6, cursor: 'pointer' }} />
+                  </label>
+                  <button onClick={saveLabel}
+                    style={{ background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Save</button>
+                  <button onClick={() => setLabelFormOpen(false)}
+                    style={{ background: 'none', border: `1px solid ${c.border}`, borderRadius: 7, padding: '9px 12px', fontSize: 13, cursor: 'pointer', color: c.textMuted }}>Cancel</button>
+                </div>
+              </div>
+            )}
+            {labelsLoading && <div style={{ color: c.textMuted, fontSize: 13 }}>Loading...</div>}
+            {!labelsLoading && labels.length === 0 && !labelFormOpen && (
+              <div style={{ textAlign: 'center', padding: '60px 0' }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>🏷️</div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: c.text, marginBottom: 6 }}>No labels yet</div>
+                <div style={{ fontSize: 13, color: c.textMuted }}>Create labels to organize your emails</div>
+              </div>
+            )}
+            {labels.map(label => (
+              <div key={label.id} style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 10, padding: '12px 16px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ width: 16, height: 16, borderRadius: '50%', background: label.color, flexShrink: 0, display: 'inline-block' }} />
+                <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: c.text }}>{label.name}</span>
+                <span style={{ fontSize: 11, color: c.textMuted, fontFamily: 'monospace', background: c.bg, padding: '2px 8px', borderRadius: 4 }}>{label.color}</span>
+                <button onClick={() => deleteLabel(label.id)}
+                  style={{ padding: '5px 10px', border: `1px solid ${c.danger}`, borderRadius: 6, background: 'none', cursor: 'pointer', fontSize: 12, color: c.danger }}>Delete</button>
+              </div>
+            ))}
+          </div>
         ) : activeNav === 'security' ? (
           <div style={{ flex: 1, overflowY: 'auto', padding: 24, maxWidth: 520 }}>
             <div style={{ fontSize: 20, fontWeight: 700, color: c.text, marginBottom: 4 }}>Security — Two-Factor Authentication</div>
@@ -1801,21 +2001,21 @@ export default function WebmailDashboard() {
             <div style={{ width: 320, borderRight: `1px solid ${c.border}`, display: 'flex', flexDirection: 'column', background: c.card, flexShrink: 0 }}>
               <div style={{ padding: '12px 14px', borderBottom: `1px solid ${c.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: c.text }}>{FOLDERS.find(f => f.id === folder)?.label || folder}</div>
-                  <div style={{ fontSize: 11, color: c.textMuted }}>{total} messages{unread > 0 ? `, ${unread} unread` : ''}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: c.text }}>{searchActive ? 'Search Results' : FOLDERS.find(f => f.id === folder)?.label || folder}</div>
+                  <div style={{ fontSize: 11, color: c.textMuted }}>{searchActive ? `${searchResults.length} results` : `${total} messages${unread > 0 ? `, ${unread} unread` : ''}`}</div>
                 </div>
-                <button onClick={fetchEmails} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: c.textMuted }}>↻</button>
+                <button onClick={searchActive ? () => { setSearchActive(false); setSearchResults([]); setSearch(''); } : fetchEmails} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: searchActive ? c.danger : c.textMuted }}>{searchActive ? '✕' : '↻'}</button>
               </div>
 
               <div style={{ flex: 1, overflowY: 'auto' }}>
                 {loading && <div style={{ padding: 20, textAlign: 'center', color: c.textMuted, fontSize: 13 }}>Loading...</div>}
-                {!loading && emails.length === 0 && (
+                {!loading && (searchActive ? searchResults : emails).length === 0 && (
                   <div style={{ padding: 40, textAlign: 'center', color: c.textMuted }}>
-                    <div style={{ fontSize: 36, marginBottom: 8 }}>📭</div>
-                    <div style={{ fontSize: 13 }}>No emails in {folder}</div>
+                    <div style={{ fontSize: 36, marginBottom: 8 }}>{searchActive ? '🔍' : '📭'}</div>
+                    <div style={{ fontSize: 13 }}>{searchActive ? 'No results found' : `No emails in ${folder}`}</div>
                   </div>
                 )}
-                {emails.map(email => (
+                {(searchActive ? searchResults : emails).map(email => (
                   <div key={email.id} onClick={() => openEmail(email)}
                     style={{ padding: '11px 13px', borderBottom: `1px solid ${c.border}`, cursor: 'pointer', background: selectedEmail?.id === email.id ? '#eff6ff' : email.read_status ? c.card : '#fafbff', borderLeft: selectedEmail?.id === email.id ? `3px solid ${c.primary}` : '3px solid transparent' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 2 }}>
