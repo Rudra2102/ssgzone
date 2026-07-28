@@ -178,6 +178,7 @@ function TenantAdminDashboard() {
     ...(canUse('analytics') ? [{ id: 'analytics', label: 'Analytics', icon: '📈' }] : []),
     ...(canUse('email') ? [{ id: 'ooo', label: 'Team OOO', icon: '🏖️' }] : []),
     { id: 'security', label: 'Security', icon: '🔒' },
+    { id: 'billing', label: 'Billing', icon: '💳' },
   ];
 
   const filteredUsers = users.filter(u =>
@@ -501,6 +502,60 @@ function TenantAdminDashboard() {
   };
 
 
+  const BillingSection = () => {
+    const plan = stats.plan_type || userData.plan_type || 'starter';
+    const maxUsers = stats.max_users || 100;
+    const usedUsers = stats.totalUsers || 0;
+    const usagePct = Math.min(100, Math.round((usedUsers / maxUsers) * 100));
+    const planFeatures = {
+      free:         { label: 'Free',         color: '#6b7280', features: ['Email', '5 users', '1GB storage'] },
+      starter:      { label: 'Starter',      color: '#6366f1', features: ['Email + Chat', '25 users', '10GB storage'] },
+      professional: { label: 'Professional', color: '#8b5cf6', features: ['All features', '100 users', '50GB storage'] },
+      enterprise:   { label: 'Enterprise',   color: '#10b981', features: ['All features', 'Unlimited users', 'Unlimited storage'] },
+    };
+    const planInfo = planFeatures[plan] || planFeatures.starter;
+    return (
+      <div>
+        <div style={{ fontSize: 22, fontWeight: 700, color: c.text, marginBottom: 20 }}>Billing & Subscription</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+          <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: 24 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: c.text, marginBottom: 16 }}>Current Plan</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+              <span style={{ background: planInfo.color + '22', color: planInfo.color, borderRadius: 20, padding: '4px 16px', fontSize: 14, fontWeight: 700 }}>{planInfo.label}</span>
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              {planInfo.features.map(f => (
+                <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: `1px solid ${c.border}`, fontSize: 13, color: c.text }}>
+                  <span style={{ color: c.success }}>✓</span> {f}
+                </div>
+              ))}
+            </div>
+            {['free','starter'].includes(plan) && (
+              <div style={{ background: '#eff6ff', border: '1px solid #c7d2fe', borderRadius: 8, padding: '12px 16px', fontSize: 13, color: '#4338ca' }}>
+                ℹ️ Contact your administrator to upgrade your plan.
+              </div>
+            )}
+          </div>
+          <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: 24 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: c.text, marginBottom: 16 }}>User Usage</div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 13 }}>
+              <span style={{ color: c.textMuted }}>Users</span>
+              <span style={{ fontWeight: 600, color: c.text }}>{usedUsers} / {maxUsers}</span>
+            </div>
+            <div style={{ background: c.border, borderRadius: 20, height: 10, marginBottom: 12, overflow: 'hidden' }}>
+              <div style={{ width: `${usagePct}%`, height: '100%', background: usagePct > 80 ? c.danger : usagePct > 60 ? c.warning : c.success, borderRadius: 20, transition: 'width 0.3s' }} />
+            </div>
+            <div style={{ fontSize: 12, color: usagePct > 80 ? c.danger : c.textMuted }}>{usagePct}% of user limit used</div>
+          </div>
+        </div>
+        <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: 24 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, color: c.text, marginBottom: 16 }}>Invoice History</div>
+          <div style={{ textAlign: 'center', padding: '40px 0', color: c.textMuted, fontSize: 13 }}>📄 Invoice history coming soon</div>
+        </div>
+      </div>
+    );
+  };
+
   const renderSection = () => {
     switch (activeNav) {
       case 'dashboard': return <DashboardSection />;
@@ -510,6 +565,7 @@ function TenantAdminDashboard() {
       case 'analytics': return <AnalyticsSection />;
       case 'ooo': return <OooSection />;
       case 'security': return <SecuritySection />;
+      case 'billing': return <BillingSection />;
       default: return <DashboardSection />;
     }
   };

@@ -16,7 +16,11 @@ export default function WebmailDashboard() {
   const [loading, setLoading] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeNav, setActiveNav] = useState('inbox');
-  const [compose, setCompose] = useState({ to: '', cc: '', subject: '', body_html: '' });
+  const [compose, setCompose] = useState({ to: '', cc: '', bcc: '', subject: '', body_html: '' });
+  const [calendarDate, setCalendarDate] = useState(new Date());
+  const [calendarEvents, setCalendarEvents] = useState([]);
+  const [calendarModal, setCalendarModal] = useState(null);
+  const [calendarForm, setCalendarForm] = useState({ title: '', description: '', start_time: '', end_time: '', all_day: false, color: '#6366f1' });
   const [sending, setSending] = useState(false);
   const [profile, setProfile] = useState(null);
   const [videoRooms, setVideoRooms] = useState([]);
@@ -321,19 +325,50 @@ export default function WebmailDashboard() {
         await fetch(`${API}/drafts/${existingDraftId}`, {
           method: 'PUT',
           headers: { ...auth, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ subject: composeData.subject, to: composeData.to, cc: composeData.cc, html_content: composeData.body_html, text_content: composeData.body_html })
+          body: JSON.stringify({ subject: composeData.subject, to: composeData.to, cc: composeData.cc, bcc: composeData.bcc, html_content: composeData.body_html, text_content: composeData.body_html })
         });
       } else {
         const res = await fetch(`${API}/drafts`, {
           method: 'POST',
           headers: { ...auth, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ subject: composeData.subject, to: composeData.to, cc: composeData.cc, html_content: composeData.body_html, text_content: composeData.body_html })
+          body: JSON.stringify({ subject: composeData.subject, to: composeData.to, cc: composeData.cc, bcc: composeData.bcc, html_content: composeData.body_html, text_content: composeData.body_html })
         });
         const data = await res.json();
         if (data.success) setDraftId(data.data.id);
       }
     } catch {}
     setDraftSaving(false);
+  };
+
+  const fetchCalendarEvents = async (date) => {
+    const d = date || calendarDate;
+    const start = new Date(d.getFullYear(), d.getMonth(), 1).toISOString();
+    const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59).toISOString();
+    try {
+      const res = await fetch(`https://api.ssgzone.in/api/v1/calendar/events?start=${start}&end=${end}`, { headers: auth });
+      const data = await res.json();
+      if (data.success) setCalendarEvents(data.data);
+    } catch {}
+  };
+
+  const saveCalendarEvent = async () => {
+    if (!calendarForm.title || !calendarForm.start_time || !calendarForm.end_time) return alert('Title, start and end time required');
+    const isEdit = calendarModal && calendarModal.id;
+    const url = isEdit ? `https://api.ssgzone.in/api/v1/calendar/events/${calendarModal.id}` : 'https://api.ssgzone.in/api/v1/calendar/events';
+    const method = isEdit ? 'PUT' : 'POST';
+    try {
+      const res = await fetch(url, { method, headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify(calendarForm) });
+      const data = await res.json();
+      if (data.success) { setCalendarModal(null); fetchCalendarEvents(); }
+      else alert(data.error);
+    } catch (err) { alert(err.message); }
+  };
+
+  const deleteCalendarEvent = async (id) => {
+    if (!window.confirm('Delete this event?')) return;
+    await fetch(`https://api.ssgzone.in/api/v1/calendar/events/${id}`, { method: 'DELETE', headers: auth });
+    setCalendarEvents(prev => prev.filter(e => e.id !== id));
+    setCalendarModal(null);
   };
 
   const discardDraft = async (id) => {
@@ -546,7 +581,7 @@ export default function WebmailDashboard() {
   };
 
   const useTemplate = (tpl) => {
-    setCompose({ to: '', cc: '', subject: tpl.subject, body_html: tpl.html_body });
+    setCompose({ to: '', cc: '', bcc: '', subject: tpl.subject, body_html: tpl.html_body });
     setComposeOpen(true);
   };
 
@@ -584,7 +619,7 @@ export default function WebmailDashboard() {
   const openEmail = async (email) => {
     if (email.folder === 'drafts') {
       setDraftId(email.id);
-      setCompose({ to: email.to_email || '', cc: '', subject: email.subject || '', body_html: email.html_content || email.preview || '' });
+      setCompose({ to: email.to_email || '', cc: email.cc_email || '', bcc: email.bcc_email || '', subject: email.subject || '', body_html: email.html_content || email.preview || '' });
       setComposeOpen(true);
       return;
     }
@@ -655,7 +690,7 @@ export default function WebmailDashboard() {
         method: 'POST',
         headers: { ...auth, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          to: compose.to, cc: compose.cc,
+          to: compose.to, cc: compose.cc, bcc: compose.bcc,
           subject: compose.subject,
           html_content: compose.body_html,
           text_content: compose.body_html,
@@ -666,7 +701,7 @@ export default function WebmailDashboard() {
       const data = await res.json();
       if (data.success) {
         setComposeOpen(false);
-        setCompose({ to: '', cc: '', subject: '', body_html: '' });
+        setCompose({ to: '', cc: '', bcc: '', subject: '', body_html: '' });
         setAttachFiles([]);
         setScheduleAt('');
         setShowSchedulePicker(false);
@@ -744,7 +779,7 @@ export default function WebmailDashboard() {
           <div style={{ padding: '12px 12px 4px' }}>
             <button onClick={() => {
               const sig = signature?.is_active ? `\n\n--\n${signature.html_body.replace(/<[^>]*>/g, '')}` : '';
-              setCompose(p => ({ ...p, body_html: sig }));
+    setCompose(p => ({ ...p, body_html: sig }));
               setComposeOpen(true);
             }}
               style={{ width: '100%', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 8, padding: '10px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
@@ -782,6 +817,11 @@ export default function WebmailDashboard() {
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', background: activeNav === 'video' ? c.primaryLight : 'transparent', color: activeNav === 'video' ? c.primary : c.text, fontWeight: activeNav === 'video' ? 600 : 400, fontSize: 13, justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
             <span style={{ fontSize: 14 }}>📹</span>
             {!sidebarCollapsed && <span>Video Calls</span>}
+          </div>
+          <div onClick={() => { setActiveNav('calendar'); fetchCalendarEvents(); }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', background: activeNav === 'calendar' ? c.primaryLight : 'transparent', color: activeNav === 'calendar' ? c.primary : c.text, fontWeight: activeNav === 'calendar' ? 600 : 400, fontSize: 13, justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
+            <span style={{ fontSize: 14 }}>📅</span>
+            {!sidebarCollapsed && <span>Calendar</span>}
           </div>
           <div onClick={() => { setActiveNav('analytics'); fetchAnalytics(); }}
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', background: activeNav === 'analytics' ? c.primaryLight : 'transparent', color: activeNav === 'analytics' ? c.primary : c.text, fontWeight: activeNav === 'analytics' ? 600 : 400, fontSize: 13, justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
@@ -1065,7 +1105,7 @@ export default function WebmailDashboard() {
                   </div>
                   {contact.company && <div style={{ fontSize: 12, color: c.textMuted, marginBottom: 4 }}>{contact.company}</div>}
                   {contact.phone && <div style={{ fontSize: 12, color: c.textMuted, marginBottom: 8 }}>{contact.phone}</div>}
-                  <button onClick={() => { setCompose({ to: contact.email, cc: '', subject: '', body_html: signature?.is_active ? `\n\n--\n${signature.html_body.replace(/<[^>]*>/g, '')}` : '' }); setComposeOpen(true); }}
+                  <button onClick={() => { setCompose({ to: contact.email, cc: '', bcc: '', subject: '', body_html: signature?.is_active ? `\n\n--\n${signature.html_body.replace(/<[^>]*>/g, '')}` : '' }); setComposeOpen(true); }}
                     style={{ width: '100%', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 6, padding: '7px', fontSize: 12, fontWeight: 600, cursor: 'pointer', marginTop: 4 }}>
                     ✉️ Compose
                   </button>
@@ -1613,6 +1653,111 @@ export default function WebmailDashboard() {
               </div>
             )}
           </div>
+        ) : activeNav === 'calendar' ? (
+          <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+            {(() => {
+              const year = calendarDate.getFullYear();
+              const month = calendarDate.getMonth();
+              const firstDay = new Date(year, month, 1).getDay();
+              const daysInMonth = new Date(year, month + 1, 0).getDate();
+              const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+              const cells = [];
+              for (let i = 0; i < firstDay; i++) cells.push(null);
+              for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+              while (cells.length % 7 !== 0) cells.push(null);
+              return (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: c.text }}>{monthNames[month]} {year}</div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={() => { const d = new Date(year, month - 1, 1); setCalendarDate(d); fetchCalendarEvents(d); }}
+                        style={{ padding: '7px 14px', border: `1px solid ${c.border}`, borderRadius: 7, background: 'none', cursor: 'pointer', fontSize: 13 }}>← Prev</button>
+                      <button onClick={() => { const d = new Date(); setCalendarDate(d); fetchCalendarEvents(d); }}
+                        style={{ padding: '7px 14px', border: `1px solid ${c.border}`, borderRadius: 7, background: 'none', cursor: 'pointer', fontSize: 13 }}>Today</button>
+                      <button onClick={() => { const d = new Date(year, month + 1, 1); setCalendarDate(d); fetchCalendarEvents(d); }}
+                        style={{ padding: '7px 14px', border: `1px solid ${c.border}`, borderRadius: 7, background: 'none', cursor: 'pointer', fontSize: 13 }}>Next →</button>
+                    </div>
+                  </div>
+                  <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, overflow: 'hidden' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', background: c.bg }}>
+                      {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d => (
+                        <div key={d} style={{ padding: '10px 0', textAlign: 'center', fontSize: 12, fontWeight: 600, color: c.textMuted, borderBottom: `1px solid ${c.border}` }}>{d}</div>
+                      ))}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
+                      {cells.map((day, i) => {
+                        const dayEvents = day ? calendarEvents.filter(e => new Date(e.start_time).getDate() === day && new Date(e.start_time).getMonth() === month) : [];
+                        const isToday = day && new Date().getDate() === day && new Date().getMonth() === month && new Date().getFullYear() === year;
+                        return (
+                          <div key={i} onClick={() => {
+                            if (!day) return;
+                            const dt = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+                            setCalendarForm({ title: '', description: '', start_time: `${dt}T09:00`, end_time: `${dt}T10:00`, all_day: false, color: '#6366f1' });
+                            setCalendarModal('new');
+                          }} style={{ minHeight: 90, padding: 6, borderRight: `1px solid ${c.border}`, borderBottom: `1px solid ${c.border}`, cursor: day ? 'pointer' : 'default', background: isToday ? '#eff6ff' : 'transparent' }}>
+                            {day && <div style={{ fontSize: 13, fontWeight: isToday ? 700 : 400, color: isToday ? c.primary : c.text, marginBottom: 4 }}>{day}</div>}
+                            {dayEvents.slice(0, 3).map(ev => (
+                              <div key={ev.id} onClick={e => { e.stopPropagation(); setCalendarForm({ title: ev.title, description: ev.description || '', start_time: ev.start_time.slice(0,16), end_time: ev.end_time.slice(0,16), all_day: ev.all_day, color: ev.color || '#6366f1' }); setCalendarModal(ev); }}
+                                style={{ background: ev.color || '#6366f1', color: '#fff', borderRadius: 4, padding: '2px 6px', fontSize: 11, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {ev.title}
+                              </div>
+                            ))}
+                            {dayEvents.length > 3 && <div style={{ fontSize: 10, color: c.textMuted }}>+{dayEvents.length - 3} more</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+            {calendarModal && (
+              <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ background: c.card, borderRadius: 12, width: 440, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: c.text }}>{calendarModal === 'new' ? 'New Event' : 'Edit Event'}</span>
+                    <button onClick={() => setCalendarModal(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: c.textMuted }}>×</button>
+                  </div>
+                  <input value={calendarForm.title} onChange={e => setCalendarForm(p => ({ ...p, title: e.target.value }))} placeholder="Event title *"
+                    style={{ width: '100%', padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, marginBottom: 10, outline: 'none', boxSizing: 'border-box' }} />
+                  <textarea value={calendarForm.description} onChange={e => setCalendarForm(p => ({ ...p, description: e.target.value }))}
+                    placeholder="Description (optional)" rows={2}
+                    style={{ width: '100%', padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, resize: 'none', outline: 'none', boxSizing: 'border-box', marginBottom: 10 }} />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: c.textMuted, display: 'block', marginBottom: 4 }}>Start</label>
+                      <input type="datetime-local" value={calendarForm.start_time} onChange={e => setCalendarForm(p => ({ ...p, start_time: e.target.value }))}
+                        style={{ width: '100%', padding: '8px 10px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 12, outline: 'none', boxSizing: 'border-box' }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: c.textMuted, display: 'block', marginBottom: 4 }}>End</label>
+                      <input type="datetime-local" value={calendarForm.end_time} onChange={e => setCalendarForm(p => ({ ...p, end_time: e.target.value }))}
+                        style={{ width: '100%', padding: '8px 10px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 12, outline: 'none', boxSizing: 'border-box' }} />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                    <label style={{ fontSize: 12, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                      <input type="checkbox" checked={calendarForm.all_day} onChange={e => setCalendarForm(p => ({ ...p, all_day: e.target.checked }))} /> All day
+                    </label>
+                    <label style={{ fontSize: 12, color: c.textMuted, display: 'flex', alignItems: 'center', gap: 6 }}>Color
+                      <input type="color" value={calendarForm.color} onChange={e => setCalendarForm(p => ({ ...p, color: e.target.value }))}
+                        style={{ width: 28, height: 28, border: 'none', borderRadius: 4, cursor: 'pointer' }} />
+                    </label>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                    {calendarModal !== 'new' && (
+                      <button onClick={() => deleteCalendarEvent(calendarModal.id)}
+                        style={{ padding: '8px 14px', background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: 7, fontSize: 13, cursor: 'pointer' }}>Delete</button>
+                    )}
+                    <button onClick={() => setCalendarModal(null)}
+                      style={{ padding: '8px 16px', border: `1px solid ${c.border}`, borderRadius: 7, background: 'none', cursor: 'pointer', fontSize: 13, color: c.textMuted }}>Cancel</button>
+                    <button onClick={saveCalendarEvent}
+                      style={{ padding: '8px 20px', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Save</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         ) : activeNav === 'security' ? (
           <div style={{ flex: 1, overflowY: 'auto', padding: 24, maxWidth: 520 }}>
             <div style={{ fontSize: 20, fontWeight: 700, color: c.text, marginBottom: 4 }}>Security — Two-Factor Authentication</div>
@@ -1720,18 +1865,18 @@ export default function WebmailDashboard() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
                       <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: c.text }}>{selectedEmail.subject || '(no subject)'}</h2>
                       <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={() => { setCompose({ to: selectedEmail.from_email, subject: `Re: ${selectedEmail.subject}`, body_html: `\n\n--- Original message ---\n${(selectedEmail.text_content || '').slice(0, 500)}`, cc: '' }); setComposeOpen(true); }}
+                        <button onClick={() => { setCompose({ to: selectedEmail.from_email, subject: `Re: ${selectedEmail.subject}`, body_html: `\n\n--- Original message ---\n${(selectedEmail.text_content || '').slice(0, 500)}`, cc: '', bcc: '' }); setComposeOpen(true); }}
                           style={{ padding: '6px 12px', border: `1px solid ${c.border}`, borderRadius: 6, background: 'none', cursor: 'pointer', fontSize: 12, color: c.text }}>↩ Reply</button>
                         <button onClick={() => {
                           const myEmail = profile?.email || '';
                           const originalTo = selectedEmail.to_email || '';
                           const ccList = originalTo.split(',').map(e => e.trim()).filter(e => e && e !== myEmail).join(', ');
-                          setCompose({ to: selectedEmail.from_email, subject: `Re: ${selectedEmail.subject}`, body_html: `\n\n--- Original message ---\n${(selectedEmail.text_content || '').slice(0, 500)}`, cc: ccList });
+                          setCompose({ to: selectedEmail.from_email, subject: `Re: ${selectedEmail.subject}`, body_html: `\n\n--- Original message ---\n${(selectedEmail.text_content || '').slice(0, 500)}`, cc: ccList, bcc: '' });
                           setComposeOpen(true);
                         }} style={{ padding: '6px 12px', border: `1px solid ${c.border}`, borderRadius: 6, background: 'none', cursor: 'pointer', fontSize: 12, color: c.text }}>↩↩ Reply All</button>
                         <button onClick={() => {
                           const fwdBody = `\n\n---------- Forwarded message ----------\nFrom: ${selectedEmail.from_email}\nDate: ${new Date(selectedEmail.created_at).toLocaleString()}\nSubject: ${selectedEmail.subject}\n\n${selectedEmail.text_content || ''}`;
-                          setCompose({ to: '', subject: `Fwd: ${selectedEmail.subject}`, body_html: fwdBody, cc: '' });
+                          setCompose({ to: '', subject: `Fwd: ${selectedEmail.subject}`, body_html: fwdBody, cc: '', bcc: '' });
                           setComposeOpen(true);
                         }} style={{ padding: '6px 12px', border: `1px solid ${c.border}`, borderRadius: 6, background: 'none', cursor: 'pointer', fontSize: 12, color: c.text }}>⏩ Forward</button>
                         <button onClick={() => deleteEmail(selectedEmail.id)}
@@ -1809,15 +1954,58 @@ export default function WebmailDashboard() {
               </div>
               {[
                 { key: 'cc', placeholder: 'CC (optional)' },
+                { key: 'bcc', placeholder: 'BCC (optional)' },
                 { key: 'subject', placeholder: 'Subject' },
               ].map(f => (
                 <input key={f.key} value={compose[f.key]} onChange={e => setCompose(p => ({ ...p, [f.key]: e.target.value }))}
                   placeholder={f.placeholder}
                   style={{ width: '100%', padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, marginBottom: 10, outline: 'none', boxSizing: 'border-box' }} />
               ))}
-              <textarea value={compose.body_html} onChange={e => setCompose(p => ({ ...p, body_html: e.target.value }))}
-                placeholder="Message" rows={8}
-                style={{ width: '100%', padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, resize: 'vertical', outline: 'none', boxSizing: 'border-box' }} />
+              {/* WYSIWYG Toolbar */}
+              <div style={{ border: `1px solid ${c.border}`, borderRadius: 7, overflow: 'hidden' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2, padding: '6px 8px', background: c.bg, borderBottom: `1px solid ${c.border}` }}>
+                  {[
+                    { cmd: 'bold', label: <b>B</b> },
+                    { cmd: 'italic', label: <i>I</i> },
+                    { cmd: 'underline', label: <u>U</u> },
+                    { cmd: 'strikeThrough', label: <s>S</s> },
+                    { cmd: 'formatBlock', val: 'H1', label: 'H1' },
+                    { cmd: 'formatBlock', val: 'H2', label: 'H2' },
+                    { cmd: 'insertUnorderedList', label: '\u2022 List' },
+                    { cmd: 'insertOrderedList', label: '1. List' },
+                    { cmd: 'indent', label: '\u2192' },
+                    { cmd: 'outdent', label: '\u2190' },
+                    { cmd: 'justifyLeft', label: '\u2261L' },
+                    { cmd: 'justifyCenter', label: '\u2261C' },
+                    { cmd: 'justifyRight', label: '\u2261R' },
+                    { cmd: 'removeFormat', label: 'Tx' },
+                  ].map((btn, i) => (
+                    <button key={i} onMouseDown={e => { e.preventDefault(); document.execCommand(btn.cmd, false, btn.val || null); }}
+                      style={{ padding: '3px 7px', border: `1px solid ${c.border}`, borderRadius: 4, background: '#fff', cursor: 'pointer', fontSize: 12, minWidth: 28 }}>
+                      {btn.label}
+                    </button>
+                  ))}
+                  <button onMouseDown={e => { e.preventDefault(); const url = window.prompt('URL:'); if (url) document.execCommand('createLink', false, url); }}
+                    style={{ padding: '3px 7px', border: `1px solid ${c.border}`, borderRadius: 4, background: '#fff', cursor: 'pointer', fontSize: 12 }}>Link</button>
+                  <button onMouseDown={e => { e.preventDefault(); document.execCommand('unlink', false, null); }}
+                    style={{ padding: '3px 7px', border: `1px solid ${c.border}`, borderRadius: 4, background: '#fff', cursor: 'pointer', fontSize: 12 }}>Unlink</button>
+                  <label style={{ padding: '3px 7px', border: `1px solid ${c.border}`, borderRadius: 4, background: '#fff', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 3 }}>A
+                    <input type="color" defaultValue="#000000" onInput={e => document.execCommand('foreColor', false, e.target.value)}
+                      style={{ width: 18, height: 18, border: 'none', padding: 0, cursor: 'pointer' }} />
+                  </label>
+                  <label style={{ padding: '3px 7px', border: `1px solid ${c.border}`, borderRadius: 4, background: '#fff', cursor: 'pointer', fontSize: 12, display: 'flex', alignItems: 'center', gap: 3 }}>BG
+                    <input type="color" defaultValue="#ffffff" onInput={e => document.execCommand('hiliteColor', false, e.target.value)}
+                      style={{ width: 18, height: 18, border: 'none', padding: 0, cursor: 'pointer' }} />
+                  </label>
+                </div>
+                <div
+                  contentEditable
+                  suppressContentEditableWarning
+                  ref={el => { if (el && el.innerHTML !== compose.body_html) el.innerHTML = compose.body_html || ''; }}
+                  onInput={e => setCompose(p => ({ ...p, body_html: e.currentTarget.innerHTML }))}
+                  style={{ minHeight: 200, maxHeight: 400, overflowY: 'auto', padding: 12, fontSize: 13, outline: 'none', lineHeight: 1.6 }}
+                />
+              </div>
               <div style={{ marginTop: 8 }}>
                 <label style={{ fontSize: 12, fontWeight: 600, color: c.textMuted, marginBottom: 4, display: 'block' }}>📎 Attachments</label>
                 <input type="file" multiple onChange={e => setAttachFiles(Array.from(e.target.files))}

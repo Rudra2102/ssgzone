@@ -75,6 +75,9 @@ export default function EmployeeDashboard() {
   const [darkMode, setDarkMode]   = useState(false);
   const [mailboxes, setMailboxes] = useState([]);
   const [mailboxSearch, setMailboxSearch] = useState('');
+  const [twoFAStatus, setTwoFAStatus] = useState(false);
+  const [twoFASetup, setTwoFASetup]   = useState(null);
+  const [twoFASaving, setTwoFASaving] = useState(false);
 
   const canTickets  = ['support','sales','admin'].includes(role);
   const canSaas     = ['sales','admin'].includes(role);
@@ -88,6 +91,7 @@ export default function EmployeeDashboard() {
     ...(canSaas    ? [{ id:'saas-apps',label:'SaaS Applications',  icon:'▦'  }] : []),
     ...(canMailbox ? [{ id:'mailboxes',label:'Mailboxes',          icon:'📬' }] : []),
     { id:'profile',   label:'My Profile',         icon:'👤' },
+    { id:'security',  label:'Security (2FA)',      icon:'🛡️' },
   ];
 
   const api = useCallback(async (path) => {
@@ -121,6 +125,10 @@ export default function EmployeeDashboard() {
       } else if (section === 'mailboxes') {
         const data = await api('/api/v1/super-admin/mailboxes?limit=200');
         setMailboxes(Array.isArray(data) ? data : []);
+      } else if (section === 'security') {
+        const res = await fetch(`${API}/api/v1/super-admin/2fa/status`, { headers: authH });
+        const d = await res.json();
+        if (d.success) setTwoFAStatus(d.data.enabled);
       }
     })();
   }, [section]);
@@ -386,8 +394,68 @@ export default function EmployeeDashboard() {
             </div>
           )}
 
+          {/* ── Security 2FA ── */}
+          {section === 'security' && (() => {
+            const [localCode, setLocalCode] = React.useState('');
+            const setup = async () => {
+              setTwoFASaving(true);
+              const res = await fetch(`${API}/api/v1/super-admin/2fa/setup`, { method: 'POST', headers: authH });
+              const d = await res.json();
+              if (d.success) setTwoFASetup(d.data); else alert(d.error);
+              setTwoFASaving(false);
+            };
+            const enable = async () => {
+              setTwoFASaving(true);
+              const res = await fetch(`${API}/api/v1/super-admin/2fa/enable`, { method: 'POST', headers: authH, body: JSON.stringify({ token: localCode }) });
+              const d = await res.json();
+              if (d.success) { setTwoFAStatus(true); setTwoFASetup(null); setLocalCode(''); }
+              else alert(d.error);
+              setTwoFASaving(false);
+            };
+            const disable = async () => {
+              if (!window.confirm('Disable 2FA?')) return;
+              const res = await fetch(`${API}/api/v1/super-admin/2fa/disable`, { method: 'POST', headers: authH });
+              const d = await res.json();
+              if (d.success) setTwoFAStatus(false);
+            };
+            return (
+              <div style={{ maxWidth: 480 }}>
+                <div style={{ ...styles.card, ...dmCard }}>
+                  <div style={styles.sectionTitle}>🛡️ Two-Factor Authentication</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                    <span style={{ fontSize: 28 }}>{twoFAStatus ? '🔒' : '🔓'}</span>
+                    <div>
+                      <div style={{ fontSize: 15, fontWeight: 700 }}>2FA is {twoFAStatus ? 'Enabled' : 'Disabled'}</div>
+                      <div style={{ fontSize: 12, color: COLORS.textMuted }}>{twoFAStatus ? 'Your account is protected with TOTP' : 'Enable 2FA for extra security'}</div>
+                    </div>
+                  </div>
+                  {!twoFAStatus && !twoFASetup && (
+                    <button onClick={setup} disabled={twoFASaving} style={styles.btn()}>{twoFASaving ? 'Loading...' : 'Setup 2FA'}</button>
+                  )}
+                  {twoFASetup && (
+                    <div>
+                      <div style={{ fontSize: 13, color: COLORS.textMuted, marginBottom: 10 }}>Scan with Google Authenticator or Authy:</div>
+                      <img src={twoFASetup.qr_code} alt="QR" style={{ width: 180, height: 180, border: `1px solid ${COLORS.border}`, borderRadius: 8, marginBottom: 10 }} />
+                      <div style={{ fontSize: 11, color: COLORS.textMuted, marginBottom: 10, fontFamily: 'monospace', background: COLORS.bg, padding: '6px 10px', borderRadius: 6 }}>Secret: {twoFASetup.secret}</div>
+                      <input value={localCode} onChange={e => setLocalCode(e.target.value)} maxLength={6} placeholder="Enter 6-digit code"
+                        style={{ ...styles.input, fontSize: 16, textAlign: 'center', letterSpacing: 6, marginBottom: 10 }} />
+                      <button onClick={enable} disabled={twoFASaving || localCode.length !== 6}
+                        style={{ ...styles.btn('#10b981'), opacity: localCode.length !== 6 ? 0.6 : 1 }}>
+                        {twoFASaving ? 'Verifying...' : 'Enable 2FA'}
+                      </button>
+                    </div>
+                  )}
+                  {twoFAStatus && (
+                    <button onClick={disable} style={styles.btn('#ef4444')}>Disable 2FA</button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* ── My Profile ── */}
           {section === 'profile' && (
+
             <div style={{ maxWidth:480 }}>
               <div style={{ ...styles.card, ...dmCard }}>
                 <div style={styles.sectionTitle}>My Profile</div>

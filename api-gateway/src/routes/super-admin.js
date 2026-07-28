@@ -195,12 +195,14 @@ router.get('/dashboard/stats', superAdminAuth, async (req, res) => {
     const tenantsQuery = 'SELECT COUNT(*) as count FROM tenant_companies WHERE status = $1';
     const usersQuery = 'SELECT COUNT(*) as count FROM tenant_users WHERE status = $1';
     const emailsTodayQuery = `SELECT COUNT(*) as count FROM email_queue WHERE DATE(created_at) = CURRENT_DATE`;
+    const adminsQuery = 'SELECT COUNT(*) as count FROM platform_admins WHERE status = $1';
     
-    const [saasApps, tenants, users, emailsToday] = await Promise.all([
+    const [saasApps, tenants, users, emailsToday, admins] = await Promise.all([
       db.query(saasAppsQuery, ['active']).catch(() => ({ rows: [{ count: 0 }] })),
       db.query(tenantsQuery, ['active']).catch(() => ({ rows: [{ count: 0 }] })),
       db.query(usersQuery, ['active']).catch(() => ({ rows: [{ count: 0 }] })),
-      db.query(emailsTodayQuery).catch(() => ({ rows: [{ count: 0 }] }))
+      db.query(emailsTodayQuery).catch(() => ({ rows: [{ count: 0 }] })),
+      db.query(adminsQuery, ['active']).catch(() => ({ rows: [{ count: 0 }] }))
     ]);
     
     const stats = {
@@ -209,8 +211,9 @@ router.get('/dashboard/stats', superAdminAuth, async (req, res) => {
       totalUsers: parseInt(users.rows[0].count) || 0,
       emailsToday: parseInt(emailsToday.rows[0].count) || 0,
       activeUsers: parseInt(users.rows[0].count) || 0,
-      storageUsed: 0, // Will implement when storage tracking is added
-      systemHealth: 99.9 // Will implement real health check
+      totalAdmins: parseInt(admins.rows[0].count) || 0,
+      storageUsed: 0,
+      systemHealth: 99.9
     };
     
     res.json({
