@@ -1538,10 +1538,26 @@ router.get('/security/stats', superAdminAuth, requireRole(), async (req, res) =>
 // GET /audit-logs
 router.get('/audit-logs', superAdminAuth, requireRole('admin', 'support'), async (req, res) => {
   try {
-    const result = await db.query('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 100');
-    res.json({ success: true, data: result.rows });
+    const { page = 1, limit = 25, actor_id, action, tenant_id } = req.query;
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const params = [];
+    let where = 'WHERE 1=1';
+    if (actor_id) { params.push(actor_id); where += ` AND actor_id::text = $${params.length}`; }
+    if (action) { params.push(`%${action}%`); where += ` AND action ILIKE $${params.length}`; }
+    if (tenant_id) { params.push(tenant_id); where += ` AND tenant_id::text = $${params.length}`; }
+    const countResult = await db.query(`SELECT COUNT(*) FROM audit_logs ${where}`, params);
+    const total = parseInt(countResult.rows[0].count);
+    params.push(parseInt(limit), offset);
+    const result = await db.query(
+      `SELECT id, actor_id, actor_type, action, target_type, target_id, tenant_id, ip_address, details, created_at
+       FROM audit_logs ${where}
+       ORDER BY created_at DESC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params
+    );
+    res.json({ success: true, data: result.rows, total, page: parseInt(page) });
   } catch (err) {
-    if (err.code === '42P01') return res.json({ success: true, data: [], message: 'Audit log table not yet created' });
+    if (err.code === '42P01') return res.json({ success: true, data: [], total: 0, message: 'Audit log table not yet created' });
     res.status(500).json({ success: false, error: err.message });
   }
 });

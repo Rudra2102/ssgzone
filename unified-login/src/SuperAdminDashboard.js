@@ -50,6 +50,9 @@ function SuperAdminDashboard() {
   const [securityStats, setSecurityStats] = useState({});
   const [auditLogs, setAuditLogs] = useState([]);
   const [auditMsg, setAuditMsg] = useState('');
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditTotal, setAuditTotal] = useState(0);
+  const [auditFilters, setAuditFilters] = useState({ action: '', tenant_id: '', actor_id: '' });
 
   const token = localStorage.getItem('super_admin_token');
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
@@ -89,12 +92,17 @@ function SuperAdminDashboard() {
         ]);
         setSecurityStats({ ...(sec.data || {}), branding: br.data || {} });
       } else if (activeSection === 'audit') {
-        const res = await fetch(`${API}/audit-logs`, { headers: authHeaders }).then(r => r.json());
+        const params = new URLSearchParams({ page: auditPage, limit: 25 });
+        if (auditFilters.action) params.append('action', auditFilters.action);
+        if (auditFilters.tenant_id) params.append('tenant_id', auditFilters.tenant_id);
+        if (auditFilters.actor_id) params.append('actor_id', auditFilters.actor_id);
+        const res = await fetch(`${API}/audit-logs?${params}`, { headers: authHeaders }).then(r => r.json());
         setAuditLogs(res.data || []);
+        setAuditTotal(res.total || 0);
         setAuditMsg(res.message || '');
       }
     })();
-  }, [activeSection]);
+  }, [activeSection, auditPage, auditFilters]);
 
   const fetchAll = async () => {
     try {
@@ -2752,31 +2760,71 @@ function SuperAdminDashboard() {
       case 'audit': return (
         <div>
           <div style={{ fontSize: 22, fontWeight: 700, color: colors.text, marginBottom: 4 }}>Audit Logs</div>
-          <div style={{ fontSize: 13, color: colors.textMuted, marginBottom: 20 }}>Platform activity trail</div>
+          <div style={{ fontSize: 13, color: colors.textMuted, marginBottom: 16 }}>Platform activity trail — {auditTotal} total records</div>
           {auditMsg ? (
             <div style={{ background: colors.warningLight, border: `1px solid ${colors.warning}`, borderRadius: 12, padding: 24, color: colors.warning, fontSize: 13 }}>
               ℹ️ {auditMsg}. Run a migration to enable audit logging.
             </div>
           ) : (
-            <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, overflow: 'hidden' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                <thead><tr style={{ background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
-                  {['Action', 'Performed By', 'Target', 'Details', 'Time'].map(h => <th key={h} style={{ textAlign: 'left', padding: '12px 16px', color: colors.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>)}
-                </tr></thead>
-                <tbody>
-                  {auditLogs.map((log, i) => (
-                    <tr key={i} style={{ borderBottom: `1px solid ${colors.border}` }}>
-                      <td style={{ padding: '12px 16px', color: colors.text, fontWeight: 500 }}>{log.action}</td>
-                      <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{log.performed_by}</td>
-                      <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{log.target || '—'}</td>
-                      <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{log.details || '—'}</td>
-                      <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{new Date(log.created_at).toLocaleString()}</td>
-                    </tr>
-                  ))}
-                  {auditLogs.length === 0 && <tr><td colSpan={5} style={{ padding: 40, textAlign: 'center', color: colors.textMuted }}>No audit logs found</td></tr>}
-                </tbody>
-              </table>
-            </div>
+            <>
+              {/* Filter bar */}
+              <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
+                <input value={auditFilters.action} onChange={e => { setAuditFilters(f => ({ ...f, action: e.target.value })); setAuditPage(1); }}
+                  placeholder="Filter by action..."
+                  style={{ padding: '8px 12px', border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 13, color: colors.text, background: colors.card, outline: 'none', minWidth: 180 }} />
+                <input value={auditFilters.actor_id} onChange={e => { setAuditFilters(f => ({ ...f, actor_id: e.target.value })); setAuditPage(1); }}
+                  placeholder="Actor ID..."
+                  style={{ padding: '8px 12px', border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 13, color: colors.text, background: colors.card, outline: 'none', width: 120 }} />
+                <select value={auditFilters.tenant_id} onChange={e => { setAuditFilters(f => ({ ...f, tenant_id: e.target.value })); setAuditPage(1); }}
+                  style={{ padding: '8px 12px', border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 13, color: colors.text, background: colors.card, outline: 'none', minWidth: 180 }}>
+                  <option value="">All Tenants</option>
+                  {tenants.map(t => <option key={t.id} value={t.id}>{t.company_name}</option>)}
+                </select>
+                {(auditFilters.action || auditFilters.actor_id || auditFilters.tenant_id) && (
+                  <button onClick={() => { setAuditFilters({ action: '', tenant_id: '', actor_id: '' }); setAuditPage(1); }}
+                    style={{ padding: '8px 14px', border: `1px solid ${colors.border}`, borderRadius: 8, background: 'none', cursor: 'pointer', fontSize: 12, color: colors.textMuted }}>✕ Clear</button>
+                )}
+              </div>
+              <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead><tr style={{ background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                    {['Timestamp', 'Actor', 'Action', 'Target', 'Tenant', 'IP', 'Details'].map(h => <th key={h} style={{ textAlign: 'left', padding: '12px 14px', color: colors.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {auditLogs.map((log, i) => (
+                      <tr key={log.id || i} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                        <td style={{ padding: '10px 14px', color: colors.textMuted, fontSize: 11, whiteSpace: 'nowrap' }}>{new Date(log.created_at).toLocaleString()}</td>
+                        <td style={{ padding: '10px 14px', color: colors.text, fontSize: 12 }}>{log.actor_id || '—'}<br/><span style={{ fontSize: 10, color: colors.textMuted }}>{log.actor_type}</span></td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: colors.primary, fontSize: 12 }}>{log.action}</td>
+                        <td style={{ padding: '10px 14px', color: colors.textMuted, fontSize: 12 }}>{log.target_type ? `${log.target_type}:${log.target_id}` : '—'}</td>
+                        <td style={{ padding: '10px 14px', color: colors.textMuted, fontSize: 11 }}>{log.tenant_id || '—'}</td>
+                        <td style={{ padding: '10px 14px', color: colors.textMuted, fontSize: 11, fontFamily: 'monospace' }}>{log.ip_address || '—'}</td>
+                        <td style={{ padding: '10px 14px', fontSize: 11 }}>
+                          {log.details ? (
+                            <details style={{ cursor: 'pointer' }}>
+                              <summary style={{ color: colors.primary, fontSize: 11 }}>View</summary>
+                              <pre style={{ fontSize: 10, color: colors.text, background: colors.bg, padding: 8, borderRadius: 4, marginTop: 4, maxWidth: 240, overflow: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                                {JSON.stringify(log.details, null, 2)}
+                              </pre>
+                            </details>
+                          ) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                    {auditLogs.length === 0 && <tr><td colSpan={7} style={{ padding: 40, textAlign: 'center', color: colors.textMuted }}>No audit logs found</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+              {auditTotal > 25 && (
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 16, alignItems: 'center' }}>
+                  <button disabled={auditPage === 1} onClick={() => setAuditPage(p => p - 1)}
+                    style={{ padding: '6px 14px', border: `1px solid ${colors.border}`, borderRadius: 6, background: colors.card, color: colors.text, cursor: auditPage === 1 ? 'not-allowed' : 'pointer', opacity: auditPage === 1 ? 0.5 : 1 }}>← Prev</button>
+                  <span style={{ fontSize: 13, color: colors.textMuted }}>Page {auditPage} of {Math.ceil(auditTotal / 25)}</span>
+                  <button disabled={auditPage >= Math.ceil(auditTotal / 25)} onClick={() => setAuditPage(p => p + 1)}
+                    style={{ padding: '6px 14px', border: `1px solid ${colors.border}`, borderRadius: 6, background: colors.card, color: colors.text, cursor: 'pointer' }}>Next →</button>
+                </div>
+              )}
+            </>
           )}
         </div>
       );

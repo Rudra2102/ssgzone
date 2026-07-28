@@ -102,10 +102,62 @@ export default function WebmailDashboard() {
   const [showExportDropdown, setShowExportDropdown] = useState(false);
   const [exportFolder, setExportFolder] = useState('inbox');
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
+  const [selectedEmailIds, setSelectedEmailIds] = useState([]);
+  const [sessionWarning, setSessionWarning] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [jumpPage, setJumpPage] = useState('');
 
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const token = localStorage.getItem('webmail_token');
   const auth = { Authorization: `Bearer ${token}` };
+
+  useEffect(() => {
+    if (!token) return;
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const exp = payload.exp * 1000;
+      const warnAt = exp - 5 * 60 * 1000;
+      const now = Date.now();
+      if (warnAt > now) {
+        const warnTimer = setTimeout(() => setSessionWarning(true), warnAt - now);
+        const expTimer = setTimeout(() => { setSessionWarning(false); setSessionExpired(true); setTimeout(handleLogout, 3000); }, exp - now);
+        return () => { clearTimeout(warnTimer); clearTimeout(expTimer); };
+      }
+    } catch {}
+  }, [token]);
+
+  const renewSession = async () => {
+    try {
+      const res = await fetch(`${API}/auth/refresh`, { method: 'POST', headers: auth });
+      const data = await res.json();
+      if (data.success) {
+        localStorage.setItem('webmail_token', data.data.token);
+        setSessionWarning(false);
+        showToastNotification('✅ Session renewed for 8 hours');
+        window.location.reload();
+      }
+    } catch {}
+  };
+
+  const bulkAction = async (action) => {
+    if (!selectedEmailIds.length) return;
+    try {
+      const res = await fetch(`${API}/bulk-action`, {
+        method: 'POST',
+        headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, email_ids: selectedEmailIds })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSelectedEmailIds([]);
+        fetchEmails();
+        fetchFolderCounts();
+        showToastNotification(`✅ ${data.affected} email(s) updated`);
+      } else showToastNotification('Error: ' + data.error);
+    } catch (err) { showToastNotification(err.message); }
+  };
+
+  const totalPages = Math.ceil(total / 25);
 
   useEffect(() => {
     if (!token) { window.location.href = '/'; return; }
@@ -116,7 +168,7 @@ export default function WebmailDashboard() {
   }, []);
 
   useEffect(() => {
-    if (activeNav === 'inbox') fetchEmails();
+    if (activeNav === 'inbox') { fetchEmails(); setSelectedEmailIds([]); }
   }, [folder, page, search]);
 
   useEffect(() => {
@@ -2083,9 +2135,17 @@ export default function WebmailDashboard() {
             {/* Email list */}
             <div style={{ width: 320, borderRight: `1px solid ${c.border}`, display: 'flex', flexDirection: 'column', background: c.card, flexShrink: 0 }}>
               <div style={{ padding: '12px 14px', borderBottom: `1px solid ${c.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: c.text }}>{searchActive ? 'Search Results' : FOLDERS.find(f => f.id === folder)?.label || folder}</div>
-                  <div style={{ fontSize: 11, color: c.textMuted }}>{searchActive ? `${searchResults.length} results` : `${total} messages${unread > 0 ? `, ${unread} unread` : ''}`}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input type="checkbox"
+                    checked={emails.length > 0 && selectedEmailIds.length === emails.length}
+                    onChange={e => setSelectedEmailIds(e.target.checked ? emails.map(em => em.id) : [])}
+                    style={{ width: 14, height: 14, cursor: 'pointer' }} />
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: c.text }}>{searchActive ? 'Search Results' : FOLDERS.find(f => f.id === folder)?.label || folder}</div>
+                    <div style={{ fontSize: 11, color: c.textMuted }}>
+                      {searchActive ? `${searchResults.length} results` : `${total} messages${unread > 0 ? `, ${unread} unread` : ''}`}
+                    </div>
+                  </div>
                 </div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   <button onClick={searchActive ? () => { setSearchActive(false); setSearchResults([]); setSearch(''); } : fetchEmails} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: searchActive ? c.danger : c.textMuted }}>{searchActive ? '✕' : '↻'}</button>
@@ -2108,6 +2168,20 @@ export default function WebmailDashboard() {
                 </div>
               </div>
 
+              {/* Bulk action bar */}
+              {selectedEmailIds.length > 0 && (
+                <div style={{ padding: '8px 12px', background: '#eff6ff', borderBottom: `1px solid ${c.border}`, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: c.primary, marginRight: 4 }}>{selectedEmailIds.length} selected</span>
+                  {[['read','Mark Read'],['unread','Mark Unread'],['star','⭐ Star'],['trash','🗑 Trash'],['delete','✕ Delete']].map(([action, label]) => (
+                    <button key={action} onClick={() => bulkAction(action)}
+                      style={{ padding: '4px 10px', border: `1px solid ${action === 'delete' ? c.danger : c.border}`, borderRadius: 5, background: action === 'delete' ? '#fee2e2' : '#fff', color: action === 'delete' ? c.danger : c.text, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
+                      {label}
+                    </button>
+                  ))}
+                  <button onClick={() => setSelectedEmailIds([])} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, color: c.textMuted }}>✕</button>
+                </div>
+              )}
+
               <div style={{ flex: 1, overflowY: 'auto' }}>
                 {loading && <div style={{ padding: 20, textAlign: 'center', color: c.textMuted, fontSize: 13 }}>Loading...</div>}
                 {!loading && (searchActive ? searchResults : emails).length === 0 && (
@@ -2117,34 +2191,57 @@ export default function WebmailDashboard() {
                   </div>
                 )}
                 {(searchActive ? searchResults : emails).map(email => (
-                  <div key={email.id} onClick={() => openEmail(email)}
-                    style={{ padding: '11px 13px', borderBottom: `1px solid ${c.border}`, cursor: 'pointer', background: selectedEmail?.id === email.id ? '#eff6ff' : email.read_status ? c.card : '#fafbff', borderLeft: selectedEmail?.id === email.id ? `3px solid ${c.primary}` : '3px solid transparent' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 2 }}>
-                      <div style={{ fontSize: 13, fontWeight: email.read_status ? 400 : 700, color: c.text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: 6 }}>
-                        {email.from_name || email.from_email}
+                  <div key={email.id}
+                    style={{ padding: '11px 13px', borderBottom: `1px solid ${c.border}`, cursor: 'pointer', background: selectedEmail?.id === email.id ? '#eff6ff' : email.read_status ? c.card : '#fafbff', borderLeft: selectedEmail?.id === email.id ? `3px solid ${c.primary}` : '3px solid transparent', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    <input type="checkbox"
+                      checked={selectedEmailIds.includes(email.id)}
+                      onChange={e => { e.stopPropagation(); setSelectedEmailIds(prev => e.target.checked ? [...prev, email.id] : prev.filter(id => id !== email.id)); }}
+                      onClick={e => e.stopPropagation()}
+                      style={{ width: 13, height: 13, marginTop: 3, cursor: 'pointer', flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }} onClick={() => openEmail(email)}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 2 }}>
+                        <div style={{ fontSize: 13, fontWeight: email.read_status ? 400 : 700, color: c.text, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: 6 }}>
+                          {email.from_name || email.from_email}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                          <span onClick={e => toggleStar(e, email.id)} style={{ cursor: 'pointer', fontSize: 13, color: email.starred ? c.warning : c.border }}>★</span>
+                          <span style={{ fontSize: 10, color: c.textMuted }}>{new Date(email.created_at).toLocaleDateString()}</span>
+                        </div>
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
-                        <span onClick={e => toggleStar(e, email.id)} style={{ cursor: 'pointer', fontSize: 13, color: email.starred ? c.warning : c.border }}>★</span>
-                        <span style={{ fontSize: 10, color: c.textMuted }}>{new Date(email.created_at).toLocaleDateString()}</span>
+                      <div style={{ fontSize: 12, fontWeight: email.read_status ? 400 : 600, color: email.read_status ? c.textMuted : c.text, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {email.subject || '(no subject)'}
                       </div>
-                    </div>
-                    <div style={{ fontSize: 12, fontWeight: email.read_status ? 400 : 600, color: email.read_status ? c.textMuted : c.text, marginBottom: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {email.subject || '(no subject)'}
-                    </div>
-                    <div style={{ fontSize: 11, color: c.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {email.preview || ''}
+                      <div style={{ fontSize: 11, color: c.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {email.preview || ''}
+                      </div>
                     </div>
                   </div>
                 ))}
 
                 {/* Pagination */}
                 {total > 25 && (
-                  <div style={{ display: 'flex', justifyContent: 'center', gap: 8, padding: 12 }}>
-                    <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-                      style={{ padding: '4px 10px', border: `1px solid ${c.border}`, borderRadius: 4, background: 'none', cursor: 'pointer', fontSize: 12, color: c.textMuted }}>← Prev</button>
-                    <span style={{ fontSize: 12, color: c.textMuted, padding: '4px 8px' }}>Page {page}</span>
-                    <button onClick={() => setPage(p => p + 1)} disabled={page * 25 >= total}
-                      style={{ padding: '4px 10px', border: `1px solid ${c.border}`, borderRadius: 4, background: 'none', cursor: 'pointer', fontSize: 12, color: c.textMuted }}>Next →</button>
+                  <div style={{ padding: '10px 12px', borderTop: `1px solid ${c.border}` }}>
+                    <div style={{ display: 'flex', justifyContent: 'center', gap: 6, alignItems: 'center', marginBottom: 4 }}>
+                      <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                        style={{ padding: '4px 10px', border: `1px solid ${c.border}`, borderRadius: 4, background: 'none', cursor: page === 1 ? 'not-allowed' : 'pointer', fontSize: 12, color: c.textMuted, opacity: page === 1 ? 0.5 : 1 }}>← Prev</button>
+                      <span style={{ fontSize: 12, color: c.textMuted, padding: '4px 8px' }}>Page {page} of {totalPages}</span>
+                      <button onClick={() => setPage(p => p + 1)} disabled={page >= totalPages}
+                        style={{ padding: '4px 10px', border: `1px solid ${c.border}`, borderRadius: 4, background: 'none', cursor: page >= totalPages ? 'not-allowed' : 'pointer', fontSize: 12, color: c.textMuted, opacity: page >= totalPages ? 0.5 : 1 }}>Next →</button>
+                    </div>
+                    <div style={{ fontSize: 11, color: c.textMuted, textAlign: 'center', marginBottom: totalPages > 5 ? 6 : 0 }}>
+                      Showing {(page - 1) * 25 + 1}–{Math.min(page * 25, total)} of {total}
+                    </div>
+                    {totalPages > 5 && (
+                      <div style={{ display: 'flex', justifyContent: 'center', gap: 6, alignItems: 'center' }}>
+                        <span style={{ fontSize: 11, color: c.textMuted }}>Jump to:</span>
+                        <input type="number" min={1} max={totalPages} value={jumpPage}
+                          onChange={e => setJumpPage(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') { const p = Math.min(Math.max(1, parseInt(jumpPage)), totalPages); if (!isNaN(p)) { setPage(p); setJumpPage(''); } } }}
+                          style={{ width: 48, padding: '3px 6px', border: `1px solid ${c.border}`, borderRadius: 4, fontSize: 11, outline: 'none', textAlign: 'center' }} />
+                        <button onClick={() => { const p = Math.min(Math.max(1, parseInt(jumpPage)), totalPages); if (!isNaN(p)) { setPage(p); setJumpPage(''); } }}
+                          style={{ padding: '3px 8px', border: `1px solid ${c.border}`, borderRadius: 4, background: 'none', cursor: 'pointer', fontSize: 11, color: c.text }}>Go</button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -2447,6 +2544,26 @@ export default function WebmailDashboard() {
               </div>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* Session warning banner */}
+      {sessionWarning && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, background: '#fef3c7', borderBottom: '2px solid #f59e0b', padding: '10px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', zIndex: 3000, fontSize: 13 }}>
+          <span style={{ color: '#92400e', fontWeight: 600 }}>⚠️ Your session expires in 5 minutes.</span>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={renewSession}
+              style={{ background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 6, padding: '5px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Renew Session</button>
+            <button onClick={() => setSessionWarning(false)}
+              style={{ background: 'none', border: '1px solid #f59e0b', borderRadius: 6, padding: '5px 10px', fontSize: 12, color: '#92400e', cursor: 'pointer' }}>Dismiss</button>
+          </div>
+        </div>
+      )}
+
+      {/* Session expired */}
+      {sessionExpired && (
+        <div style={{ position: 'fixed', bottom: 24, right: 24, background: '#ef4444', color: '#fff', padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 600, zIndex: 3000 }}>
+          Session expired. Redirecting to login...
         </div>
       )}
 

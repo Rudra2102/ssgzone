@@ -60,8 +60,15 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'super-admin-secret') 
 const rateLimit = require('express-rate-limit');
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: 10,
   message: { success: false, error: 'Too many login attempts. Try again in 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+const twoFALimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { success: false, error: 'Too many 2FA attempts. Try again in 15 minutes.' },
   standardHeaders: true,
   legacyHeaders: false
 });
@@ -82,6 +89,21 @@ app.use(cors({
 }));
 app.use(metricsMiddleware);
 
+// Request logging
+try {
+  const morgan = require('morgan');
+  app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+  // Slow request logger (>500ms)
+  app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+      const ms = Date.now() - start;
+      if (ms > 500) console.warn(`SLOW ${req.method} ${req.path} ${ms}ms`);
+    });
+    next();
+  });
+} catch {}
+
 // Body parsing
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -97,10 +119,16 @@ app.get('/test', (req, res) => {
 });
 
 // Auth rate limiting
+app.use('/api/v1/super-admin/auth/login', authLimiter);
 app.use('/api/v1/super-admin/auth', authLimiter);
 app.use('/api/saas-admin/login', authLimiter);
+app.use('/api/v1/tenant-admin/auth/login', authLimiter);
 app.use('/api/v1/tenant-admin/auth', authLimiter);
+app.use('/api/v1/webmail/auth/login', authLimiter);
 app.use('/api/v1/webmail/auth', authLimiter);
+app.use('/api/v1/super-admin/2fa/verify', twoFALimiter);
+app.use('/api/v1/tenant-admin/2fa/verify', twoFALimiter);
+app.use('/api/v1/webmail/2fa/verify', twoFALimiter);
 
 // API routes
 app.use('/api/saas-admin', saasAdminRoutes);

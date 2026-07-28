@@ -124,8 +124,8 @@ router.get('/inbox', webmailAuth, requireFeature('email'), async (req, res) => {
 router.get('/email/:id', webmailAuth, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT * FROM emails WHERE id = $1 AND to_email = $2 AND archived = false`,
-      [req.params.id, req.user.email]
+      `SELECT * FROM emails WHERE id = $1 AND (to_email = $2 OR from_email = $2) AND tenant_id = $3 AND archived = false`,
+      [req.params.id, req.user.email, String(req.user.tenant_id)]
     );
     if (!result.rows.length) return res.status(404).json({ success: false, error: 'Email not found' });
     await pool.query('UPDATE emails SET read_status = true WHERE id = $1', [req.params.id]);
@@ -174,9 +174,9 @@ router.post('/send', webmailAuth, requireFeature('email'), async (req, res) => {
     // Save to sent folder
     const { attachment_ids } = req.body;
     const sentInsert = await pool.query(
-      `INSERT INTO emails (tenant_id, from_email, to_email, subject, html_content, text_content, folder, read_status, tracking_token)
-       VALUES ($1, $2, $3, $4, $5, $6, 'sent', true, $7) RETURNING id`,
-      [String(req.user.tenant_id), fromEmail, to, subject, html_content || '', text_content || '', require('crypto').randomBytes(32).toString('hex')]
+      `INSERT INTO emails (tenant_id, from_email, to_email, cc_email, bcc_email, subject, html_content, text_content, folder, read_status, tracking_token)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'sent', true, $9) RETURNING id`,
+      [String(req.user.tenant_id), fromEmail, to, cc || '', bcc || '', subject, html_content || '', text_content || '', require('crypto').randomBytes(32).toString('hex')]
     );
     if (attachment_ids && attachment_ids.length > 0) {
       await pool.query(
@@ -685,13 +685,18 @@ router.get('/thread', webmailAuth, async (req, res) => {
   const { subject, email: participantEmail } = req.query;
   if (!subject || !participantEmail) return res.status(400).json({ success: false, error: 'subject and email required' });
   const tenantId = String(req.user.tenant_id);
+  const userEmail = req.user.email;
   try {
     const result = await pool.query(
       `SELECT id, subject, from_email, to_email, cc_email, html_content, text_content, created_at, read_status, attachments
        FROM emails
-       WHERE (from_email = $1 OR to_email = $1) AND subject ILIKE $2 AND tenant_id = $3 AND archived = false
+       WHERE (from_email = $1 OR to_email = $1)
+         AND (from_email = $2 OR to_email = $2)
+         AND subject ILIKE $3
+         AND tenant_id = $4
+         AND archived = false
        ORDER BY created_at ASC LIMIT 50`,
-      [participantEmail, `%${subject.replace(/^(Re:|Fwd:)\s*/i, '').trim()}%`, tenantId]
+      [participantEmail, userEmail, `%${subject.replace(/^(Re:|Fwd:)\s*/i, '').trim()}%`, tenantId]
     );
     res.json({ success: true, data: result.rows });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
@@ -704,7 +709,10 @@ router.get('/export', webmailAuth, async (req, res) => {
   const tenantId = String(req.user.tenant_id);
   try {
     let where, params;
-    if (folder === 'starred') {
+    if (folder === 'sent') {
+      where = `WHERE from_email=$1 AND tenant_id=$2 AND folder='sent' AND archived=false`;
+      params = [userEmail, tenantId];
+    } else if (folder === 'starred') {
       where = `WHERE to_email=$1 AND tenant_id=$2 AND starred=true AND archived=false`;
       params = [userEmail, tenantId];
     } else {
@@ -729,6 +737,48 @@ router.get('/export', webmailAuth, async (req, res) => {
       'Content-Disposition': `attachment; filename="emails_${folder}_${dateStr}.csv"`
     });
     res.send(header + rows.join('\n'));
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/v1/webmail/bulk-action
+router.post('/bulk-action', webmailAuth, async (req, res) => {
+  const { action, email_ids } = req.body;
+  if (!Array.isArray(email_ids) || email_ids.length === 0 || email_ids.length > 100)
+    return res.status(400).json({ success: false, error: 'email_ids must be a non-empty array of max 100' });
+  if (!['read','unread','star','unstar','trash','delete'].includes(action))
+    return res.status(400).json({ success: false, error: 'invalid action' });
+  const userEmail = req.user.email;
+  const tenantId = String(req.user.tenant_id);
+  try {
+    let result;
+    const scope = `AND (to_email=$2 OR from_email=$2) AND tenant_id=$3`;
+    if (action === 'read') {
+      result = await pool.query(`UPDATE emails SET read_status=true WHERE id=ANY($1::int[]) ${scope}`, [email_ids, userEmail, tenantId]);
+    } else if (action === 'unread') {
+      result = await pool.query(`UPDATE emails SET read_status=false WHERE id=ANY($1::int[]) ${scope}`, [email_ids, userEmail, tenantId]);
+    } else if (action === 'star') {
+      result = await pool.query(`UPDATE emails SET starred=true WHERE id=ANY($1::int[]) ${scope}`, [email_ids, userEmail, tenantId]);
+    } else if (action === 'unstar') {
+      result = await pool.query(`UPDATE emails SET starred=false WHERE id=ANY($1::int[]) ${scope}`, [email_ids, userEmail, tenantId]);
+    } else if (action === 'trash') {
+      result = await pool.query(`UPDATE emails SET folder='trash' WHERE id=ANY($1::int[]) ${scope}`, [email_ids, userEmail, tenantId]);
+    } else if (action === 'delete') {
+      result = await pool.query(`UPDATE emails SET archived=true WHERE id=ANY($1::int[]) ${scope}`, [email_ids, userEmail, tenantId]);
+    }
+    res.json({ success: true, affected: result.rowCount });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/v1/webmail/auth/refresh
+router.post('/auth/refresh', webmailAuth, async (req, res) => {
+  try {
+    const { id, tenant_id, saas_id, email, role, type } = req.user;
+    const token = jwt.sign(
+      { type, id, tenant_id, saas_id, email, role },
+      process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'),
+      { expiresIn: '8h' }
+    );
+    res.json({ success: true, data: { token } });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
