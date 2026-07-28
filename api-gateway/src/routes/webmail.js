@@ -131,7 +131,7 @@ router.get('/email/:id', webmailAuth, async (req, res) => {
 
 // POST /api/v1/webmail/send
 router.post('/send', webmailAuth, requireFeature('email'), async (req, res) => {
-  const { to, subject, html_content, text_content, cc, bcc } = req.body;
+  const { to, subject, html_content, text_content, cc, bcc, scheduled_at } = req.body;
   if (!to || !subject) return res.status(400).json({ success: false, error: 'to and subject required' });
   try {
     const userResult = await pool.query(
@@ -141,6 +141,16 @@ router.post('/send', webmailAuth, requireFeature('email'), async (req, res) => {
     const sender = userResult.rows[0];
     const fromEmail = sender?.email || req.user.email;
     const fromName = sender ? `${sender.first_name} ${sender.last_name}` : fromEmail;
+
+    // Schedule if future datetime provided
+    if (scheduled_at && new Date(scheduled_at) > new Date()) {
+      await pool.query(
+        `INSERT INTO email_queue (tenant_id, from_email, to_email, subject, body, scheduled_at, status)
+         VALUES ($1, $2, $3, $4, $5, $6, 'scheduled')`,
+        [String(req.user.tenant_id), fromEmail, to, subject, html_content || text_content || '', scheduled_at]
+      );
+      return res.json({ success: true, message: 'Email scheduled', scheduled_at });
+    }
 
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || 'email-smtp.ap-south-1.amazonaws.com',
@@ -567,6 +577,29 @@ router.post('/2fa/verify', async (req, res) => {
       { expiresIn: '8h' }
     );
     res.json({ success: true, data: { token, user: { id: user.id, email: user.email, full_name: `${user.first_name} ${user.last_name}`, role: user.role, tenant_id: user.tenant_id, type: 'user' } } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// GET /api/v1/webmail/scheduled
+router.get('/scheduled', webmailAuth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, to_email, subject, scheduled_at, status FROM email_queue
+       WHERE from_email = $1 AND status = 'scheduled' ORDER BY scheduled_at ASC`,
+      [req.user.email]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// DELETE /api/v1/webmail/scheduled/:id
+router.delete('/scheduled/:id', webmailAuth, async (req, res) => {
+  try {
+    await pool.query(
+      `UPDATE email_queue SET status = 'cancelled' WHERE id = $1 AND from_email = $2`,
+      [req.params.id, req.user.email]
+    );
+    res.json({ success: true });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 

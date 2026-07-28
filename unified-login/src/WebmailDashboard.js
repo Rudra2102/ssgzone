@@ -63,6 +63,10 @@ export default function WebmailDashboard() {
   const [twoFAStatus, setTwoFAStatus] = useState(false);
   const [twoFASetup, setTwoFASetup] = useState(null);
   const [twoFASaving, setTwoFASaving] = useState(false);
+  const [scheduledEmails, setScheduledEmails] = useState([]);
+  const [scheduleAt, setScheduleAt] = useState('');
+  const [showSchedulePicker, setShowSchedulePicker] = useState(false);
+  const [scheduleMsg, setScheduleMsg] = useState('');
   const [waConfigured, setWaConfigured] = useState(false);
   const [waContacts, setWaContacts] = useState([]);
   const [waMessages, setWaMessages] = useState([]);
@@ -611,10 +615,29 @@ export default function WebmailDashboard() {
     fetchFolderCounts();
   };
 
-  const sendEmail = async () => {
+  const fetchScheduled = async () => {
+    try {
+      const res = await fetch(`${API}/scheduled`, { headers: auth });
+      const data = await res.json();
+      if (data.success) setScheduledEmails(data.data);
+    } catch {}
+  };
+
+  const cancelScheduled = async (id) => {
+    if (!window.confirm('Cancel this scheduled email?')) return;
+    try {
+      const res = await fetch(`${API}/scheduled/${id}`, { method: 'DELETE', headers: auth });
+      const data = await res.json();
+      if (data.success) setScheduledEmails(prev => prev.filter(e => e.id !== id));
+      else alert(data.error);
+    } catch (err) { alert(err.message); }
+  };
+
+  const sendEmail = async (scheduled_at_override) => {
     if (!compose.to || !compose.subject) return alert('To and Subject required');
     setSending(true);
     const currentDraftId = draftId;
+    const scheduledTime = scheduled_at_override || (scheduleAt || undefined);
     try {
       let attachmentIds = [];
       if (attachFiles.length > 0) {
@@ -636,7 +659,8 @@ export default function WebmailDashboard() {
           subject: compose.subject,
           html_content: compose.body_html,
           text_content: compose.body_html,
-          attachment_ids: attachmentIds
+          attachment_ids: attachmentIds,
+          ...(scheduledTime ? { scheduled_at: new Date(scheduledTime).toISOString() } : {})
         })
       });
       const data = await res.json();
@@ -644,8 +668,16 @@ export default function WebmailDashboard() {
         setComposeOpen(false);
         setCompose({ to: '', cc: '', subject: '', body_html: '' });
         setAttachFiles([]);
+        setScheduleAt('');
+        setShowSchedulePicker(false);
         if (currentDraftId) discardDraft(currentDraftId);
-        showToastNotification('✅ Email sent!');
+        if (data.scheduled_at) {
+          setScheduleMsg(`📅 Email scheduled for ${new Date(data.scheduled_at).toLocaleString()}`);
+          setTimeout(() => setScheduleMsg(''), 5000);
+          showToastNotification(`📅 Scheduled for ${new Date(data.scheduled_at).toLocaleString()}`);
+        } else {
+          showToastNotification('✅ Email sent!');
+        }
         if (folder === 'sent') fetchEmails();
         fetchFolderCounts();
       } else alert(data.error);
@@ -783,6 +815,11 @@ export default function WebmailDashboard() {
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', background: activeNav === 'whatsapp' ? c.primaryLight : 'transparent', color: activeNav === 'whatsapp' ? c.primary : c.text, fontWeight: activeNav === 'whatsapp' ? 600 : 400, fontSize: 13, justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
             <span style={{ fontSize: 14 }}>💬</span>
             {!sidebarCollapsed && <span>WhatsApp</span>}
+          </div>
+          <div onClick={() => { setActiveNav('scheduled'); fetchScheduled(); }}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', background: activeNav === 'scheduled' ? c.primaryLight : 'transparent', color: activeNav === 'scheduled' ? c.primary : c.text, fontWeight: activeNav === 'scheduled' ? 600 : 400, fontSize: 13, justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
+            <span style={{ fontSize: 14 }}>🕐</span>
+            {!sidebarCollapsed && <span>Scheduled</span>}
           </div>
           <div onClick={() => { setActiveNav('ooo'); fetchOoo(); }}
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 6, cursor: 'pointer', background: activeNav === 'ooo' ? c.primaryLight : 'transparent', color: activeNav === 'ooo' ? c.primary : c.text, fontWeight: activeNav === 'ooo' ? 600 : 400, fontSize: 13, justifyContent: sidebarCollapsed ? 'center' : 'flex-start' }}>
@@ -1542,6 +1579,40 @@ export default function WebmailDashboard() {
             )}
           </div>
         
+        ) : activeNav === 'scheduled' ? (
+          <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+            <div style={{ fontSize: 20, fontWeight: 700, color: c.text, marginBottom: 4 }}>Scheduled Emails</div>
+            <div style={{ fontSize: 13, color: c.textMuted, marginBottom: 20 }}>Emails queued to send at a future time</div>
+            {scheduleMsg && <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 8, padding: '10px 14px', fontSize: 13, color: '#92400e', marginBottom: 16 }}>{scheduleMsg}</div>}
+            {scheduledEmails.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '60px 0', color: c.textMuted }}>
+                <div style={{ fontSize: 48, marginBottom: 12 }}>🕐</div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: c.text, marginBottom: 6 }}>No scheduled emails</div>
+                <div style={{ fontSize: 13 }}>Use the 🕐 Schedule button in compose to send emails later</div>
+              </div>
+            ) : (
+              <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead><tr style={{ background: c.bg, borderBottom: `1px solid ${c.border}` }}>
+                    {['To', 'Subject', 'Scheduled For', 'Action'].map(h => <th key={h} style={{ textAlign: 'left', padding: '10px 14px', color: c.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {scheduledEmails.map((e, i) => (
+                      <tr key={e.id} style={{ borderBottom: `1px solid ${c.border}` }}>
+                        <td style={{ padding: '10px 14px', color: c.text }}>{e.to_email}</td>
+                        <td style={{ padding: '10px 14px', color: c.text }}>{e.subject}</td>
+                        <td style={{ padding: '10px 14px', color: c.textMuted }}>{new Date(e.scheduled_at).toLocaleString()}</td>
+                        <td style={{ padding: '10px 14px' }}>
+                          <button onClick={() => cancelScheduled(e.id)}
+                            style={{ background: '#fee2e2', color: '#ef4444', border: 'none', borderRadius: 6, padding: '5px 12px', fontSize: 12, cursor: 'pointer' }}>✕ Cancel</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         ) : activeNav === 'security' ? (
           <div style={{ flex: 1, overflowY: 'auto', padding: 24, maxWidth: 520 }}>
             <div style={{ fontSize: 20, fontWeight: 700, color: c.text, marginBottom: 4 }}>Security — Two-Factor Authentication</div>
@@ -1649,8 +1720,20 @@ export default function WebmailDashboard() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
                       <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: c.text }}>{selectedEmail.subject || '(no subject)'}</h2>
                       <div style={{ display: 'flex', gap: 8 }}>
-                        <button onClick={() => { setCompose({ to: selectedEmail.from_email, subject: `Re: ${selectedEmail.subject}`, body_html: '', cc: '' }); setComposeOpen(true); }}
+                        <button onClick={() => { setCompose({ to: selectedEmail.from_email, subject: `Re: ${selectedEmail.subject}`, body_html: `\n\n--- Original message ---\n${(selectedEmail.text_content || '').slice(0, 500)}`, cc: '' }); setComposeOpen(true); }}
                           style={{ padding: '6px 12px', border: `1px solid ${c.border}`, borderRadius: 6, background: 'none', cursor: 'pointer', fontSize: 12, color: c.text }}>↩ Reply</button>
+                        <button onClick={() => {
+                          const myEmail = profile?.email || '';
+                          const originalTo = selectedEmail.to_email || '';
+                          const ccList = originalTo.split(',').map(e => e.trim()).filter(e => e && e !== myEmail).join(', ');
+                          setCompose({ to: selectedEmail.from_email, subject: `Re: ${selectedEmail.subject}`, body_html: `\n\n--- Original message ---\n${(selectedEmail.text_content || '').slice(0, 500)}`, cc: ccList });
+                          setComposeOpen(true);
+                        }} style={{ padding: '6px 12px', border: `1px solid ${c.border}`, borderRadius: 6, background: 'none', cursor: 'pointer', fontSize: 12, color: c.text }}>↩↩ Reply All</button>
+                        <button onClick={() => {
+                          const fwdBody = `\n\n---------- Forwarded message ----------\nFrom: ${selectedEmail.from_email}\nDate: ${new Date(selectedEmail.created_at).toLocaleString()}\nSubject: ${selectedEmail.subject}\n\n${selectedEmail.text_content || ''}`;
+                          setCompose({ to: '', subject: `Fwd: ${selectedEmail.subject}`, body_html: fwdBody, cc: '' });
+                          setComposeOpen(true);
+                        }} style={{ padding: '6px 12px', border: `1px solid ${c.border}`, borderRadius: 6, background: 'none', cursor: 'pointer', fontSize: 12, color: c.text }}>⏩ Forward</button>
                         <button onClick={() => deleteEmail(selectedEmail.id)}
                           style={{ padding: '6px 12px', border: `1px solid ${c.danger}`, borderRadius: 6, background: 'none', cursor: 'pointer', fontSize: 12, color: c.danger }}>🗑 Delete</button>
                       </div>
@@ -1752,14 +1835,35 @@ export default function WebmailDashboard() {
                 )}
               </div>
             </div>
-            <div style={{ padding: '12px 20px', borderTop: `1px solid ${c.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 11, color: c.textMuted }}>{draftSaving ? 'Saving draft...' : draftId ? 'Draft saved' : ''}</span>
-              <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={() => { discardDraft(draftId); setDraftId(null); setComposeOpen(false); setAttachFiles([]); }} style={{ padding: '8px 18px', border: `1px solid ${c.border}`, borderRadius: 7, background: 'none', cursor: 'pointer', fontSize: 13, color: c.text }}>Cancel</button>
-              <button onClick={sendEmail} disabled={sending}
-                style={{ padding: '8px 20px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 7, cursor: sending ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600, opacity: sending ? 0.7 : 1 }}>
-                {sending ? 'Sending...' : 'Send'}
-              </button>
+            <div style={{ padding: '12px 20px', borderTop: `1px solid ${c.border}` }}>
+              {showSchedulePicker && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <input type="datetime-local" value={scheduleAt} onChange={e => setScheduleAt(e.target.value)}
+                    min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
+                    style={{ flex: 1, padding: '7px 10px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, outline: 'none' }} />
+                  <button onClick={() => { if (!scheduleAt) return alert('Pick a date/time'); sendEmail(); }}
+                    disabled={sending || !scheduleAt}
+                    style={{ padding: '7px 14px', background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: 'pointer', opacity: !scheduleAt ? 0.6 : 1 }}>
+                    📅 Schedule Send
+                  </button>
+                  <button onClick={() => { setShowSchedulePicker(false); setScheduleAt(''); }}
+                    style={{ padding: '7px 10px', border: `1px solid ${c.border}`, borderRadius: 7, background: 'none', cursor: 'pointer', fontSize: 12, color: c.textMuted }}>✕</button>
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 11, color: c.textMuted }}>{draftSaving ? 'Saving draft...' : draftId ? 'Draft saved' : ''}</span>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {!compose.cc?.includes('@') && !showSchedulePicker && (
+                    <button onClick={() => setShowSchedulePicker(true)}
+                      style={{ padding: '8px 12px', border: `1px solid ${c.border}`, borderRadius: 7, background: 'none', cursor: 'pointer', fontSize: 12, color: c.textMuted }}>🕐 Schedule</button>
+                  )}
+                  <button onClick={() => { discardDraft(draftId); setDraftId(null); setComposeOpen(false); setAttachFiles([]); setShowSchedulePicker(false); setScheduleAt(''); }}
+                    style={{ padding: '8px 18px', border: `1px solid ${c.border}`, borderRadius: 7, background: 'none', cursor: 'pointer', fontSize: 13, color: c.text }}>Cancel</button>
+                  <button onClick={() => sendEmail()} disabled={sending}
+                    style={{ padding: '8px 20px', background: 'linear-gradient(135deg, #6366f1, #8b5cf6)', color: '#fff', border: 'none', borderRadius: 7, cursor: sending ? 'not-allowed' : 'pointer', fontSize: 13, fontWeight: 600, opacity: sending ? 0.7 : 1 }}>
+                    {sending ? 'Sending...' : 'Send'}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
