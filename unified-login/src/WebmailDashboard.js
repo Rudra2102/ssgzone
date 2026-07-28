@@ -662,6 +662,33 @@ export default function WebmailDashboard() {
     text: '#1f2937', textMuted: '#6b7280', border: '#e5e7eb', bg: '#f8fafc', card: '#ffffff'
   };
 
+  const TwoFAEnableForm = () => {
+    const [localCode, setLocalCode] = React.useState('');
+    return (
+      <div>
+        <div style={{ fontSize: 13, color: c.textMuted, marginBottom: 12 }}>Scan this QR code with Google Authenticator or Authy:</div>
+        <img src={twoFASetup.qr_code} alt="QR" style={{ width: 180, height: 180, border: `1px solid ${c.border}`, borderRadius: 8, marginBottom: 12 }} />
+        <div style={{ fontSize: 11, color: c.textMuted, marginBottom: 12, fontFamily: 'monospace', background: c.bg, padding: '6px 10px', borderRadius: 6 }}>Secret: {twoFASetup.secret}</div>
+        <input value={localCode} onChange={e => setLocalCode(e.target.value)} maxLength={6} placeholder="Enter 6-digit code"
+          style={{ width: '100%', padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 16, textAlign: 'center', letterSpacing: 6, outline: 'none', boxSizing: 'border-box', marginBottom: 10 }} />
+        <button onClick={async () => {
+          setTwoFASaving(true);
+          const res = await fetch('https://api.ssgzone.in/api/v1/webmail/2fa/enable', {
+            method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token: localCode })
+          });
+          const d = await res.json();
+          if (d.success) { setTwoFAStatus(true); setTwoFASetup(null); showToastNotification('✅ 2FA enabled!'); }
+          else alert(d.error);
+          setTwoFASaving(false);
+        }} disabled={twoFASaving || localCode.length !== 6}
+          style={{ background: '#10b981', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: localCode.length !== 6 ? 0.6 : 1 }}>
+          {twoFASaving ? 'Verifying...' : 'Enable 2FA'}
+        </button>
+      </div>
+    );
+  };
+
   const FOLDERS = [
     { id: 'inbox', label: 'Inbox', icon: '📥' },
     { id: 'sent', label: 'Sent', icon: '📤' },
@@ -1538,32 +1565,7 @@ export default function WebmailDashboard() {
                   {twoFASaving ? 'Loading...' : 'Setup 2FA'}
                 </button>
               )}
-              {twoFASetup && (() => {
-                const [localCode, setLocalCode] = React.useState('');
-                return (
-                  <div>
-                    <div style={{ fontSize: 13, color: c.textMuted, marginBottom: 12 }}>Scan this QR code with Google Authenticator or Authy:</div>
-                    <img src={twoFASetup.qr_code} alt="QR" style={{ width: 180, height: 180, border: `1px solid ${c.border}`, borderRadius: 8, marginBottom: 12 }} />
-                    <div style={{ fontSize: 11, color: c.textMuted, marginBottom: 12, fontFamily: 'monospace', background: c.bg, padding: '6px 10px', borderRadius: 6 }}>Secret: {twoFASetup.secret}</div>
-                    <input value={localCode} onChange={e => setLocalCode(e.target.value)} maxLength={6} placeholder="Enter 6-digit code"
-                      style={{ width: '100%', padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 16, textAlign: 'center', letterSpacing: 6, outline: 'none', boxSizing: 'border-box', marginBottom: 10 }} />
-                    <button onClick={async () => {
-                      setTwoFASaving(true);
-                      const res = await fetch('https://api.ssgzone.in/api/v1/webmail/2fa/enable', {
-                        method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ token: localCode })
-                      });
-                      const d = await res.json();
-                      if (d.success) { setTwoFAStatus(true); setTwoFASetup(null); showToastNotification('✅ 2FA enabled!'); }
-                      else alert(d.error);
-                      setTwoFASaving(false);
-                    }} disabled={twoFASaving || localCode.length !== 6}
-                      style={{ background: '#10b981', color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: localCode.length !== 6 ? 0.6 : 1 }}>
-                      {twoFASaving ? 'Verifying...' : 'Enable 2FA'}
-                    </button>
-                  </div>
-                );
-              })()}
+              {twoFASetup && <TwoFAEnableForm />}
               {twoFAStatus && (
                 <button onClick={async () => {
                   if (!window.confirm('Disable 2FA?')) return;

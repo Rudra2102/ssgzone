@@ -1283,16 +1283,18 @@ router.put('/branding', superAdminAuth, requireRole(), async (req, res) => {
   const fields = ['platform_name','tagline','primary_color','secondary_color','sidebar_color','header_color','sidebar_text_color','header_text_color','font_family','font_size','from_name','from_email','email_footer','admin_alert_email','default_max_users','default_mailbox_quota','session_timeout','password_min_length'];
   const vals = fields.map(f => req.body[f] ?? null);
   try {
-    const ins = await db.query(
-      `INSERT INTO platform_branding (${fields.join(',')}) VALUES (${fields.map((_,i)=>'$'+(i+1)).join(',')}) ON CONFLICT DO NOTHING RETURNING *`,
-      vals
-    );
-    if (!ins.rows.length) {
-      const sets = fields.map((f,i) => `${f}=$${i+1}`).join(',');
-      const upd = await db.query(`UPDATE platform_branding SET ${sets}, updated_at=NOW() RETURNING *`, vals);
-      return res.json({ success: true, data: upd.rows[0] });
+    const existing = await db.query('SELECT id FROM platform_branding LIMIT 1');
+    let result;
+    if (existing.rows.length) {
+      const sets = fields.map((f, i) => `${f}=$${i + 1}`).join(',');
+      result = await db.query(`UPDATE platform_branding SET ${sets}, updated_at=NOW() WHERE id=$${fields.length + 1} RETURNING *`, [...vals, existing.rows[0].id]);
+    } else {
+      result = await db.query(
+        `INSERT INTO platform_branding (${fields.join(',')}) VALUES (${fields.map((_, i) => '$' + (i + 1)).join(',')}) RETURNING *`,
+        vals
+      );
     }
-    res.json({ success: true, data: ins.rows[0] });
+    res.json({ success: true, data: result.rows[0] });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
@@ -1378,6 +1380,103 @@ router.post('/tenants/:id/verify-dns', superAdminAuth, async (req, res) => {
     const allPassed = Object.values(checks).every(Boolean);
     if (allPassed) await db.query('UPDATE tenant_companies SET dns_verified=true WHERE id=$1', [req.params.id]);
     res.json({ success: true, data: { domain, checks, all_passed: allPassed } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// Email routes
+router.get('/email/sent', superAdminAuth, requireRole('admin', 'support'), async (req, res) => {
+  const { limit = 50, search, status, email_type } = req.query;
+  const params = [];
+  let where = 'WHERE 1=1';
+  if (search) { params.push(`%${search}%`); where += ` AND (e.subject ILIKE $${params.length} OR e.to_email ILIKE $${params.length})`; }
+  if (status) { params.push(status); where += ` AND e.status = $${params.length}`; }
+  if (email_type) { params.push(email_type); where += ` AND e.email_type = $${params.length}`; }
+  params.push(parseInt(limit));
+  try {
+    const result = await db.query(
+      `SELECT e.id, e.to_email as recipient_email, e.subject, e.folder as status, e.created_at as sent_at,
+              tc.company_name as tenant_name
+       FROM emails e
+       LEFT JOIN tenant_companies tc ON tc.id::text = e.tenant_id
+       ${where}
+       ORDER BY e.created_at DESC LIMIT $${params.length}`,
+      params
+    );
+    res.json({ success: true, data: result.rows, total: result.rows.length });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+router.post('/email/send', superAdminAuth, requireRole(), async (req, res) => {
+  const { to_email, to_name, subject, body, tenant_id } = req.body;
+  if (!to_email || !subject || !body) return res.status(400).json({ success: false, error: 'to_email, subject, body required' });
+  try {
+    await mailer.sendMail({
+      from: `"SSGzone" <${process.env.SMTP_USER}>`,
+      to: to_name ? `"${to_name}" <${to_email}>` : to_email,
+      subject,
+      html: body,
+      text: body.replace(/<[^>]*>/g, '')
+    });
+    res.json({ success: true, message: 'Email sent' });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+router.post('/email/broadcast', superAdminAuth, requireRole(), async (req, res) => {
+  const { subject, body, target } = req.body;
+  if (!subject || !body) return res.status(400).json({ success: false, error: 'subject and body required' });
+  try {
+    let rows;
+    if (target === 'users') {
+      rows = (await db.query(`SELECT DISTINCT email FROM tenant_users WHERE status='active' AND email IS NOT NULL`)).rows;
+    } else {
+      rows = (await db.query(`SELECT DISTINCT admin_email as email FROM tenant_companies WHERE status='active' AND admin_email IS NOT NULL`)).rows;
+    }
+    let sent = 0, failed = 0;
+    for (const row of rows) {
+      try {
+        await mailer.sendMail({ from: `"SSGzone" <${process.env.SMTP_USER}>`, to: row.email, subject, html: body, text: body.replace(/<[^>]*>/g, '') });
+        sent++;
+      } catch { failed++; }
+    }
+    res.json({ success: true, sent, failed, total: rows.length });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+router.get('/email/templates', superAdminAuth, requireRole('admin', 'support', 'sales'), async (req, res) => {
+  try {
+    const result = await db.query(`SELECT * FROM email_templates WHERE is_active=true ORDER BY category, name`);
+    res.json({ success: true, data: result.rows });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+router.post('/email/templates', superAdminAuth, requireRole(), async (req, res) => {
+  const { name, subject, body, category = 'general' } = req.body;
+  if (!name || !subject || !body) return res.status(400).json({ success: false, error: 'name, subject, body required' });
+  try {
+    const result = await db.query(
+      `INSERT INTO email_templates (name, subject, html_body, category, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
+      [name, subject, body, category, req.admin.adminId]
+    );
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+router.put('/email/templates/:id', superAdminAuth, requireRole(), async (req, res) => {
+  const { name, subject, body, category } = req.body;
+  try {
+    const result = await db.query(
+      `UPDATE email_templates SET name=$1, subject=$2, html_body=$3, category=$4, updated_at=NOW() WHERE id=$5 RETURNING *`,
+      [name, subject, body, category, req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Template not found' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+router.delete('/email/templates/:id', superAdminAuth, requireRole(), async (req, res) => {
+  try {
+    await db.query(`UPDATE email_templates SET is_active=false WHERE id=$1`, [req.params.id]);
+    res.json({ success: true });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
