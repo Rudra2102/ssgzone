@@ -121,4 +121,4 @@ credentials.json
 
 # Production config files
 production.env
-staging.env
+staging.envunified-login/build/
