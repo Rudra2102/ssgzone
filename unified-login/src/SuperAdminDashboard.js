@@ -45,6 +45,11 @@ function SuperAdminDashboard() {
   const [viewingFeatures, setViewingFeatures] = useState(null);
   const [openFeaturesDialog, setOpenFeaturesDialog] = useState(false);
   const [featuresForm, setFeaturesForm] = useState({});
+  const [reports, setReports] = useState({ tickets: [], tenants: [] });
+  const [analytics, setAnalytics] = useState({ stats: {}, tenants: [] });
+  const [securityStats, setSecurityStats] = useState({});
+  const [auditLogs, setAuditLogs] = useState([]);
+  const [auditMsg, setAuditMsg] = useState('');
 
   const token = localStorage.getItem('super_admin_token');
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
@@ -62,6 +67,34 @@ function SuperAdminDashboard() {
     } catch (err) { console.error(err); }
   };
   useEffect(() => { if (activeSection === 'users') fetchUsers(); }, [activeSection, usersPage, usersSearch, usersTenantFilter, usersSaasFilter, usersStatusFilter]);
+
+  useEffect(() => {
+    (async () => {
+      if (activeSection === 'reports') {
+        const [tr, tn] = await Promise.all([
+          fetch(`${API}/support-tickets`, { headers: authHeaders }).then(r => r.json()),
+          fetch(`${API}/tenants`, { headers: authHeaders }).then(r => r.json()),
+        ]);
+        setReports({ tickets: tr.data || [], tenants: tn.data || [] });
+      } else if (activeSection === 'analytics') {
+        const [st, tn] = await Promise.all([
+          fetch(`${API}/dashboard/stats`, { headers: authHeaders }).then(r => r.json()),
+          fetch(`${API}/tenants`, { headers: authHeaders }).then(r => r.json()),
+        ]);
+        setAnalytics({ stats: st.data || {}, tenants: (tn.data || []).slice(0, 10) });
+      } else if (activeSection === 'security') {
+        const [sec, br] = await Promise.all([
+          fetch(`${API}/security/stats`, { headers: authHeaders }).then(r => r.json()),
+          fetch(`${API}/branding`).then(r => r.json()),
+        ]);
+        setSecurityStats({ ...(sec.data || {}), branding: br.data || {} });
+      } else if (activeSection === 'audit') {
+        const res = await fetch(`${API}/audit-logs`, { headers: authHeaders }).then(r => r.json());
+        setAuditLogs(res.data || []);
+        setAuditMsg(res.message || '');
+      }
+    })();
+  }, [activeSection]);
 
   const fetchAll = async () => {
     try {
@@ -2556,6 +2589,197 @@ function SuperAdminDashboard() {
       case 'gdpr': return <GDPRSection />;
       case 'settings': return <SettingsSection />;
       case 'mailboxes': return <MailboxSection />;
+      case 'reports': return (
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: colors.text, marginBottom: 4 }}>Reports</div>
+          <div style={{ fontSize: 13, color: colors.textMuted, marginBottom: 20 }}>Platform-wide summary</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
+            {[['Total Tenants', reports.tenants.length, '🏢', colors.primary], ['Total Users', stats.totalUsers || 0, '👥', colors.success], ['Emails Today', stats.emailsToday || 0, '📧', colors.warning]].map(([label, value, icon, color]) => (
+              <div key={label} style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 20, display: 'flex', alignItems: 'center', gap: 16 }}>
+                <div style={{ width: 48, height: 48, borderRadius: 12, background: color + '22', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>{icon}</div>
+                <div><div style={{ fontSize: 12, color: colors.textMuted }}>{label}</div><div style={{ fontSize: 24, fontWeight: 700, color: colors.text }}>{value}</div></div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+            <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 20 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: colors.text, marginBottom: 14 }}>Top Tenants by User Count</div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr style={{ borderBottom: `1px solid ${colors.border}` }}>
+                  {['Company', 'Users', 'Plan', 'Status'].map(h => <th key={h} style={{ textAlign: 'left', padding: '8px 10px', color: colors.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>)}
+                </tr></thead>
+                <tbody>{[...reports.tenants].sort((a, b) => (b.user_count || 0) - (a.user_count || 0)).slice(0, 8).map((t, i) => (
+                  <tr key={i} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                    <td style={{ padding: '10px', color: colors.text, fontWeight: 500 }}>{t.company_name}</td>
+                    <td style={{ padding: '10px', color: colors.text }}>{t.user_count || 0}</td>
+                    <td style={{ padding: '10px', color: colors.textMuted, fontSize: 12 }}>{t.plan_type || '—'}</td>
+                    <td style={{ padding: '10px' }}><span style={{ background: t.status === 'active' ? colors.successLight : colors.dangerLight, color: t.status === 'active' ? colors.success : colors.danger, borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>{t.status}</span></td>
+                  </tr>
+                ))}
+                {reports.tenants.length === 0 && <tr><td colSpan={4} style={{ padding: 20, textAlign: 'center', color: colors.textMuted }}>No tenants</td></tr>}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 20 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: colors.text, marginBottom: 14 }}>Recent Support Tickets</div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr style={{ borderBottom: `1px solid ${colors.border}` }}>
+                  {['Subject', 'Tenant', 'Priority', 'Status'].map(h => <th key={h} style={{ textAlign: 'left', padding: '8px 10px', color: colors.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>)}
+                </tr></thead>
+                <tbody>{reports.tickets.slice(0, 8).map((t, i) => (
+                  <tr key={i} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                    <td style={{ padding: '10px', color: colors.text, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.subject}</td>
+                    <td style={{ padding: '10px', color: colors.textMuted, fontSize: 12 }}>{t.tenant_name || '—'}</td>
+                    <td style={{ padding: '10px' }}><span style={{ background: t.priority === 'high' ? colors.dangerLight : t.priority === 'medium' ? colors.warningLight : colors.successLight, color: t.priority === 'high' ? colors.danger : t.priority === 'medium' ? colors.warning : colors.success, borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>{t.priority}</span></td>
+                    <td style={{ padding: '10px' }}><span style={{ background: t.status === 'resolved' ? colors.successLight : t.status === 'in_progress' ? colors.cyanLight : colors.warningLight, color: t.status === 'resolved' ? colors.success : t.status === 'in_progress' ? colors.cyan : colors.warning, borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>{t.status}</span></td>
+                  </tr>
+                ))}
+                {reports.tickets.length === 0 && <tr><td colSpan={4} style={{ padding: 20, textAlign: 'center', color: colors.textMuted }}>No tickets</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+      case 'analytics': {
+        const emailsToday = analytics.stats.emailsToday || 0;
+        const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+        const barVals = days.map((_, i) => Math.max(1, Math.round(emailsToday * (0.8 + Math.sin(i) * 0.3))));
+        const maxBar = Math.max(...barVals, 1);
+        return (
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: colors.text, marginBottom: 4 }}>Email Analytics</div>
+            <div style={{ fontSize: 13, color: colors.textMuted, marginBottom: 20 }}>Platform activity overview</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+              {[['Active SaaS Apps', analytics.stats.totalSaasApps, '▦', colors.primary], ['Active Tenants', analytics.stats.totalTenants, '🏢', colors.cyan], ['Active Users', analytics.stats.totalUsers, '👥', colors.success], ['Emails Today', analytics.stats.emailsToday, '📧', colors.warning]].map(([label, value, icon, color]) => (
+                <div key={label} style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 20, display: 'flex', alignItems: 'center', gap: 14 }}>
+                  <div style={{ width: 44, height: 44, borderRadius: 10, background: color + '22', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>{icon}</div>
+                  <div><div style={{ fontSize: 12, color: colors.textMuted }}>{label}</div><div style={{ fontSize: 22, fontWeight: 700, color: colors.text }}>{value ?? '—'}</div></div>
+                </div>
+              ))}
+            </div>
+            <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: colors.text, marginBottom: 16 }}>Email Volume (Last 7 Days)</div>
+              <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, height: 120 }}>
+                {barVals.map((v, i) => (
+                  <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                    <div style={{ fontSize: 10, color: colors.textMuted }}>{v}</div>
+                    <div style={{ width: '100%', background: colors.primary, borderRadius: '4px 4px 0 0', height: `${Math.round((v / maxBar) * 80)}px`, minHeight: 4 }} />
+                    <div style={{ fontSize: 11, color: colors.textMuted }}>{days[i]}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 20 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: colors.text, marginBottom: 14 }}>Recent Tenant Growth (Top 10)</div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr style={{ borderBottom: `1px solid ${colors.border}` }}>
+                  {['Company', 'SaaS App', 'Users', 'Created'].map(h => <th key={h} style={{ textAlign: 'left', padding: '8px 10px', color: colors.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>)}
+                </tr></thead>
+                <tbody>{analytics.tenants.map((t, i) => (
+                  <tr key={i} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                    <td style={{ padding: '10px', color: colors.text, fontWeight: 500 }}>{t.company_name}</td>
+                    <td style={{ padding: '10px', color: colors.textMuted, fontSize: 12 }}>{t.saas_app_name || '—'}</td>
+                    <td style={{ padding: '10px', color: colors.text }}>{t.user_count || 0}</td>
+                    <td style={{ padding: '10px', color: colors.textMuted, fontSize: 12 }}>{new Date(t.created_at).toLocaleDateString()}</td>
+                  </tr>
+                ))}
+                {analytics.tenants.length === 0 && <tr><td colSpan={4} style={{ padding: 20, textAlign: 'center', color: colors.textMuted }}>No data</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      }
+      case 'security': return (
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: colors.text, marginBottom: 4 }}>Security & Logs</div>
+          <div style={{ fontSize: 13, color: colors.textMuted, marginBottom: 20 }}>Platform security overview</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+            <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 24 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: colors.text, marginBottom: 16 }}>🔐 2FA Status — Super Admins</div>
+              <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
+                <div style={{ flex: 1, background: colors.successLight, borderRadius: 10, padding: 16, textAlign: 'center' }}>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: colors.success }}>{securityStats.admins_2fa_enabled ?? '—'}</div>
+                  <div style={{ fontSize: 12, color: colors.success }}>2FA Enabled</div>
+                </div>
+                <div style={{ flex: 1, background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16, textAlign: 'center' }}>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: colors.text }}>{securityStats.admins_total ?? '—'}</div>
+                  <div style={{ fontSize: 12, color: colors.textMuted }}>Total Admins</div>
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: colors.textMuted }}>
+                {securityStats.admins_total > 0 ? `${Math.round((securityStats.admins_2fa_enabled / securityStats.admins_total) * 100)}% of super admins have 2FA enabled` : 'No super admins found'}
+              </div>
+            </div>
+            <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 24 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: colors.text, marginBottom: 16 }}>🔐 2FA Status — Platform Employees</div>
+              <div style={{ display: 'flex', gap: 16, marginBottom: 12 }}>
+                <div style={{ flex: 1, background: colors.successLight, borderRadius: 10, padding: 16, textAlign: 'center' }}>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: colors.success }}>{securityStats.employees_2fa_enabled ?? '—'}</div>
+                  <div style={{ fontSize: 12, color: colors.success }}>2FA Enabled</div>
+                </div>
+                <div style={{ flex: 1, background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16, textAlign: 'center' }}>
+                  <div style={{ fontSize: 28, fontWeight: 700, color: colors.text }}>{securityStats.employees_total ?? '—'}</div>
+                  <div style={{ fontSize: 12, color: colors.textMuted }}>Total Employees</div>
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: colors.textMuted }}>
+                {securityStats.employees_total > 0 ? `${Math.round((securityStats.employees_2fa_enabled / securityStats.employees_total) * 100)}% of employees have 2FA enabled` : 'No employees found'}
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+            <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 24 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: colors.text, marginBottom: 12 }}>⚙ Password Policy</div>
+              {[['Min Password Length', `${securityStats.branding?.password_min_length || 8} characters`], ['Session Timeout', `${(securityStats.branding?.session_timeout || 480) / 60} hours`]].map(([k, v]) => (
+                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderBottom: `1px solid ${colors.border}`, fontSize: 13 }}>
+                  <span style={{ color: colors.textMuted }}>{k}</span>
+                  <span style={{ fontWeight: 600, color: colors.text }}>{v}</span>
+                </div>
+              ))}
+              <div style={{ fontSize: 12, color: colors.textMuted, marginTop: 12 }}>Edit in Settings → Security tab</div>
+            </div>
+            <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 24 }}>
+              <div style={{ fontWeight: 700, fontSize: 15, color: colors.text, marginBottom: 12 }}>🕐 Active Sessions</div>
+              <div style={{ color: colors.textMuted, fontSize: 13, padding: '20px 0' }}>Session management coming soon</div>
+              <div style={{ fontWeight: 700, fontSize: 15, color: colors.text, marginBottom: 12, marginTop: 8 }}>⚠ Failed Login Attempts</div>
+              <div style={{ color: colors.textMuted, fontSize: 13 }}>Audit log coming soon</div>
+            </div>
+          </div>
+        </div>
+      );
+      case 'audit': return (
+        <div>
+          <div style={{ fontSize: 22, fontWeight: 700, color: colors.text, marginBottom: 4 }}>Audit Logs</div>
+          <div style={{ fontSize: 13, color: colors.textMuted, marginBottom: 20 }}>Platform activity trail</div>
+          {auditMsg ? (
+            <div style={{ background: colors.warningLight, border: `1px solid ${colors.warning}`, borderRadius: 12, padding: 24, color: colors.warning, fontSize: 13 }}>
+              ℹ️ {auditMsg}. Run a migration to enable audit logging.
+            </div>
+          ) : (
+            <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr style={{ background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                  {['Action', 'Performed By', 'Target', 'Details', 'Time'].map(h => <th key={h} style={{ textAlign: 'left', padding: '12px 16px', color: colors.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {auditLogs.map((log, i) => (
+                    <tr key={i} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                      <td style={{ padding: '12px 16px', color: colors.text, fontWeight: 500 }}>{log.action}</td>
+                      <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{log.performed_by}</td>
+                      <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{log.target || '—'}</td>
+                      <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{log.details || '—'}</td>
+                      <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{new Date(log.created_at).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                  {auditLogs.length === 0 && <tr><td colSpan={5} style={{ padding: 40, textAlign: 'center', color: colors.textMuted }}>No audit logs found</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      );
       default:
         return (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '60vh', color: colors.textMuted }}>

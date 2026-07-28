@@ -1523,4 +1523,24 @@ router.delete('/email/templates/:id', superAdminAuth, requireRole(), async (req,
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// GET /security/stats
+router.get('/security/stats', superAdminAuth, requireRole(), async (req, res) => {
+  try {
+    const sa = await db.query('SELECT COUNT(*) FILTER (WHERE totp_enabled=true) as enabled, COUNT(*) as total FROM super_admins');
+    const pa = await db.query('SELECT COUNT(*) FILTER (WHERE totp_enabled=true) as enabled, COUNT(*) as total FROM platform_admins');
+    res.json({ success: true, data: { admins_2fa_enabled: parseInt(sa.rows[0].enabled), admins_total: parseInt(sa.rows[0].total), employees_2fa_enabled: parseInt(pa.rows[0].enabled), employees_total: parseInt(pa.rows[0].total) } });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// GET /audit-logs
+router.get('/audit-logs', superAdminAuth, requireRole('admin', 'support'), async (req, res) => {
+  try {
+    const result = await db.query('SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 100');
+    res.json({ success: true, data: result.rows });
+  } catch (err) {
+    if (err.code === '42P01') return res.json({ success: true, data: [], message: 'Audit log table not yet created' });
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
