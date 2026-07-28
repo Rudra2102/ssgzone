@@ -68,7 +68,7 @@ router.post('/create-tenant', async (req, res) => {
 
     // Check if tenant already exists
     const existingTenant = await db.query(
-      'SELECT * FROM tenant_companies WHERE slug = $1',
+      'SELECT * FROM tenant_companies WHERE company_slug = $1',
       [company_slug]
     );
 
@@ -96,7 +96,7 @@ router.post('/create-tenant', async (req, res) => {
 
     // Create tenant admin user
     const userResult = await db.query(
-      `INSERT INTO users 
+      `INSERT INTO tenant_users 
        (tenant_id, username, email, password_hash, first_name, last_name, role, status, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
        RETURNING id, email, username`,
@@ -123,7 +123,7 @@ router.post('/create-tenant', async (req, res) => {
         email: user.email,
         role: 'tenant_admin'
       },
-      process.env.JWT_SECRET || 'ssgzone-secret',
+      process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
 
@@ -208,7 +208,7 @@ router.post('/create-user', async (req, res) => {
 
     // Get tenant
     const tenantResult = await db.query(
-      'SELECT * FROM tenant_companies WHERE slug = $1',
+      'SELECT * FROM tenant_companies WHERE company_slug = $1',
       [tenant_slug]
     );
 
@@ -232,7 +232,7 @@ router.post('/create-user', async (req, res) => {
 
     // Check if user already exists
     const existingUser = await db.query(
-      'SELECT * FROM users WHERE email = $1 AND tenant_id = $2',
+      'SELECT * FROM tenant_users WHERE email = $1 AND tenant_id = $2',
       [email, tenant.id]
     );
 
@@ -252,7 +252,7 @@ router.post('/create-user', async (req, res) => {
 
     // Create user
     const userResult = await db.query(
-      `INSERT INTO users 
+      `INSERT INTO tenant_users 
        (tenant_id, username, email, password_hash, first_name, last_name, role, status, created_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
        RETURNING id, email, username`,
@@ -279,7 +279,7 @@ router.post('/create-user', async (req, res) => {
         email: user.email,
         role: 'user'
       },
-      process.env.JWT_SECRET || 'ssgzone-secret',
+      process.env.JWT_SECRET,
       { expiresIn: '7d' }
     );
 
@@ -340,11 +340,11 @@ router.post('/token-login', async (req, res) => {
     }
 
     // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'ssgzone-secret');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
     // Get user details
     const userResult = await db.query(
-      'SELECT * FROM users WHERE id = $1',
+      'SELECT * FROM tenant_users WHERE id = $1',
       [decoded.userId]
     );
 
@@ -366,7 +366,7 @@ router.post('/token-login', async (req, res) => {
         email: user.email,
         role: decoded.role
       },
-      process.env.JWT_SECRET || 'ssgzone-secret',
+      process.env.JWT_SECRET,
       { expiresIn: '8h' }
     );
 

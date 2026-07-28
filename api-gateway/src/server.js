@@ -151,7 +151,7 @@ app.use('/api/v1/attachments', attachmentsRoutes);
 app.use('/api/v1/metrics', metricsRoutes);
 app.use('/api/v1/webhooks', webhooksRoutes);
 app.use('/api/v1/audit', auditRoutes);
-// app.use('/api/v1/groups', groupsRoutes);
+app.use('/api/v1/groups', groupsRoutes);
 app.use('/api/v1/autoresponder', autoresponderRoutes);
 app.use('/api/v1/rules', rulesRoutes);
 app.use('/api/v1/contacts', contactsRoutes);

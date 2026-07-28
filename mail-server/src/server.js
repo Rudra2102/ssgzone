@@ -134,11 +134,11 @@ class MailServer {
       port: process.env.DB_PORT || 5432,
       database: process.env.DB_NAME || 'ssgzone_mail',
       user: process.env.DB_USER || 'ssgzone',
-      password: process.env.DB_PASSWORD || 'academy'
+      password: process.env.DB_PASSWORD
     });
 
     try {
-      const query = 'SELECT * FROM users WHERE email = $1 AND status = $2';
+      const query = 'SELECT * FROM tenant_users WHERE email = $1 AND status = $2';
       const result = await pool.query(query, [username, 'active']);
       
       if (result.rows.length === 0) {
@@ -151,7 +151,7 @@ class MailServer {
       if (isValid) {
         // Update last login
         await pool.query(
-          'UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1',
+          'UPDATE tenant_users SET last_login = CURRENT_TIMESTAMP WHERE id = $1',
           [user.id]
         );
         return user;
@@ -174,11 +174,11 @@ class MailServer {
       port: process.env.DB_PORT || 5432,
       database: process.env.DB_NAME || 'ssgzone_mail',
       user: process.env.DB_USER || 'ssgzone',
-      password: process.env.DB_PASSWORD || 'academy'
+      password: process.env.DB_PASSWORD
     });
 
     try {
-      const query = 'SELECT id FROM users WHERE email = $1 AND status = $2';
+      const query = 'SELECT id FROM tenant_users WHERE email = $1 AND status = $2';
       const result = await pool.query(query, [email, 'active']);
       return result.rows.length > 0;
     } catch (error) {
