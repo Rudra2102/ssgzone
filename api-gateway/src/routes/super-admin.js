@@ -1437,7 +1437,7 @@ router.get('/email/sent', superAdminAuth, requireRole('admin', 'support'), async
   params.push(parseInt(limit));
   try {
     const result = await db.query(
-      `SELECT e.id, e.to_email as recipient_email, e.subject, e.email_type as status, e.created_at as sent_at,
+      `SELECT e.id, e.to_email as recipient_email, e.subject, e.email_type as email_category, e.created_at as sent_at,
               tc.company_name as tenant_name
        FROM emails e
        LEFT JOIN tenant_companies tc ON tc.id::text = e.tenant_id

@@ -80,8 +80,14 @@ router.get('/inbox', webmailAuth, requireFeature('email'), async (req, res) => {
   const tenantId = String(req.user.tenant_id);
 
   try {
-    let where = `WHERE to_email = $1 AND tenant_id = $2 AND folder = $3 AND archived = false`;
-    const params = [userEmail, tenantId, folder];
+    let where, params;
+    if (folder === 'starred') {
+      where = `WHERE to_email = $1 AND tenant_id = $2 AND starred = true AND archived = false`;
+      params = [userEmail, tenantId];
+    } else {
+      where = `WHERE to_email = $1 AND tenant_id = $2 AND folder = $3 AND archived = false`;
+      params = [userEmail, tenantId, folder];
+    }
 
     if (search) {
       params.push(`%${search}%`);
@@ -166,11 +172,18 @@ router.post('/send', webmailAuth, requireFeature('email'), async (req, res) => {
     });
 
     // Save to sent folder
-    await pool.query(
+    const { attachment_ids } = req.body;
+    const sentInsert = await pool.query(
       `INSERT INTO emails (tenant_id, from_email, to_email, subject, html_content, text_content, folder, read_status, tracking_token)
-       VALUES ($1, $2, $3, $4, $5, $6, 'sent', true, $7)`,
+       VALUES ($1, $2, $3, $4, $5, $6, 'sent', true, $7) RETURNING id`,
       [String(req.user.tenant_id), fromEmail, to, subject, html_content || '', text_content || '', require('crypto').randomBytes(32).toString('hex')]
     );
+    if (attachment_ids && attachment_ids.length > 0) {
+      await pool.query(
+        `UPDATE attachments SET email_id = $1 WHERE id = ANY($2::int[]) AND user_id = $3`,
+        [sentInsert.rows[0].id, attachment_ids, req.user.id]
+      );
+    }
 
     // Save to recipient inbox and apply rules + autoresponder
     const recipientResult = await pool.query(

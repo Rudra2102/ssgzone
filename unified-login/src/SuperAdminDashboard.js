@@ -1668,7 +1668,7 @@ function SuperAdminDashboard() {
                   <td style={{ padding: '12px 16px', color: colors.text }}>{e.subject}</td>
                   <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{e.tenant_name || '—'}</td>
                   <td style={{ padding: '12px 16px' }}>
-                    <span style={{ background: typeColors[e.email_type]?.bg || colors.primaryLight, color: typeColors[e.email_type]?.color || colors.primary, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>{e.email_type || 'manual'}</span>
+                    <span style={{ background: typeColors[e.email_category]?.bg || colors.primaryLight, color: typeColors[e.email_category]?.color || colors.primary, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>{e.email_category || 'manual'}</span>
                   </td>
                   <td style={{ padding: '12px 16px' }}><span style={{ background: e.status === 'sent' ? colors.successLight : colors.dangerLight, color: e.status === 'sent' ? colors.success : colors.danger, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>{e.status}</span></td>
                   <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{new Date(e.sent_at).toLocaleString()}</td>

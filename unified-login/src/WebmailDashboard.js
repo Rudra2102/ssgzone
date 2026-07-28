@@ -1853,7 +1853,7 @@ export default function WebmailDashboard() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 11, color: c.textMuted }}>{draftSaving ? 'Saving draft...' : draftId ? 'Draft saved' : ''}</span>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  {!compose.cc?.includes('@') && !showSchedulePicker && (
+                  {!showSchedulePicker && (
                     <button onClick={() => setShowSchedulePicker(true)}
                       style={{ padding: '8px 12px', border: `1px solid ${c.border}`, borderRadius: 7, background: 'none', cursor: 'pointer', fontSize: 12, color: c.textMuted }}>🕐 Schedule</button>
                   )}
