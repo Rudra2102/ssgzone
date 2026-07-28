@@ -197,7 +197,7 @@ export default function WebmailDashboard() {
   }, [unread]);
 
   useEffect(() => {
-    if (!token) return;
+    if (!token) return () => {};
     const interval = setInterval(async () => {
       try {
         const res = await fetch(`${API}/folders/counts`, { headers: auth });
@@ -231,6 +231,10 @@ export default function WebmailDashboard() {
       osc.stop(ctx.currentTime + 0.3);
     } catch {}
   };
+
+  useEffect(() => {
+    if (activeNav === 'inbox') { fetchEmails(); setSelectedEmailIds([]); }
+  }, [activeNav]);
 
   useEffect(() => {
     if (activeNav !== 'inbox') return;
@@ -2278,10 +2282,12 @@ export default function WebmailDashboard() {
                         <button onClick={() => { setCompose({ to: selectedEmail.from_email, subject: `Re: ${selectedEmail.subject}`, body_html: `\n\n--- Original message ---\n${(selectedEmail.text_content || '').slice(0, 500)}`, cc: '', bcc: '' }); setComposeOpen(true); }}
                           style={{ padding: '6px 12px', border: `1px solid ${c.border}`, borderRadius: 6, background: 'none', cursor: 'pointer', fontSize: 12, color: c.text }}>↩ Reply</button>
                         <button onClick={() => {
-                          const myEmail = profile?.email || '';
-                          const originalTo = selectedEmail.to_email || '';
-                          const ccList = originalTo.split(',').map(e => e.trim()).filter(e => e && e !== myEmail).join(', ');
-                          setCompose({ to: selectedEmail.from_email, subject: `Re: ${selectedEmail.subject}`, body_html: `\n\n--- Original message ---\n${(selectedEmail.text_content || '').slice(0, 500)}`, cc: ccList, bcc: '' });
+                          const myEmail = profile?.email || req?.user?.email || '';
+                          const allRecipients = [
+                            ...(selectedEmail.to_email || '').split(','),
+                            ...(selectedEmail.cc_email || '').split(',')
+                          ].map(e => e.trim()).filter(e => e && e !== myEmail && e !== selectedEmail.from_email);
+                          setCompose({ to: selectedEmail.from_email, subject: `Re: ${selectedEmail.subject}`, body_html: `\n\n--- Original message ---\n${(selectedEmail.text_content || '').slice(0, 500)}`, cc: allRecipients.join(', '), bcc: '' });
                           setComposeOpen(true);
                         }} style={{ padding: '6px 12px', border: `1px solid ${c.border}`, borderRadius: 6, background: 'none', cursor: 'pointer', fontSize: 12, color: c.text }}>↩↩ Reply All</button>
                         <button onClick={() => {
@@ -2289,6 +2295,15 @@ export default function WebmailDashboard() {
                           setCompose({ to: '', subject: `Fwd: ${selectedEmail.subject}`, body_html: fwdBody, cc: '', bcc: '' });
                           setComposeOpen(true);
                         }} style={{ padding: '6px 12px', border: `1px solid ${c.border}`, borderRadius: 6, background: 'none', cursor: 'pointer', fontSize: 12, color: c.text }}>⏩ Forward</button>
+                        {selectedEmail.folder !== 'spam' && (
+                          <button onClick={async () => {
+                            await fetch(`${API}/email/${selectedEmail.id}/spam`, { method: 'PATCH', headers: auth });
+                            setEmails(prev => prev.filter(e => e.id !== selectedEmail.id));
+                            setSelectedEmail(null);
+                            fetchFolderCounts();
+                            showToastNotification('Marked as spam');
+                          }} style={{ padding: '6px 12px', border: `1px solid ${c.warning}`, borderRadius: 6, background: 'none', cursor: 'pointer', fontSize: 12, color: c.warning }}>⚠ Spam</button>
+                        )}
                         <button onClick={() => deleteEmail(selectedEmail.id)}
                           style={{ padding: '6px 12px', border: `1px solid ${c.danger}`, borderRadius: 6, background: 'none', cursor: 'pointer', fontSize: 12, color: c.danger }}>🗑 Delete</button>
                       </div>
@@ -2328,6 +2343,17 @@ export default function WebmailDashboard() {
                             </div>
                           </div>
                         ))}
+                      </div>
+                    )}
+                    {/* Unsubscribe header detection */}
+                    {selectedEmail.html_content && /list-unsubscribe|unsubscribe/i.test(selectedEmail.html_content) && (
+                      <div style={{ background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 8, padding: '8px 14px', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 12 }}>
+                        <span style={{ color: '#92400e' }}>📧 This email contains an unsubscribe option.</span>
+                        <button onClick={() => {
+                          const match = (selectedEmail.html_content || '').match(/href=["'](https?:\/\/[^"']*unsubscribe[^"']*)["']/i);
+                          if (match) window.open(match[1], '_blank');
+                          else showToastNotification('No unsubscribe link found in email body');
+                        }} style={{ background: '#f59e0b', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Unsubscribe</button>
                       </div>
                     )}
                     {/* Body */}

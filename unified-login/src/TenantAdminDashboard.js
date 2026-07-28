@@ -15,6 +15,48 @@ const inp = { width: '100%', padding: '9px 12px', border: `1px solid ${c.border}
 const lbl = { fontSize: 12, fontWeight: 600, color: c.textMuted, display: 'block', marginBottom: 4 };
 const mkBtn = (bg, color) => ({ background: bg, color, border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' });
 
+function ComposeEmailPanel({ token }) {
+  const [form, setForm] = React.useState({ to: '', subject: '', body: '' });
+  const [status, setStatus] = React.useState('');
+  const handleSend = async () => {
+    if (!form.to || !form.subject || !form.body) { setStatus('Please fill all fields'); return; }
+    try {
+      const res = await fetch('/api/v1/communication/email/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(form)
+      });
+      const data = await res.json();
+      setStatus(data.success ? 'Email sent successfully!' : (data.error || 'Failed to send'));
+      if (data.success) setForm({ to: '', subject: '', body: '' });
+    } catch { setStatus('Network error'); }
+  };
+  return (
+    <div>
+      <div style={{ fontSize: 22, fontWeight: 700, color: c.text, marginBottom: 20 }}>Compose Email</div>
+      <div style={{ background: c.card, borderRadius: 8, padding: 24, border: `1px solid ${c.border}`, maxWidth: 700 }}>
+        {['to', 'subject'].map(field => (
+          <div key={field} style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, textTransform: 'capitalize', fontSize: 13, color: c.textMuted }}>{field}</label>
+            <input value={form[field]} onChange={e => setForm(p => ({ ...p, [field]: e.target.value }))}
+              style={{ width: '100%', padding: '8px 12px', border: `1px solid ${c.border}`, borderRadius: 6, fontSize: 13, boxSizing: 'border-box', outline: 'none' }} />
+          </div>
+        ))}
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', marginBottom: 6, fontWeight: 500, fontSize: 13, color: c.textMuted }}>Message</label>
+          <textarea value={form.body} onChange={e => setForm(p => ({ ...p, body: e.target.value }))}
+            rows={8} style={{ width: '100%', padding: '8px 12px', border: `1px solid ${c.border}`, borderRadius: 6, fontSize: 13, resize: 'vertical', boxSizing: 'border-box', outline: 'none' }} />
+        </div>
+        {status && <p style={{ color: status.includes('success') ? 'green' : 'red', marginBottom: 12, fontSize: 13 }}>{status}</p>}
+        <button onClick={handleSend}
+          style={{ background: c.primary, color: '#fff', border: 'none', padding: '10px 24px', borderRadius: 6, cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>
+          Send Email
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function TenantAdminDashboard() {
   const [activeNav, setActiveNav] = useState('dashboard');
   const [twoFAStatus, setTwoFAStatus] = useState(false);
@@ -197,6 +239,7 @@ function TenantAdminDashboard() {
   const logout = () => { localStorage.clear(); window.location.href = '/'; };
 
   const nav = [
+    { id: 'compose', label: 'Compose Email', icon: '✉️' },
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
     { id: 'employees', label: 'Employees', icon: '👥' },
     { id: 'departments', label: 'Departments', icon: '🏢' },
@@ -624,6 +667,7 @@ function TenantAdminDashboard() {
 
   const renderSection = () => {
     switch (activeNav) {
+      case 'compose': return <ComposeEmailPanel token={token} />;
       case 'dashboard': return <DashboardSection />;
       case 'employees': return <EmployeesSection />;
       case 'departments': return <DepartmentsSection />;

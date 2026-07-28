@@ -53,6 +53,8 @@ function SuperAdminDashboard() {
   const [auditPage, setAuditPage] = useState(1);
   const [auditTotal, setAuditTotal] = useState(0);
   const [auditFilters, setAuditFilters] = useState({ action: '', tenant_id: '', actor_id: '' });
+  const [searchQuery, setSearchQuery] = useState('');
+  const [notifCount, setNotifCount] = useState(0);
 
   const token = localStorage.getItem('super_admin_token');
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
@@ -60,7 +62,12 @@ function SuperAdminDashboard() {
 
   const authHeaders = { 'Authorization': `Bearer ${token}` };
 
-  useEffect(() => { fetchAll(); fetchBranding(); }, []);
+  useEffect(() => {
+    fetchAll(); fetchBranding();
+    const t = localStorage.getItem('super_admin_token');
+    if (t) fetch('/api/v1/notifications/unread-count', { headers: { Authorization: `Bearer ${t}` } })
+      .then(r => r.json()).then(d => { if (d.success) setNotifCount(d.data?.count || 0); }).catch(() => {});
+  }, []);
 
   const fetchBranding = async () => {
     try {
@@ -387,7 +394,12 @@ function SuperAdminDashboard() {
       {/* Search */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 8, padding: '6px 14px', width: 340 }}>
         <span style={{ color: colors.headerText, opacity: 0.5, fontSize: 14 }}>🔍</span>
-        <input placeholder="Search users, tenants, emails, applications..." style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: 13, color: colors.headerText, width: '100%' }} />
+        <input
+          placeholder="Search users, tenants, emails, applications..."
+          value={searchQuery}
+          onChange={e => setSearchQuery(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && searchQuery.trim()) { setActiveSection('tenants'); setSearchQuery(''); } }}
+          style={{ border: 'none', background: 'transparent', outline: 'none', fontSize: 13, color: colors.headerText, width: '100%' }} />
         <span style={{ fontSize: 11, color: colors.headerText, opacity: 0.5, background: colors.border, padding: '2px 6px', borderRadius: 4 }}>Ctrl+K</span>
       </div>
 
@@ -396,7 +408,7 @@ function SuperAdminDashboard() {
         {/* Notifications */}
         <div style={{ position: 'relative', cursor: 'pointer' }}>
           <span style={{ fontSize: 18 }}>🔔</span>
-          <span style={{ position: 'absolute', top: -4, right: -4, background: colors.danger, color: '#fff', borderRadius: '50%', width: 16, height: 16, fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>3</span>
+          {notifCount > 0 && <span style={{ position: 'absolute', top: -4, right: -4, background: colors.danger, color: '#fff', borderRadius: '50%', width: 16, height: 16, fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{notifCount}</span>}
         </div>
         {/* Help */}
         <span style={{ fontSize: 18, cursor: 'pointer', color: colors.headerText, opacity: 0.6 }}>❓</span>
@@ -2826,6 +2838,36 @@ function SuperAdminDashboard() {
               )}
             </>
           )}
+        </div>
+      );
+      case 'scheduled': return (
+        <div>
+          <h2 style={{ marginBottom: 20, fontSize: 22, fontWeight: 700, color: colors.text }}>Scheduled Emails</h2>
+          <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 24, color: colors.textMuted, fontSize: 13 }}>Scheduled emails will appear here.</div>
+        </div>
+      );
+      case 'drafts': return (
+        <div>
+          <h2 style={{ marginBottom: 20, fontSize: 22, fontWeight: 700, color: colors.text }}>Drafts</h2>
+          <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 24, color: colors.textMuted, fontSize: 13 }}>Draft emails will appear here.</div>
+        </div>
+      );
+      case 'trash': return (
+        <div>
+          <h2 style={{ marginBottom: 20, fontSize: 22, fontWeight: 700, color: colors.text }}>Trash</h2>
+          <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 24, color: colors.textMuted, fontSize: 13 }}>Deleted items will appear here.</div>
+        </div>
+      );
+      case 'spam': return (
+        <div>
+          <h2 style={{ marginBottom: 20, fontSize: 22, fontWeight: 700, color: colors.text }}>Spam</h2>
+          <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 24, color: colors.textMuted, fontSize: 13 }}>Spam emails will appear here.</div>
+        </div>
+      );
+      case 'system-config': return (
+        <div>
+          <h2 style={{ marginBottom: 20, fontSize: 22, fontWeight: 700, color: colors.text }}>System Configuration</h2>
+          <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 24, color: colors.textMuted, fontSize: 13 }}>System configuration settings — coming soon.</div>
         </div>
       );
       default:
