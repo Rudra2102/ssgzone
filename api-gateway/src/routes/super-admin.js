@@ -1162,6 +1162,33 @@ router.delete('/admins/:id', superAdminAuth, requireRole(), async (req, res) => 
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// DELETE /tenants/:id
+router.delete('/tenants/:id', superAdminAuth, requireRole(), async (req, res) => {
+  try {
+    await db.query('DELETE FROM tenant_users WHERE tenant_id=$1', [req.params.id]);
+    await db.query('DELETE FROM tenant_companies WHERE id=$1', [req.params.id]);
+    res.json({ success: true, message: 'Tenant deleted' });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// PATCH /users/:id/status
+router.patch('/users/:id/status', superAdminAuth, requireRole('admin', 'support'), async (req, res) => {
+  const { status } = req.body;
+  if (!['active', 'suspended'].includes(status)) return res.status(400).json({ success: false, error: 'invalid status' });
+  try {
+    await db.query('UPDATE tenant_users SET status=$1 WHERE id=$2', [status, req.params.id]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// DELETE /users/:id
+router.delete('/users/:id', superAdminAuth, requireRole(), async (req, res) => {
+  try {
+    await db.query('DELETE FROM tenant_users WHERE id=$1', [req.params.id]);
+    res.json({ success: true, message: 'User deleted' });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 // PATCH /tenants/:id/status
 router.patch('/tenants/:id/status', superAdminAuth, async (req, res) => {
   try {
@@ -1394,7 +1421,7 @@ router.get('/email/sent', superAdminAuth, requireRole('admin', 'support'), async
   params.push(parseInt(limit));
   try {
     const result = await db.query(
-      `SELECT e.id, e.to_email as recipient_email, e.subject, e.folder as status, e.created_at as sent_at,
+      `SELECT e.id, e.to_email as recipient_email, e.subject, e.email_type as status, e.created_at as sent_at,
               tc.company_name as tenant_name
        FROM emails e
        LEFT JOIN tenant_companies tc ON tc.id::text = e.tenant_id
