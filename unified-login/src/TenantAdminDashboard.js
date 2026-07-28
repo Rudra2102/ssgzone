@@ -25,6 +25,10 @@ function TenantAdminDashboard() {
   const [userPerms, setUserPerms] = useState([]);
   const [userPermsLoading, setUserPermsLoading] = useState(false);
   const [userPermsSaving, setUserPermsSaving] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteForm, setInviteForm] = useState({ first_name: '', last_name: '', email: '', role: 'user' });
+  const [inviteResult, setInviteResult] = useState(null);
+  const [inviteSaving, setInviteSaving] = useState(false);
 
   const [stats, setStats] = useState({ totalUsers: 0, activeUsers: 0, emailsSent: 0, chatMessages: 0, whatsappMessages: 0 });
   const [users, setUsers] = useState([]);
@@ -84,6 +88,28 @@ function TenantAdminDashboard() {
     const data = await res.json();
     if (data.success) setOooList(data.data);
     setOooLoading(false);
+  };
+
+  const inviteMember = async () => {
+    if (!inviteForm.first_name || !inviteForm.last_name || !inviteForm.email) return alert('First name, last name and email required');
+    setInviteSaving(true);
+    const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#';
+    const password = Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    const username = inviteForm.email.split('@')[0] + Math.floor(Math.random() * 100);
+    try {
+      const res = await fetch(`${API}/api/v1/tenant-admin/users`, {
+        method: 'POST',
+        headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...inviteForm, username, password_override: password })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setUsers(prev => [...prev, data.data]);
+        setInviteResult({ email: inviteForm.email, password });
+        setInviteForm({ first_name: '', last_name: '', email: '', role: 'user' });
+      } else alert(data.error);
+    } catch (err) { alert(err.message); }
+    setInviteSaving(false);
   };
 
   const toggleUserStatus = async (user) => {
@@ -241,12 +267,52 @@ function TenantAdminDashboard() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
         <div style={{ fontSize: 22, fontWeight: 700, color: c.text }}>Employees</div>
-        <button onClick={() => { setEditingUser(null); setUserForm({ username: '', email: '', first_name: '', last_name: '', department_id: '', role: 'user', phone: '' }); setModalError(''); setOpenUserModal(true); }} style={mkBtn(c.primary, '#fff')}>+ Add Employee</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => { setInviteOpen(true); setInviteResult(null); }} style={{ ...mkBtn('#10b981', '#fff') }}>✉️ Invite Member</button>
+          <button onClick={() => { setEditingUser(null); setUserForm({ username: '', email: '', first_name: '', last_name: '', department_id: '', role: 'user', phone: '' }); setModalError(''); setOpenUserModal(true); }} style={mkBtn(c.primary, '#fff')}>+ Add Employee</button>
+        </div>
       </div>
-      <div style={{ marginBottom: 14 }}>
+      {inviteOpen && (
+        <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: 20, marginBottom: 20 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: c.text, marginBottom: 14 }}>✉️ Invite Team Member</div>
+          {inviteResult ? (
+            <div>
+              <div style={{ background: '#d1fae5', border: '1px solid #10b981', borderRadius: 8, padding: 16, marginBottom: 14 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#065f46', marginBottom: 6 }}>✅ Member invited successfully!</div>
+                <div style={{ fontSize: 13, color: '#065f46' }}>Email: <strong>{inviteResult.email}</strong></div>
+                <div style={{ fontSize: 13, color: '#065f46' }}>Temporary password: <strong style={{ fontFamily: 'monospace', background: '#fff', padding: '2px 6px', borderRadius: 4 }}>{inviteResult.password}</strong></div>
+                <div style={{ fontSize: 11, color: '#065f46', marginTop: 6 }}>Share this password with the member. They should change it on first login.</div>
+              </div>
+              <button onClick={() => { setInviteOpen(false); setInviteResult(null); }}
+                style={{ ...mkBtn(c.primary, '#fff') }}>Done</button>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                <input value={inviteForm.first_name} onChange={e => setInviteForm(p => ({ ...p, first_name: e.target.value }))}
+                  placeholder="First Name *" style={{ padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, outline: 'none' }} />
+                <input value={inviteForm.last_name} onChange={e => setInviteForm(p => ({ ...p, last_name: e.target.value }))}
+                  placeholder="Last Name *" style={{ padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, outline: 'none' }} />
+                <input value={inviteForm.email} onChange={e => setInviteForm(p => ({ ...p, email: e.target.value }))}
+                  placeholder="Email *" style={{ padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, outline: 'none' }} />
+                <select value={inviteForm.role} onChange={e => setInviteForm(p => ({ ...p, role: e.target.value }))}
+                  style={{ padding: '9px 12px', border: `1px solid ${c.border}`, borderRadius: 7, fontSize: 13, outline: 'none', background: '#fff' }}>
+                  <option value="user">Member</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={inviteMember} disabled={inviteSaving}
+                  style={{ ...mkBtn('#10b981', '#fff'), opacity: inviteSaving ? 0.7 : 1 }}>{inviteSaving ? 'Inviting...' : 'Send Invite'}</button>
+                <button onClick={() => setInviteOpen(false)}
+                  style={{ ...mkBtn('none', c.text), border: `1px solid ${c.border}` }}>Cancel</button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
         <input value={userSearch} onChange={e => setUserSearch(e.target.value)} placeholder="Search by name or email…"
-          style={{ ...inp, marginBottom: 0, maxWidth: 320 }} />
-      </div>
+          style={{ ...inp, marginBottom: 14, maxWidth: 320 }} />
       <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, overflow: 'hidden' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
           <thead><tr style={{ background: c.bg, borderBottom: `1px solid ${c.border}` }}>

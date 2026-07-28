@@ -515,5 +515,34 @@ router.post('/tenants', saasAdminAuth, async (req, res) => {
   }
 });
 
-module.exports = router;
+// GET /api/saas-admin/tenants/:tenantId/quota
+router.get('/tenants/:tenantId/quota', saasAdminAuth, async (req, res) => {
+  try {
+    const check = await pool.query('SELECT id FROM tenant_companies WHERE id=$1 AND saas_app_id=$2', [req.params.tenantId, req.decoded.saas_id]);
+    if (!check.rows.length) return res.status(404).json({ success: false, error: 'Tenant not found' });
+    const result = await pool.query(
+      `SELECT tc.email_quota_mb, tc.max_users,
+              COALESCE((SELECT SUM(LENGTH(html_content)+LENGTH(text_content)) FROM emails WHERE tenant_id=tc.id::text) / 1048576, 0)::int as storage_used_mb,
+              (SELECT COUNT(*) FROM tenant_users WHERE tenant_id=tc.id AND status='active')::int as current_users
+       FROM tenant_companies tc WHERE tc.id=$1`,
+      [req.params.tenantId]
+    );
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
 
+// PATCH /api/saas-admin/tenants/:tenantId/quota
+router.patch('/tenants/:tenantId/quota', saasAdminAuth, async (req, res) => {
+  const { email_quota_mb, max_users } = req.body;
+  try {
+    const result = await pool.query(
+      `UPDATE tenant_companies SET email_quota_mb=COALESCE($1,email_quota_mb), max_users=COALESCE($2,max_users)
+       WHERE id=$3 AND saas_app_id=$4 RETURNING id, email_quota_mb, max_users`,
+      [email_quota_mb || null, max_users || null, req.params.tenantId, req.decoded.saas_id]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Tenant not found' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+module.exports = router;

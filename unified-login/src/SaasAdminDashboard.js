@@ -34,6 +34,10 @@ export default function SaasAdminDashboard() {
   const [showCreateTenant, setShowCreateTenant] = useState(false);
   const [newTenantForm, setNewTenantForm] = useState({ company_name: '', slug: '', admin_name: '', max_users: 50 });
   const [dnsModal, setDnsModal] = useState(null);
+  const [quotaModal, setQuotaModal] = useState(null);
+  const [quotaData, setQuotaData] = useState(null);
+  const [quotaForm, setQuotaForm] = useState({ email_quota_mb: 1024, max_users: 50 });
+  const [quotaSaving, setQuotaSaving] = useState(false);
 
   const user = JSON.parse(localStorage.getItem('user_data') || '{}');
   const token = localStorage.getItem('saas_admin_token');
@@ -146,6 +150,31 @@ export default function SaasAdminDashboard() {
     setSavingPerms(false);
     if (data.success) alert('✅ Tenant permissions saved!');
     else alert(data.error);
+  };
+
+  const loadQuota = async (tenant) => {
+    setQuotaModal(tenant);
+    setQuotaData(null);
+    const res = await fetch(`${API}/api/saas-admin/tenants/${tenant.id}/quota`, { headers: auth });
+    const data = await res.json();
+    if (data.success) {
+      setQuotaData(data.data);
+      setQuotaForm({ email_quota_mb: data.data.email_quota_mb || 1024, max_users: data.data.max_users || 50 });
+    }
+  };
+
+  const saveQuota = async () => {
+    setQuotaSaving(true);
+    const res = await fetch(`${API}/api/saas-admin/tenants/${quotaModal.id}/quota`, {
+      method: 'PATCH', headers: { ...auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify(quotaForm)
+    });
+    const data = await res.json();
+    setQuotaSaving(false);
+    if (data.success) {
+      setTenants(prev => prev.map(t => t.id === quotaModal.id ? { ...t, max_users: data.data.max_users } : t));
+      setQuotaModal(null);
+    } else alert(data.error);
   };
 
   const logout = () => { localStorage.clear(); window.location.href = '/'; };
@@ -287,6 +316,8 @@ export default function SaasAdminDashboard() {
                 </td>
                 <td style={{ padding: '12px 16px' }}>
                   <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => loadQuota(t)}
+                      style={{ background: 'none', border: `1px solid ${c.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: c.text }}>⚙ Quota</button>
                     <button onClick={() => loadTenantUsers(t)}
                       style={{ background: 'none', border: `1px solid ${c.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: c.text }}>👥 Users</button>
                     <button onClick={() => { setEditLimitsModal(t); setLimitsForm({ max_users: t.max_users, plan_type: t.plan_type || 'free' }); }}
@@ -303,6 +334,50 @@ export default function SaasAdminDashboard() {
           </tbody>
         </table>
       </div>
+
+      {quotaModal && (
+        <div style={{ position: 'fixed', inset: 0, background: '#0008', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: c.card, borderRadius: 14, padding: 28, width: 420, boxShadow: '0 20px 60px #0003' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div style={{ fontSize: 17, fontWeight: 700, color: c.text }}>⚙ Quota — {quotaModal.company_name}</div>
+              <button onClick={() => setQuotaModal(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: c.textMuted }}>✕</button>
+            </div>
+            {!quotaData && <div style={{ color: c.textMuted, fontSize: 13 }}>Loading...</div>}
+            {quotaData && (
+              <>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: c.textMuted, marginBottom: 4 }}>Storage Used</div>
+                  <div style={{ background: c.border, borderRadius: 20, height: 10, overflow: 'hidden', marginBottom: 4 }}>
+                    <div style={{ width: `${Math.min(100, Math.round((quotaData.storage_used_mb / (quotaData.email_quota_mb || 1024)) * 100))}%`, height: '100%', background: c.primary, borderRadius: 20 }} />
+                  </div>
+                  <div style={{ fontSize: 12, color: c.textMuted }}>{quotaData.storage_used_mb} MB / {quotaData.email_quota_mb || 1024} MB</div>
+                </div>
+                <div style={{ marginBottom: 20 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: c.textMuted, marginBottom: 4 }}>Users</div>
+                  <div style={{ background: c.border, borderRadius: 20, height: 10, overflow: 'hidden', marginBottom: 4 }}>
+                    <div style={{ width: `${Math.min(100, Math.round((quotaData.current_users / (quotaData.max_users || 1)) * 100))}%`, height: '100%', background: c.success, borderRadius: 20 }} />
+                  </div>
+                  <div style={{ fontSize: 12, color: c.textMuted }}>{quotaData.current_users} / {quotaData.max_users} users</div>
+                </div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: c.textMuted, display: 'block', marginBottom: 4 }}>Email Quota (MB)</label>
+                <input type="number" value={quotaForm.email_quota_mb} onChange={e => setQuotaForm(p => ({ ...p, email_quota_mb: parseInt(e.target.value) || 1024 }))}
+                  style={{ width: '100%', padding: '10px 12px', border: `1px solid ${c.border}`, borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box', marginBottom: 14 }} />
+                <label style={{ fontSize: 12, fontWeight: 600, color: c.textMuted, display: 'block', marginBottom: 4 }}>Max Users</label>
+                <input type="number" value={quotaForm.max_users} onChange={e => setQuotaForm(p => ({ ...p, max_users: parseInt(e.target.value) || 50 }))}
+                  style={{ width: '100%', padding: '10px 12px', border: `1px solid ${c.border}`, borderRadius: 8, fontSize: 13, outline: 'none', boxSizing: 'border-box', marginBottom: 20 }} />
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button onClick={saveQuota} disabled={quotaSaving}
+                    style={{ flex: 1, background: c.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '10px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: quotaSaving ? 0.7 : 1 }}>
+                    {quotaSaving ? 'Saving...' : 'Save Quota'}
+                  </button>
+                  <button onClick={() => setQuotaModal(null)}
+                    style={{ flex: 1, background: 'none', border: `1px solid ${c.border}`, borderRadius: 8, padding: '10px', fontSize: 13, cursor: 'pointer', color: c.text }}>Cancel</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       {tenantUsersModal && (
         <div style={{ position: 'fixed', inset: 0, background: '#0008', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>

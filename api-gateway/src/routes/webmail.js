@@ -482,14 +482,17 @@ router.get('/email/:id/tracking', webmailAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// Ensure bcc_email column exists on emails table
+pool.query(`ALTER TABLE emails ADD COLUMN IF NOT EXISTS bcc_email TEXT DEFAULT ''`).catch(() => {});
+
 // POST /api/v1/webmail/drafts
 router.post('/drafts', webmailAuth, async (req, res) => {
-  const { subject, to, cc, html_content, text_content } = req.body;
+  const { subject, to, cc, bcc, html_content, text_content } = req.body;
   try {
     const result = await pool.query(
-      `INSERT INTO emails (tenant_id, from_email, to_email, subject, html_content, text_content, folder, read_status, tracking_token)
-       VALUES ($1,$2,$3,$4,$5,$6,'drafts',true,$7) RETURNING id`,
-      [String(req.user.tenant_id), req.user.email, to || '', subject || '', html_content || '', text_content || '', require('crypto').randomBytes(32).toString('hex')]
+      `INSERT INTO emails (tenant_id, from_email, to_email, cc_email, bcc_email, subject, html_content, text_content, folder, read_status, tracking_token)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'drafts',true,$9) RETURNING id`,
+      [String(req.user.tenant_id), req.user.email, to || '', cc || '', bcc || '', subject || '', html_content || '', text_content || '', require('crypto').randomBytes(32).toString('hex')]
     );
     res.json({ success: true, data: { id: result.rows[0].id } });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
@@ -497,12 +500,12 @@ router.post('/drafts', webmailAuth, async (req, res) => {
 
 // PUT /api/v1/webmail/drafts/:id
 router.put('/drafts/:id', webmailAuth, async (req, res) => {
-  const { subject, to, html_content, text_content } = req.body;
+  const { subject, to, cc, bcc, html_content, text_content } = req.body;
   try {
     await pool.query(
-      `UPDATE emails SET subject=$1, to_email=$2, html_content=$3, text_content=$4, created_at=NOW()
-       WHERE id=$5 AND from_email=$6 AND folder='drafts'`,
-      [subject || '', to || '', html_content || '', text_content || '', req.params.id, req.user.email]
+      `UPDATE emails SET subject=$1, to_email=$2, cc_email=$3, bcc_email=$4, html_content=$5, text_content=$6, created_at=NOW()
+       WHERE id=$7 AND from_email=$8 AND folder='drafts'`,
+      [subject || '', to || '', cc || '', bcc || '', html_content || '', text_content || '', req.params.id, req.user.email]
     );
     res.json({ success: true });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
@@ -674,6 +677,58 @@ router.delete('/email/:id/labels/:label_id', webmailAuth, async (req, res) => {
   try {
     await pool.query(`DELETE FROM email_label_map WHERE email_id=$1 AND label_id=$2`, [req.params.id, req.params.label_id]);
     res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// GET /api/v1/webmail/thread
+router.get('/thread', webmailAuth, async (req, res) => {
+  const { subject, email: participantEmail } = req.query;
+  if (!subject || !participantEmail) return res.status(400).json({ success: false, error: 'subject and email required' });
+  const tenantId = String(req.user.tenant_id);
+  try {
+    const result = await pool.query(
+      `SELECT id, subject, from_email, to_email, cc_email, html_content, text_content, created_at, read_status, attachments
+       FROM emails
+       WHERE (from_email = $1 OR to_email = $1) AND subject ILIKE $2 AND tenant_id = $3 AND archived = false
+       ORDER BY created_at ASC LIMIT 50`,
+      [participantEmail, `%${subject.replace(/^(Re:|Fwd:)\s*/i, '').trim()}%`, tenantId]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// GET /api/v1/webmail/export
+router.get('/export', webmailAuth, async (req, res) => {
+  const { folder = 'inbox' } = req.query;
+  const userEmail = req.user.email;
+  const tenantId = String(req.user.tenant_id);
+  try {
+    let where, params;
+    if (folder === 'starred') {
+      where = `WHERE to_email=$1 AND tenant_id=$2 AND starred=true AND archived=false`;
+      params = [userEmail, tenantId];
+    } else {
+      where = `WHERE to_email=$1 AND tenant_id=$2 AND folder=$3 AND archived=false`;
+      params = [userEmail, tenantId, folder];
+    }
+    const result = await pool.query(
+      `SELECT created_at, from_email, to_email, subject, LEFT(text_content, 200) as preview FROM emails ${where} ORDER BY created_at DESC LIMIT 1000`,
+      params
+    );
+    const dateStr = new Date().toISOString().split('T')[0];
+    const header = 'date,from,to,subject,preview\n';
+    const rows = result.rows.map(r => [
+      new Date(r.created_at).toISOString(),
+      `"${(r.from_email||'').replace(/"/g,'""')}"`,
+      `"${(r.to_email||'').replace(/"/g,'""')}"`,
+      `"${(r.subject||'').replace(/"/g,'""')}"`,
+      `"${(r.preview||'').replace(/"/g,'""').replace(/\n/g,' ')}"`
+    ].join(','));
+    res.set({
+      'Content-Type': 'text/csv',
+      'Content-Disposition': `attachment; filename="emails_${folder}_${dateStr}.csv"`
+    });
+    res.send(header + rows.join('\n'));
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 

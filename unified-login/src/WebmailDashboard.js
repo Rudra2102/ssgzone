@@ -96,6 +96,12 @@ export default function WebmailDashboard() {
   const [labelForm, setLabelForm] = useState({ name: '', color: '#6366f1' });
   const [labelFormOpen, setLabelFormOpen] = useState(false);
   const [emailLabels, setEmailLabels] = useState({});
+  const [thread, setThread] = useState([]);
+  const [threadLoading, setThreadLoading] = useState(false);
+  const [showThread, setShowThread] = useState(false);
+  const [showExportDropdown, setShowExportDropdown] = useState(false);
+  const [exportFolder, setExportFolder] = useState('inbox');
+  const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
 
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const token = localStorage.getItem('webmail_token');
@@ -115,6 +121,27 @@ export default function WebmailDashboard() {
 
   useEffect(() => {
     document.title = unread > 0 ? `(${unread}) SSGzone Mail` : 'SSGzone Mail';
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = 32; canvas.height = 32;
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, 32, 32);
+      ctx.fillStyle = '#6366f1';
+      ctx.beginPath(); ctx.arc(16, 16, 14, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 14px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('S', 16, 17);
+      if (unread > 0) {
+        ctx.fillStyle = '#ef4444';
+        ctx.beginPath(); ctx.arc(26, 6, 8, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 9px sans-serif';
+        ctx.fillText(unread > 9 ? '9+' : String(unread), 26, 7);
+      }
+      let link = document.querySelector('link[rel="icon"]');
+      if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.appendChild(link); }
+      link.href = canvas.toDataURL();
+    } catch {}
   }, [unread]);
 
   useEffect(() => {
@@ -152,6 +179,33 @@ export default function WebmailDashboard() {
       osc.stop(ctx.currentTime + 0.3);
     } catch {}
   };
+
+  useEffect(() => {
+    if (activeNav !== 'inbox') return;
+    const handler = (e) => {
+      const tag = document.activeElement?.tagName;
+      if (['INPUT','TEXTAREA','SELECT'].includes(tag) || document.activeElement?.contentEditable === 'true') return;
+      if (e.key === '?') { setShowShortcutsHelp(p => !p); return; }
+      if (e.key === 'Escape') {
+        if (composeOpen) { setComposeOpen(false); setAttachFiles([]); }
+        else if (showShortcutsHelp) setShowShortcutsHelp(false);
+        else setSelectedEmail(null);
+        return;
+      }
+      if (e.key === 'c') { setCompose({ to: '', cc: '', bcc: '', subject: '', body_html: '' }); setComposeOpen(true); return; }
+      if (e.key === 'r' && selectedEmail && !composeOpen) {
+        setCompose({ to: selectedEmail.from_email, subject: `Re: ${selectedEmail.subject}`, body_html: '', cc: '', bcc: '' });
+        setComposeOpen(true); return;
+      }
+      if (e.key === 'd' && selectedEmail && !composeOpen) { deleteEmail(selectedEmail.id); return; }
+      const list = searchActive ? searchResults : emails;
+      const idx = list.findIndex(em => em.id === selectedEmail?.id);
+      if (e.key === 'j') { const next = list[idx + 1]; if (next) openEmail(next); return; }
+      if (e.key === 'k') { const prev = list[idx - 1]; if (prev) openEmail(prev); return; }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [activeNav, composeOpen, selectedEmail, emails, searchActive, searchResults, showShortcutsHelp]);
 
   useEffect(() => {
     if (!composeOpen) return;
@@ -745,6 +799,33 @@ export default function WebmailDashboard() {
     setSending(false);
   };
 
+  const fetchThread = async (email) => {
+    setThreadLoading(true);
+    setShowThread(false);
+    try {
+      const baseSubject = (email.subject || '').replace(/^(Re:|Fwd:)\s*/i, '').trim();
+      const res = await fetch(`${API}/thread?subject=${encodeURIComponent(baseSubject)}&email=${encodeURIComponent(email.from_email)}`, { headers: auth });
+      const data = await res.json();
+      if (data.success) { setThread(data.data); setShowThread(true); }
+    } catch {}
+    setThreadLoading(false);
+  };
+
+  const downloadExport = async () => {
+    try {
+      const res = await fetch(`${API}/export?folder=${exportFolder}&format=csv`, { headers: auth });
+      if (!res.ok) { alert('Export failed'); return; }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `emails_${exportFolder}_${new Date().toISOString().split('T')[0]}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setShowExportDropdown(false);
+    } catch (err) { alert(err.message); }
+  };
+
   const fetchLabels = async () => {
     setLabelsLoading(true);
     try {
@@ -1053,8 +1134,10 @@ export default function WebmailDashboard() {
           </div>
           <div style={{ flex: 1 }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button onClick={() => setShowShortcutsHelp(true)} title="Keyboard shortcuts"
+              style={{ background: 'none', border: `1px solid ${c.border}`, borderRadius: 6, cursor: 'pointer', fontSize: 13, color: c.textMuted, padding: '4px 8px', fontWeight: 700 }}>?</button>
             <div style={{ position: 'relative' }}>
-              <button onClick={() => { setNotifOpen(p => !p); if (!notifOpen) fetchNotifications(); }}
+              <button onClick={() => setNotifOpen(p => { if (!p) fetchNotifications(); return !p; })}
                 style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: c.textMuted, position: 'relative', padding: '4px' }}>
                 🔔
                 {notifUnread > 0 && (
@@ -2004,7 +2087,25 @@ export default function WebmailDashboard() {
                   <div style={{ fontSize: 14, fontWeight: 700, color: c.text }}>{searchActive ? 'Search Results' : FOLDERS.find(f => f.id === folder)?.label || folder}</div>
                   <div style={{ fontSize: 11, color: c.textMuted }}>{searchActive ? `${searchResults.length} results` : `${total} messages${unread > 0 ? `, ${unread} unread` : ''}`}</div>
                 </div>
-                <button onClick={searchActive ? () => { setSearchActive(false); setSearchResults([]); setSearch(''); } : fetchEmails} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: searchActive ? c.danger : c.textMuted }}>{searchActive ? '✕' : '↻'}</button>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <button onClick={searchActive ? () => { setSearchActive(false); setSearchResults([]); setSearch(''); } : fetchEmails} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: searchActive ? c.danger : c.textMuted }}>{searchActive ? '✕' : '↻'}</button>
+                  <div style={{ position: 'relative' }}>
+                    <button onClick={() => setShowExportDropdown(p => !p)} title="Export emails"
+                      style={{ background: 'none', border: `1px solid ${c.border}`, borderRadius: 6, cursor: 'pointer', fontSize: 12, color: c.textMuted, padding: '3px 7px' }}>⬇</button>
+                    {showExportDropdown && (
+                      <div style={{ position: 'absolute', top: '100%', right: 0, background: '#fff', border: `1px solid ${c.border}`, borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 200, padding: 12, width: 180, marginTop: 4 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: c.text, marginBottom: 8 }}>Export Emails</div>
+                        <select value={exportFolder} onChange={e => setExportFolder(e.target.value)}
+                          style={{ width: '100%', padding: '6px 8px', border: `1px solid ${c.border}`, borderRadius: 6, fontSize: 12, marginBottom: 8, outline: 'none' }}>
+                          {FOLDERS.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+                        </select>
+                        <div style={{ fontSize: 11, color: c.textMuted, marginBottom: 8 }}>Format: CSV</div>
+                        <button onClick={downloadExport}
+                          style={{ width: '100%', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', color: '#fff', border: 'none', borderRadius: 6, padding: '7px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>⬇ Download</button>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
               <div style={{ flex: 1, overflowY: 'auto' }}>
@@ -2063,7 +2164,19 @@ export default function WebmailDashboard() {
                   <div style={{ background: c.card, borderRadius: 10, padding: 24, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' }}>
                     {/* Email header */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-                      <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: c.text }}>{selectedEmail.subject || '(no subject)'}</h2>
+                      <div>
+                        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: c.text }}>{selectedEmail.subject || '(no subject)'}</h2>
+                        {!showThread && (
+                          <button onClick={() => fetchThread(selectedEmail)} disabled={threadLoading}
+                            style={{ marginTop: 6, background: 'none', border: `1px solid ${c.border}`, borderRadius: 6, padding: '3px 10px', fontSize: 12, cursor: 'pointer', color: c.textMuted }}>
+                            {threadLoading ? 'Loading...' : '💬 View thread'}
+                          </button>
+                        )}
+                        {showThread && (
+                          <button onClick={() => setShowThread(false)}
+                            style={{ marginTop: 6, background: 'none', border: `1px solid ${c.border}`, borderRadius: 6, padding: '3px 10px', fontSize: 12, cursor: 'pointer', color: c.primary }}>← Back to email</button>
+                        )}
+                      </div>
                       <div style={{ display: 'flex', gap: 8 }}>
                         <button onClick={() => { setCompose({ to: selectedEmail.from_email, subject: `Re: ${selectedEmail.subject}`, body_html: `\n\n--- Original message ---\n${(selectedEmail.text_content || '').slice(0, 500)}`, cc: '', bcc: '' }); setComposeOpen(true); }}
                           style={{ padding: '6px 12px', border: `1px solid ${c.border}`, borderRadius: 6, background: 'none', cursor: 'pointer', fontSize: 12, color: c.text }}>↩ Reply</button>
@@ -2095,13 +2208,38 @@ export default function WebmailDashboard() {
                         </div>
                       </div>
                     </div>
+                    {/* Thread view */}
+                    {showThread && (
+                      <div style={{ marginBottom: 16 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: c.textMuted, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Thread ({thread.length} messages)</div>
+                        {thread.map((msg, i) => (
+                          <div key={msg.id} style={{ background: i % 2 === 0 ? c.bg : '#f0f4ff', border: `1px solid ${c.border}`, borderRadius: 8, padding: 14, marginBottom: 8 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'linear-gradient(135deg,#6366f1,#8b5cf6)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+                                {(msg.from_email || '?')[0].toUpperCase()}
+                              </div>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 12, fontWeight: 600, color: c.text }}>{msg.from_email}</div>
+                                <div style={{ fontSize: 11, color: c.textMuted }}>To: {msg.to_email} · {new Date(msg.created_at).toLocaleString()}</div>
+                              </div>
+                            </div>
+                            <div style={{ fontSize: 13, color: c.text, lineHeight: 1.6 }}>
+                              {msg.html_content
+                                ? <div dangerouslySetInnerHTML={{ __html: msg.html_content }} />
+                                : <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{msg.text_content || '(empty)'}</pre>
+                              }
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                     {/* Body */}
-                    <div style={{ fontSize: 14, color: c.text, lineHeight: 1.7 }}>
+                    {!showThread && <div style={{ fontSize: 14, color: c.text, lineHeight: 1.7 }}>
                       {selectedEmail.html_content
                         ? <div dangerouslySetInnerHTML={{ __html: selectedEmail.html_content }} />
                         : <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', margin: 0 }}>{selectedEmail.text_content || '(empty)'}</pre>
                       }
-                    </div>
+                    </div>}
                     {selectedEmail.attachments && selectedEmail.attachments.length > 0 && (
                       <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${c.border}` }}>
                         <div style={{ fontSize: 12, fontWeight: 600, color: c.textMuted, marginBottom: 8 }}>📎 Attachments</div>
@@ -2317,6 +2455,25 @@ export default function WebmailDashboard() {
         <div style={{ position: 'fixed', bottom: 24, right: 24, background: '#1f2937', color: '#fff', padding: '12px 20px', borderRadius: 10, fontSize: 13, fontWeight: 600, zIndex: 2000, boxShadow: '0 4px 20px rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center', gap: 8 }}>
           {toast}
           <span onClick={() => setToast(null)} style={{ cursor: 'pointer', marginLeft: 8, opacity: 0.7, fontSize: 16 }}>×</span>
+        </div>
+      )}
+
+      {/* Keyboard Shortcuts Help */}
+      {showShortcutsHelp && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 2000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: '#fff', borderRadius: 12, width: 380, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: c.text }}>⌨️ Keyboard Shortcuts</span>
+              <button onClick={() => setShowShortcutsHelp(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: c.textMuted }}>×</button>
+            </div>
+            {[['c','Compose new email'],['r','Reply to selected email'],['d','Delete selected email'],['j','Next email'],['k','Previous email'],['Esc','Close compose / deselect'],['?','Toggle this help']].map(([key, desc]) => (
+              <div key={key} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: `1px solid ${c.border}`, fontSize: 13 }}>
+                <span style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 4, padding: '2px 8px', fontFamily: 'monospace', fontWeight: 700, color: c.text }}>{key}</span>
+                <span style={{ color: c.textMuted }}>{desc}</span>
+              </div>
+            ))}
+            <div style={{ fontSize: 11, color: c.textMuted, marginTop: 12 }}>Shortcuts only active in inbox view when no input is focused.</div>
+          </div>
         </div>
       )}
 
