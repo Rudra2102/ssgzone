@@ -127,6 +127,7 @@ router.post('/auth/login', async (req, res) => {
 const requireRole = (...allowedRoles) => (req, res, next) => {
   const role = req.admin?.role;
   if (role === 'super_admin') return next();
+  if (allowedRoles.length === 0) return res.status(403).json({ success: false, error: 'Super admin only' });
   if (allowedRoles.includes(role)) return next();
   return res.status(403).json({ success: false, error: 'Insufficient permissions for your role' });
 };
@@ -938,38 +939,47 @@ router.post('/tenants/import-csv', superAdminAuth, async (req, res) => {
   }
 });
 
+// Helper: detect if adminId belongs to platform_admins
+const isEmployeeAdmin = async (adminId) => {
+  const r = await db.query('SELECT id FROM super_admins WHERE id=$1', [adminId]);
+  return r.rows.length === 0;
+};
+
 // POST /api/v1/super-admin/2fa/setup
-router.post('/2fa/setup', superAdminAuth, requireRole(), async (req, res) => {
+router.post('/2fa/setup', superAdminAuth, async (req, res) => {
   const speakeasy = require('speakeasy');
   const QRCode = require('qrcode');
   try {
     const secret = speakeasy.generateSecret({ name: `SSGzone (${req.admin.username})`, length: 20 });
-    await db.query('UPDATE super_admins SET totp_secret=$1 WHERE id=$2', [secret.base32, req.admin.adminId]);
+    const table = (await isEmployeeAdmin(req.admin.adminId)) ? 'platform_admins' : 'super_admins';
+    await db.query(`UPDATE ${table} SET totp_secret=$1 WHERE id=$2`, [secret.base32, req.admin.adminId]);
     const qrDataUrl = await QRCode.toDataURL(secret.otpauth_url);
     res.json({ success: true, data: { secret: secret.base32, qr_code: qrDataUrl } });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
 // POST /api/v1/super-admin/2fa/enable
-router.post('/2fa/enable', superAdminAuth, requireRole(), async (req, res) => {
+router.post('/2fa/enable', superAdminAuth, async (req, res) => {
   const speakeasy = require('speakeasy');
   const { token } = req.body;
   if (!token) return res.status(400).json({ success: false, error: 'token required' });
   try {
-    const result = await db.query('SELECT totp_secret FROM super_admins WHERE id=$1', [req.admin.adminId]);
+    const table = (await isEmployeeAdmin(req.admin.adminId)) ? 'platform_admins' : 'super_admins';
+    const result = await db.query(`SELECT totp_secret FROM ${table} WHERE id=$1`, [req.admin.adminId]);
     const secret = result.rows[0]?.totp_secret;
     if (!secret) return res.status(400).json({ success: false, error: 'Run /2fa/setup first' });
     const valid = speakeasy.totp.verify({ secret, encoding: 'base32', token, window: 1 });
     if (!valid) return res.status(400).json({ success: false, error: 'Invalid token' });
-    await db.query('UPDATE super_admins SET totp_enabled=true WHERE id=$1', [req.admin.adminId]);
+    await db.query(`UPDATE ${table} SET totp_enabled=true WHERE id=$1`, [req.admin.adminId]);
     res.json({ success: true, message: '2FA enabled' });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
 // POST /api/v1/super-admin/2fa/disable
-router.post('/2fa/disable', superAdminAuth, requireRole(), async (req, res) => {
+router.post('/2fa/disable', superAdminAuth, async (req, res) => {
   try {
-    await db.query('UPDATE super_admins SET totp_enabled=false, totp_secret=NULL WHERE id=$1', [req.admin.adminId]);
+    const table = (await isEmployeeAdmin(req.admin.adminId)) ? 'platform_admins' : 'super_admins';
+    await db.query(`UPDATE ${table} SET totp_enabled=false, totp_secret=NULL WHERE id=$1`, [req.admin.adminId]);
     res.json({ success: true, message: '2FA disabled' });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
@@ -984,24 +994,30 @@ router.post('/2fa/verify', async (req, res) => {
     try { decoded = jwt.verify(temp_token, process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret')); }
     catch { return res.status(401).json({ success: false, error: 'Invalid or expired temp token' }); }
     if (decoded.type !== 'super_admin_2fa_pending') return res.status(401).json({ success: false, error: 'Invalid token type' });
-    const result = await db.query('SELECT * FROM super_admins WHERE id=$1 AND status=$2', [decoded.adminId, 'active']);
-    if (!result.rows.length) return res.status(401).json({ success: false, error: 'Admin not found' });
-    const admin = result.rows[0];
+    let admin = (await db.query('SELECT * FROM super_admins WHERE id=$1 AND status=$2', [decoded.adminId, 'active'])).rows[0];
+    let isEmployee = false;
+    if (!admin) {
+      admin = (await db.query('SELECT id::text as id, username, email, full_name, totp_secret, role FROM platform_admins WHERE id=$1 AND status=$2', [decoded.adminId, 'active'])).rows[0];
+      isEmployee = true;
+    }
+    if (!admin) return res.status(401).json({ success: false, error: 'Admin not found' });
     const valid = speakeasy.totp.verify({ secret: admin.totp_secret, encoding: 'base32', token: totp_token, window: 1 });
     if (!valid) return res.status(401).json({ success: false, error: 'Invalid 2FA code' });
+    const role = isEmployee ? admin.role : 'super_admin';
     const token = jwt.sign(
-      { type: 'super_admin', adminId: admin.id, username: admin.username, email: admin.email },
+      { type: 'super_admin', adminId: admin.id, username: admin.username, email: admin.email, role },
       process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'),
       { expiresIn: '8h' }
     );
-    res.json({ success: true, data: { token, admin: { id: admin.id, username: admin.username, email: admin.email, full_name: admin.full_name, type: 'super_admin' } } });
+    res.json({ success: true, data: { token, admin: { id: admin.id, username: admin.username, email: admin.email, full_name: admin.full_name, role, type: 'super_admin' } } });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
 // GET /api/v1/super-admin/2fa/status
-router.get('/2fa/status', superAdminAuth, requireRole(), async (req, res) => {
+router.get('/2fa/status', superAdminAuth, async (req, res) => {
   try {
-    const result = await db.query('SELECT totp_enabled FROM super_admins WHERE id=$1', [req.admin.adminId]);
+    const table = (await isEmployeeAdmin(req.admin.adminId)) ? 'platform_admins' : 'super_admins';
+    const result = await db.query(`SELECT totp_enabled FROM ${table} WHERE id=$1`, [req.admin.adminId]);
     res.json({ success: true, data: { enabled: result.rows[0]?.totp_enabled || false } });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });

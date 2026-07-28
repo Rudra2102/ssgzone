@@ -55,7 +55,7 @@ const styles = {
 };
 
 export default function EmployeeDashboard() {
-  const token    = localStorage.getItem('super_admin_token');
+  const token    = localStorage.getItem('employee_token');
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const role     = localStorage.getItem('user_role') || userData.role || 'support';
   const authH    = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
