@@ -2664,7 +2664,12 @@ function SuperAdminDashboard() {
       case 'analytics': {
         const emailsToday = analytics.stats.emailsToday || 0;
         const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-        const barVals = days.map((_, i) => Math.max(1, Math.round(emailsToday * (0.8 + Math.sin(i) * 0.3))));
+        const barVals = analytics.stats.chartData?.length === 7
+          ? analytics.stats.chartData.map(d => d.count || 0)
+          : days.map((_, i) => {
+              const base = Math.floor((analytics.stats.emailsToday || 0) / 7);
+              return Math.max(0, base + (i % 3 === 0 ? 2 : i % 2 === 0 ? -1 : 0));
+            });
         const maxBar = Math.max(...barVals, 1);
         return (
           <div>
@@ -2689,6 +2694,11 @@ function SuperAdminDashboard() {
                   </div>
                 ))}
               </div>
+              {!analytics.stats.chartData && (
+                <div style={{ fontSize: 11, color: colors.textMuted, marginTop: 8, textAlign: 'center' }}>
+                  * Estimated distribution — connect analytics API for real daily data
+                </div>
+              )}
             </div>
             <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 20 }}>
               <div style={{ fontWeight: 700, fontSize: 15, color: colors.text, marginBottom: 14 }}>Recent Tenant Growth (Top 10)</div>
