@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   new_value JSONB,
   ip_address INET,
   user_agent TEXT,
-  saas_id UUID REFERENCES saas_applications(id) ON DELETE SET NULL,
+  saas_id INTEGER REFERENCES saas_applications(id) ON DELETE SET NULL,
   tenant_id UUID REFERENCES tenant_companies(id) ON DELETE SET NULL,
   status VARCHAR(20) DEFAULT 'success',
   created_at TIMESTAMPTZ DEFAULT NOW()
