@@ -83,7 +83,7 @@ function UnifiedLogin() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(
-              (config.type === 'user' || config.type === 'saas_admin')
+              (config.type === 'user' || config.type === 'saas_admin' || config.type === 'platform_admin')
                 ? { email: credentials.username, password: credentials.password }
                 : credentials
             )
