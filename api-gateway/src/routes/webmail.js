@@ -84,6 +84,9 @@ router.get('/inbox', webmailAuth, requireFeature('email'), async (req, res) => {
     if (folder === 'starred') {
       where = `WHERE to_email = $1 AND tenant_id = $2 AND starred = true AND archived = false`;
       params = [userEmail, tenantId];
+    } else if (folder === 'sent') {
+      where = `WHERE from_email = $1 AND tenant_id = $2 AND folder = 'sent' AND archived = false`;
+      params = [userEmail, tenantId];
     } else {
       where = `WHERE to_email = $1 AND tenant_id = $2 AND folder = $3 AND archived = false`;
       params = [userEmail, tenantId, folder];
@@ -193,9 +196,9 @@ router.post('/send', webmailAuth, requireFeature('email'), async (req, res) => {
     if (recipientResult.rows.length) {
       const recipient = recipientResult.rows[0];
       const inboxInsert = await pool.query(
-        `INSERT INTO emails (tenant_id, from_email, to_email, subject, html_content, text_content, folder, read_status, tracking_token)
-         VALUES ($1, $2, $3, $4, $5, $6, 'inbox', false, $7) RETURNING id`,
-        [String(recipient.tenant_id), fromEmail, to, subject, html_content || '', text_content || '', require('crypto').randomBytes(32).toString('hex')]
+        `INSERT INTO emails (tenant_id, from_email, to_email, cc_email, subject, html_content, text_content, folder, read_status, tracking_token)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'inbox', false, $8) RETURNING id`,
+        [String(recipient.tenant_id), fromEmail, to, cc || '', subject, html_content || '', text_content || '', require('crypto').randomBytes(32).toString('hex')]
       );
       const inboxEmailId = inboxInsert.rows[0].id;
       await applyRulesToEmail(inboxEmailId, to, recipient.tenant_id, fromEmail, subject, text_content || '', pool);
@@ -245,8 +248,21 @@ router.patch('/email/:id/star', webmailAuth, async (req, res) => {
 router.patch('/email/:id/move', webmailAuth, async (req, res) => {
   try {
     await pool.query(
-      'UPDATE emails SET folder = $1 WHERE id = $2 AND to_email = $3',
-      [req.body.folder, req.params.id, req.user.email]
+      'UPDATE emails SET folder = $1 WHERE id = $2 AND (to_email = $3 OR from_email = $3) AND tenant_id = $4',
+      [req.body.folder, req.params.id, req.user.email, String(req.user.tenant_id)]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PATCH /api/v1/webmail/email/:id/spam
+router.patch('/email/:id/spam', webmailAuth, async (req, res) => {
+  try {
+    await pool.query(
+      `UPDATE emails SET folder = 'spam' WHERE id = $1 AND to_email = $2 AND tenant_id = $3`,
+      [req.params.id, req.user.email, String(req.user.tenant_id)]
     );
     res.json({ success: true });
   } catch (err) {
@@ -276,15 +292,23 @@ router.delete('/email/:id', webmailAuth, async (req, res) => {
 // GET /api/v1/webmail/folders/counts
 router.get('/folders/counts', webmailAuth, async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT folder, COUNT(*) as total, COUNT(*) FILTER (WHERE read_status = false) as unread
-       FROM emails
-       WHERE to_email = $1 AND tenant_id = $2 AND archived = false
-       GROUP BY folder`,
-      [req.user.email, String(req.user.tenant_id)]
-    );
+    const [inboxResult, sentResult] = await Promise.all([
+      pool.query(
+        `SELECT folder, COUNT(*) as total, COUNT(*) FILTER (WHERE read_status = false) as unread
+         FROM emails
+         WHERE to_email = $1 AND tenant_id = $2 AND archived = false
+         GROUP BY folder`,
+        [req.user.email, String(req.user.tenant_id)]
+      ),
+      pool.query(
+        `SELECT COUNT(*) as total FROM emails
+         WHERE from_email = $1 AND tenant_id = $2 AND folder = 'sent' AND archived = false`,
+        [req.user.email, String(req.user.tenant_id)]
+      )
+    ]);
     const counts = {};
-    result.rows.forEach(r => { counts[r.folder] = { total: parseInt(r.total), unread: parseInt(r.unread) }; });
+    inboxResult.rows.forEach(r => { counts[r.folder] = { total: parseInt(r.total), unread: parseInt(r.unread) }; });
+    counts['sent'] = { total: parseInt(sentResult.rows[0].count), unread: 0 };
     res.json({ success: true, data: counts });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -802,6 +826,42 @@ router.delete('/scheduled/:id', webmailAuth, async (req, res) => {
       [req.params.id, req.user.email]
     );
     res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/v1/webmail/auth/sso
+router.post('/auth/sso', async (req, res) => {
+  const { sso_token } = req.body;
+  if (!sso_token) return res.status(400).json({ success: false, error: 'sso_token required' });
+  try {
+    const tokenRow = await pool.query(
+      `SELECT * FROM sso_tokens WHERE token=$1 AND used_at IS NULL AND expires_at > NOW()`,
+      [sso_token]
+    );
+    if (!tokenRow.rows.length) return res.status(401).json({ success: false, error: 'Invalid or expired SSO token' });
+    const t = tokenRow.rows[0];
+    await pool.query(`UPDATE sso_tokens SET used_at=NOW() WHERE id=$1`, [t.id]);
+    const userResult = await pool.query(
+      `SELECT tu.*, tc.saas_app_id FROM tenant_users tu
+       JOIN tenant_companies tc ON tc.id = tu.tenant_id
+       WHERE tu.id=$1 AND tu.status='active'`,
+      [t.user_id]
+    );
+    if (!userResult.rows.length) return res.status(404).json({ success: false, error: 'User not found' });
+    const user = userResult.rows[0];
+    const token = jwt.sign(
+      { type: 'user', id: user.id, tenant_id: user.tenant_id, saas_id: user.saas_app_id, email: user.email, role: user.role },
+      process.env.JWT_SECRET,
+      { expiresIn: '8h' }
+    );
+    res.json({
+      success: true,
+      data: {
+        token,
+        user: { id: user.id, email: user.email, full_name: `${user.first_name} ${user.last_name}`, role: user.role, tenant_id: user.tenant_id, type: 'user' },
+        redirect_to: t.redirect_to
+      }
+    });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
