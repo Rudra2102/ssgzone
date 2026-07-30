@@ -95,17 +95,19 @@ function UnifiedLogin() {
               setLoading(false);
               return;
             }
+            if (config.type === 'platform_admin') {
+              localStorage.setItem('platform_admin_token', data.token);
+              localStorage.setItem('user_data', JSON.stringify(data.user));
+              localStorage.setItem('user_role', data.user.role);
+              window.location.href = '/dashboard/employee';
+              return;
+            }
             localStorage.setItem(config.tokenKey, data.data.token);
             if (config.type === 'super_admin') {
               localStorage.setItem('super_admin_token', data.data.token);
               localStorage.setItem('user_data', JSON.stringify(data.data.admin));
               localStorage.setItem('user_role', 'super_admin');
               window.location.href = '/dashboard/super-admin';
-            } else if (config.type === 'platform_admin') {
-              localStorage.setItem('platform_admin_token', data.token);
-              localStorage.setItem('user_data', JSON.stringify(data.user));
-              localStorage.setItem('user_role', data.user.role);
-              window.location.href = '/dashboard/employee';
             } else if (config.type === 'saas_admin') {
               localStorage.setItem('user_role', 'saas_admin');
               localStorage.setItem('user_data', JSON.stringify(data.data.admin));
