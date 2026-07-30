@@ -67,7 +67,7 @@ function SuperAdminDashboard() {
   useEffect(() => {
     fetchAll(); fetchBranding();
     const t = localStorage.getItem('super_admin_token');
-    if (t) fetch('/api/v1/notifications/unread-count', { headers: { Authorization: `Bearer ${t}` } })
+    if (t) fetch('https://api.ssgzone.in/api/v1/notifications/unread-count', { headers: { Authorization: `Bearer ${t}` } })
       .then(r => r.json()).then(d => { if (d.success) setNotifCount(d.data?.count || 0); }).catch(() => {});
   }, []);
 
@@ -147,7 +147,7 @@ function SuperAdminDashboard() {
 
   const fetchNotifications = async () => {
     try {
-      const res = await fetch('/api/v1/notifications?limit=10', { headers: authHeaders });
+      const res = await fetch('https://api.ssgzone.in/api/v1/notifications?limit=10', { headers: authHeaders });
       const data = await res.json();
       if (data.success) {
         setNotifications(data.data || []);
@@ -354,6 +354,9 @@ function SuperAdminDashboard() {
     { section: 'ANALYTICS', items: [
       { id: 'reports', label: 'Reports', icon: '📈' },
       { id: 'analytics', label: 'Email Analytics', icon: '📊' },
+    ]},
+    { section: 'BILLING', items: [
+      { id: 'billing', label: 'Billing', icon: '💳' },
     ]},
     { section: 'SYSTEM', items: [
       { id: 'system-config', label: 'System Config', icon: '⚙' },
@@ -2603,6 +2606,245 @@ function SuperAdminDashboard() {
     );
   };
 
+  const BillingSection = () => {
+    const BAPI = 'https://api.ssgzone.in/api/v1/billing';
+    const [billingTab, setBillingTab] = React.useState('plans');
+    const [plans, setPlans] = React.useState([]);
+    const [overview, setOverview] = React.useState([]);
+    const [overviewStats, setOverviewStats] = React.useState({});
+    const [openPlanDialog, setOpenPlanDialog] = React.useState(false);
+    const [editingPlan, setEditingPlan] = React.useState(null);
+    const [deletingPlan, setDeletingPlan] = React.useState(null);
+    const [saasFilter, setSaasFilter] = React.useState('');
+    const [planForm, setPlanForm] = React.useState({ saas_app_id: '', name: '', slug: '', price_monthly: 0, price_yearly: 0, currency: 'INR', max_users: 10, max_storage_gb: 5, max_emails_per_month: 1000, features: {}, sort_order: 0 });
+    const [saving, setSaving] = React.useState(false);
+
+    const fetchPlans = async () => {
+      const q = saasFilter ? `?saas_app_id=${saasFilter}` : '';
+      const res = await fetch(`${BAPI}/super-admin/plans${q}`, { headers: authHeaders });
+      const data = await res.json();
+      if (data.success) setPlans(data.data);
+    };
+
+    const fetchOverview = async () => {
+      const res = await fetch(`${BAPI}/super-admin/overview`, { headers: authHeaders });
+      const data = await res.json();
+      if (data.success) { setOverview(data.data); setOverviewStats(data.stats || {}); }
+    };
+
+    React.useEffect(() => { fetchPlans(); fetchOverview(); }, [saasFilter]);
+
+    const openCreate = () => {
+      setEditingPlan(null);
+      setPlanForm({ saas_app_id: saasFilter || '', name: '', slug: '', price_monthly: 0, price_yearly: 0, currency: 'INR', max_users: 10, max_storage_gb: 5, max_emails_per_month: 1000, features: {}, sort_order: 0 });
+      setOpenPlanDialog(true);
+    };
+
+    const openEdit = (plan) => {
+      setEditingPlan(plan);
+      setPlanForm({ saas_app_id: plan.saas_app_id, name: plan.name, slug: plan.slug, price_monthly: plan.price_monthly, price_yearly: plan.price_yearly, currency: plan.currency, max_users: plan.max_users, max_storage_gb: plan.max_storage_gb, max_emails_per_month: plan.max_emails_per_month, features: plan.features || {}, sort_order: plan.sort_order || 0 });
+      setOpenPlanDialog(true);
+    };
+
+    const savePlan = async () => {
+      if (!planForm.saas_app_id || !planForm.name || !planForm.slug) return alert('SaaS App, Name and Slug required');
+      setSaving(true);
+      try {
+        const url = editingPlan ? `${BAPI}/super-admin/plans/${editingPlan.id}` : `${BAPI}/super-admin/plans`;
+        const method = editingPlan ? 'PUT' : 'POST';
+        const res = await fetch(url, { method, headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(planForm) });
+        const data = await res.json();
+        if (data.success) { setOpenPlanDialog(false); fetchPlans(); }
+        else alert(data.error);
+      } catch (err) { alert(err.message); }
+      setSaving(false);
+    };
+
+    const deletePlan = async () => {
+      const res = await fetch(`${BAPI}/super-admin/plans/${deletingPlan.id}`, { method: 'DELETE', headers: authHeaders });
+      const data = await res.json();
+      if (data.success) { setDeletingPlan(null); fetchPlans(); }
+      else alert(data.error);
+    };
+
+    const featureKeys = ['email', 'chat', 'whatsapp', 'video', 'drive', 'notifications', 'custom_domain'];
+    const statusColors = { active: { bg: colors.successLight, color: colors.success }, trial: { bg: colors.cyanLight, color: colors.cyan }, past_due: { bg: colors.dangerLight, color: colors.danger }, cancelled: { bg: colors.border, color: colors.textMuted }, suspended: { bg: colors.warningLight, color: colors.warning } };
+    const inputS = { width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 13, color: colors.text, background: colors.bg, outline: 'none', boxSizing: 'border-box', marginBottom: 12 };
+    const labelS = { fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' };
+
+    return (
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: colors.text }}>Billing Management</div>
+            <div style={{ fontSize: 13, color: colors.textMuted }}>Create and manage billing plans for SaaS applications</div>
+          </div>
+          {billingTab === 'plans' && (
+            <button onClick={openCreate} style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>+ Create Plan</button>
+          )}
+        </div>
+
+        {/* Stats */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
+          {[['Active Subscriptions', overviewStats.active_subscriptions, colors.success], ['Trials', overviewStats.trials, colors.cyan], ['Past Due', overviewStats.past_due, colors.danger], ['Unassigned', overviewStats.unassigned, colors.warning]].map(([label, val, color]) => (
+            <div key={label} style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 20, textAlign: 'center' }}>
+              <div style={{ fontSize: 28, fontWeight: 700, color }}>{val || 0}</div>
+              <div style={{ fontSize: 12, color: colors.textMuted }}>{label}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Tabs */}
+        <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: `1px solid ${colors.border}` }}>
+          {[['plans', '💳 Billing Plans'], ['overview', '🏢 Tenant Overview']].map(([id, label]) => (
+            <button key={id} onClick={() => setBillingTab(id)}
+              style={{ padding: '9px 18px', border: 'none', borderBottom: billingTab === id ? `2px solid ${colors.primary}` : '2px solid transparent', background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: billingTab === id ? 700 : 400, color: billingTab === id ? colors.primary : colors.textMuted, marginBottom: -1 }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {billingTab === 'plans' && (
+          <div>
+            <div style={{ marginBottom: 16 }}>
+              <select value={saasFilter} onChange={e => setSaasFilter(e.target.value)}
+                style={{ padding: '9px 14px', border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 13, color: colors.text, background: colors.card, outline: 'none', minWidth: 220 }}>
+                <option value="">All SaaS Applications</option>
+                {saasApps.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </div>
+            <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr style={{ background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                  {['Plan Name', 'SaaS App', 'Monthly', 'Yearly', 'Max Users', 'Storage', 'Tenants', 'Status', 'Actions'].map(h => (
+                    <th key={h} style={{ textAlign: 'left', padding: '12px 16px', color: colors.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {plans.map(p => (
+                    <tr key={p.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                      <td style={{ padding: '12px 16px', fontWeight: 600, color: colors.text }}>
+                        {p.name}
+                        <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: 'monospace' }}>{p.slug}</div>
+                      </td>
+                      <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{p.saas_name}</td>
+                      <td style={{ padding: '12px 16px', color: colors.text, fontWeight: 600 }}>{p.currency} {Number(p.price_monthly).toLocaleString()}</td>
+                      <td style={{ padding: '12px 16px', color: colors.textMuted }}>{p.currency} {Number(p.price_yearly).toLocaleString()}</td>
+                      <td style={{ padding: '12px 16px', color: colors.text }}>{p.max_users}</td>
+                      <td style={{ padding: '12px 16px', color: colors.text }}>{p.max_storage_gb} GB</td>
+                      <td style={{ padding: '12px 16px', color: colors.text }}>{p.tenant_count || 0}</td>
+                      <td style={{ padding: '12px 16px' }}>
+                        <span style={{ background: p.is_active ? colors.successLight : colors.dangerLight, color: p.is_active ? colors.success : colors.danger, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>{p.is_active ? 'Active' : 'Inactive'}</span>
+                      </td>
+                      <td style={{ padding: '12px 16px' }}>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button onClick={() => openEdit(p)} style={{ background: colors.bg, color: colors.text, border: `1px solid ${colors.border}`, borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer' }}>✏ Edit</button>
+                          <button onClick={() => setDeletingPlan(p)} style={{ background: colors.dangerLight, color: colors.danger, border: 'none', borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer' }}>🗑 Delete</button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {plans.length === 0 && <tr><td colSpan={9} style={{ padding: 30, textAlign: 'center', color: colors.textMuted }}>No billing plans yet. Create one to get started.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {billingTab === 'overview' && (
+          <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead><tr style={{ background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                {['Tenant', 'SaaS', 'Plan', 'Monthly Price', 'Billing Cycle', 'Status', 'Next Billing'].map(h => (
+                  <th key={h} style={{ textAlign: 'left', padding: '12px 16px', color: colors.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {overview.map((row, i) => (
+                  <tr key={i} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                    <td style={{ padding: '12px 16px', fontWeight: 600, color: colors.text }}>{row.company_name}</td>
+                    <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{row.saas_name}</td>
+                    <td style={{ padding: '12px 16px', color: colors.text }}>{row.plan_name || <span style={{ color: colors.textMuted }}>—</span>}</td>
+                    <td style={{ padding: '12px 16px', color: colors.text }}>
+                      {row.custom_price ? <span style={{ color: colors.warning }}>{row.currency} {Number(row.custom_price).toLocaleString()} <span style={{ fontSize: 10 }}>(custom)</span></span>
+                        : row.price_monthly ? `${row.currency} ${Number(row.price_monthly).toLocaleString()}` : '—'}
+                    </td>
+                    <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{row.billing_cycle || '—'}</td>
+                    <td style={{ padding: '12px 16px' }}>
+                      {row.billing_status
+                        ? <span style={{ background: (statusColors[row.billing_status] || {}).bg || colors.border, color: (statusColors[row.billing_status] || {}).color || colors.textMuted, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>{row.billing_status}</span>
+                        : <span style={{ color: colors.textMuted, fontSize: 12 }}>Not assigned</span>}
+                    </td>
+                    <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{row.next_billing_date ? new Date(row.next_billing_date).toLocaleDateString() : '—'}</td>
+                  </tr>
+                ))}
+                {overview.length === 0 && <tr><td colSpan={7} style={{ padding: 30, textAlign: 'center', color: colors.textMuted }}>No tenants found</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Create/Edit Plan Dialog */}
+        {openPlanDialog && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setOpenPlanDialog(false)}>
+            <div style={{ background: colors.card, borderRadius: 12, padding: 28, width: 560, maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize: 17, fontWeight: 700, color: colors.text, marginBottom: 20 }}>{editingPlan ? 'Edit Billing Plan' : 'Create Billing Plan'}</div>
+              <label style={labelS}>SaaS Application *</label>
+              <select style={inputS} value={planForm.saas_app_id} onChange={e => setPlanForm(p => ({ ...p, saas_app_id: e.target.value }))} disabled={!!editingPlan}>
+                <option value="">Select SaaS App</option>
+                {saasApps.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div><label style={labelS}>Plan Name *</label><input style={inputS} value={planForm.name} onChange={e => setPlanForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Starter" /></div>
+                <div><label style={labelS}>Slug *</label><input style={inputS} value={planForm.slug} onChange={e => setPlanForm(p => ({ ...p, slug: e.target.value.toLowerCase() }))} placeholder="e.g. starter" disabled={!!editingPlan} /></div>
+                <div><label style={labelS}>Monthly Price</label><input type="number" style={inputS} value={planForm.price_monthly} onChange={e => setPlanForm(p => ({ ...p, price_monthly: parseFloat(e.target.value) || 0 }))} /></div>
+                <div><label style={labelS}>Yearly Price</label><input type="number" style={inputS} value={planForm.price_yearly} onChange={e => setPlanForm(p => ({ ...p, price_yearly: parseFloat(e.target.value) || 0 }))} /></div>
+                <div><label style={labelS}>Max Users</label><input type="number" style={inputS} value={planForm.max_users} onChange={e => setPlanForm(p => ({ ...p, max_users: parseInt(e.target.value) || 10 }))} /></div>
+                <div><label style={labelS}>Storage (GB)</label><input type="number" style={inputS} value={planForm.max_storage_gb} onChange={e => setPlanForm(p => ({ ...p, max_storage_gb: parseInt(e.target.value) || 5 }))} /></div>
+                <div><label style={labelS}>Emails/Month</label><input type="number" style={inputS} value={planForm.max_emails_per_month} onChange={e => setPlanForm(p => ({ ...p, max_emails_per_month: parseInt(e.target.value) || 1000 }))} /></div>
+                <div><label style={labelS}>Currency</label>
+                  <select style={inputS} value={planForm.currency} onChange={e => setPlanForm(p => ({ ...p, currency: e.target.value }))}>
+                    {['INR','USD','EUR','GBP'].map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+              <label style={labelS}>Included Features</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                {featureKeys.map(key => {
+                  const on = planForm.features[key] !== false && planForm.features[key] !== undefined ? planForm.features[key] : false;
+                  return (
+                    <div key={key} onClick={() => setPlanForm(p => ({ ...p, features: { ...p.features, [key]: !on } }))}
+                      style={{ padding: '5px 14px', borderRadius: 20, border: `1px solid ${on ? colors.primary : colors.border}`, background: on ? colors.primaryLight : 'transparent', color: on ? colors.primary : colors.textMuted, fontSize: 12, cursor: 'pointer', fontWeight: on ? 600 : 400 }}>
+                      {on ? '✓' : '+'} {key}
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button style={{ background: colors.bg, color: colors.text, border: `1px solid ${colors.border}`, borderRadius: 8, padding: '10px 20px', fontSize: 13, cursor: 'pointer' }} onClick={() => setOpenPlanDialog(false)}>Cancel</button>
+                <button style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: saving ? 0.7 : 1 }} onClick={savePlan} disabled={saving}>{saving ? 'Saving...' : editingPlan ? 'Update Plan' : 'Create Plan'}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Delete Confirm */}
+        {deletingPlan && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setDeletingPlan(null)}>
+            <div style={{ background: colors.card, borderRadius: 12, padding: 28, width: 400 }} onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize: 17, fontWeight: 700, color: colors.text, marginBottom: 12 }}>Delete Plan</div>
+              <div style={{ fontSize: 13, color: colors.textMuted, marginBottom: 20 }}>Delete <strong>{deletingPlan.name}</strong>? This cannot be undone. Plans assigned to tenants cannot be deleted.</div>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button style={{ background: colors.bg, color: colors.text, border: `1px solid ${colors.border}`, borderRadius: 8, padding: '10px 20px', fontSize: 13, cursor: 'pointer' }} onClick={() => setDeletingPlan(null)}>Cancel</button>
+                <button style={{ background: colors.danger, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }} onClick={deletePlan}>Delete</button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderContent = () => {
     switch (activeSection) {
       case 'dashboard':
@@ -2648,6 +2890,7 @@ function SuperAdminDashboard() {
             </div>
           </div>
         );
+      case 'billing': return <BillingSection />;
       case 'applications': return <ApplicationsSection />;
       case 'tenants': return <TenantsSection />;
       case 'users': return <UsersSection />;

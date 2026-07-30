@@ -21,10 +21,10 @@ function ComposeEmailPanel({ token }) {
   const handleSend = async () => {
     if (!form.to || !form.subject || !form.body) { setStatus('Please fill all fields'); return; }
     try {
-      const res = await fetch('/api/v1/communication/email/send', {
+      const res = await fetch(`${API}/api/v1/tenant-admin/communication/email/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(form)
+        body: JSON.stringify({ to: form.to, subject: form.subject, body: form.body })
       });
       const data = await res.json();
       setStatus(data.success ? 'Email sent successfully!' : (data.error || 'Failed to send'));
@@ -612,55 +612,151 @@ function TenantAdminDashboard() {
 
 
   const BillingSection = () => {
-    const plan = stats.plan_type || userData.plan_type || 'starter';
-    const maxUsers = stats.max_users || 100;
-    const usedUsers = stats.totalUsers || 0;
+    const BAPI = 'https://api.ssgzone.in/api/v1/billing';
+    const [billing, setBilling] = React.useState(null);
+    const [invoices, setInvoices] = React.useState([]);
+    const [loading, setLoading] = React.useState(true);
+
+    React.useEffect(() => {
+      const fetchBilling = async () => {
+        setLoading(true);
+        try {
+          const [bRes, iRes] = await Promise.all([
+            fetch(`${BAPI}/tenant-admin/current`, { headers: auth }),
+            fetch(`${BAPI}/tenant-admin/invoices`, { headers: auth }),
+          ]);
+          const [bData, iData] = await Promise.all([bRes.json(), iRes.json()]);
+          if (bData.success) setBilling(bData.data);
+          if (iData.success) setInvoices(iData.data);
+        } catch (e) { console.error(e); }
+        setLoading(false);
+      };
+      fetchBilling();
+    }, []);
+
+    if (loading) return <div style={{ textAlign: 'center', padding: 60, color: c.textMuted }}>Loading billing info...</div>;
+
+    const plan = billing?.plan_slug || billing?.plan_name?.toLowerCase() || 'starter';
+    const maxUsers = billing?.plan_max_users || billing?.max_users || 100;
+    const usedUsers = parseInt(billing?.active_users) || stats.totalUsers || 0;
     const usagePct = Math.min(100, Math.round((usedUsers / maxUsers) * 100));
-    const planFeatures = {
-      free:         { label: 'Free',         color: '#6b7280', features: ['Email', '5 users', '1GB storage'] },
-      starter:      { label: 'Starter',      color: '#6366f1', features: ['Email + Chat', '25 users', '10GB storage'] },
-      professional: { label: 'Professional', color: '#8b5cf6', features: ['All features', '100 users', '50GB storage'] },
-      enterprise:   { label: 'Enterprise',   color: '#10b981', features: ['All features', 'Unlimited users', 'Unlimited storage'] },
-    };
-    const planInfo = planFeatures[plan] || planFeatures.starter;
+    const effectivePrice = billing?.custom_price || billing?.price_monthly;
+    const currency = billing?.currency || billing?.plan_currency || 'INR';
+    const billingStatus = billing?.billing_status || 'active';
+    const statusColors = { active: { bg: c.successLight, color: c.success }, trial: { bg: '#cffafe', color: '#0891b2' }, past_due: { bg: c.dangerLight, color: c.danger }, cancelled: { bg: '#f3f4f6', color: '#9ca3af' }, suspended: { bg: c.warningLight, color: c.warning } };
+    const invoiceStatusColors = { pending: { bg: c.warningLight, color: c.warning }, paid: { bg: c.successLight, color: c.success }, failed: { bg: c.dangerLight, color: c.danger }, refunded: { bg: '#f3f4f6', color: '#9ca3af' }, waived: { bg: '#ede9fe', color: '#7c3aed' } };
+    const features = billing?.features || {};
+
     return (
       <div>
         <div style={{ fontSize: 22, fontWeight: 700, color: c.text, marginBottom: 20 }}>Billing & Subscription</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
-          <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: 24 }}>
-            <div style={{ fontWeight: 700, fontSize: 15, color: c.text, marginBottom: 16 }}>Current Plan</div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-              <span style={{ background: planInfo.color + '22', color: planInfo.color, borderRadius: 20, padding: '4px 16px', fontSize: 14, fontWeight: 700 }}>{planInfo.label}</span>
-            </div>
-            <div style={{ marginBottom: 16 }}>
-              {planInfo.features.map(f => (
-                <div key={f} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: `1px solid ${c.border}`, fontSize: 13, color: c.text }}>
-                  <span style={{ color: c.success }}>✓</span> {f}
+
+        {!billing ? (
+          <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: 40, textAlign: 'center' }}>
+            <div style={{ fontSize: 36, marginBottom: 12 }}>💳</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: c.text, marginBottom: 8 }}>No billing plan assigned</div>
+            <div style={{ fontSize: 13, color: c.textMuted }}>Contact your administrator to set up a billing plan for your account.</div>
+          </div>
+        ) : (
+          <div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+              {/* Current Plan */}
+              <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: 24 }}>
+                <div style={{ fontWeight: 700, fontSize: 15, color: c.text, marginBottom: 16 }}>Current Plan</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                  <span style={{ background: c.primaryLight, color: c.primary, borderRadius: 20, padding: '4px 16px', fontSize: 15, fontWeight: 700 }}>{billing.plan_name || 'Custom'}</span>
+                  <span style={{ background: (statusColors[billingStatus] || {}).bg || '#f3f4f6', color: (statusColors[billingStatus] || {}).color || '#9ca3af', borderRadius: 20, padding: '3px 10px', fontSize: 12, fontWeight: 600 }}>{billingStatus}</span>
                 </div>
-              ))}
-            </div>
-            {['free','starter'].includes(plan) && (
-              <div style={{ background: '#eff6ff', border: '1px solid #c7d2fe', borderRadius: 8, padding: '12px 16px', fontSize: 13, color: '#4338ca' }}>
-                ℹ️ Contact your administrator to upgrade your plan.
+                {effectivePrice !== null && effectivePrice !== undefined && (
+                  <div style={{ fontSize: 28, fontWeight: 700, color: c.text, marginBottom: 4 }}>
+                    {currency} {Number(effectivePrice).toLocaleString()}
+                    <span style={{ fontSize: 13, fontWeight: 400, color: c.textMuted }}>/{billing.billing_cycle === 'yearly' ? 'yr' : 'mo'}</span>
+                    {billing.custom_price && <span style={{ fontSize: 11, color: c.warning, marginLeft: 8 }}>(custom pricing)</span>}
+                  </div>
+                )}
+                <div style={{ marginTop: 12 }}>
+                  {[['Max Users', billing.plan_max_users || '—'], ['Storage', billing.max_storage_gb ? `${billing.max_storage_gb} GB` : '—'], ['Emails/Month', billing.max_emails_per_month ? Number(billing.max_emails_per_month).toLocaleString() : '—']].map(([label, val]) => (
+                    <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: `1px solid ${c.border}`, fontSize: 13 }}>
+                      <span style={{ color: c.textMuted }}>{label}</span>
+                      <span style={{ fontWeight: 600, color: c.text }}>{val}</span>
+                    </div>
+                  ))}
+                </div>
+                {Object.keys(features).length > 0 && (
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: c.textMuted, marginBottom: 8 }}>INCLUDED FEATURES</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {Object.entries(features).map(([key, val]) => (
+                        <span key={key} style={{ background: val ? c.successLight : '#f3f4f6', color: val ? c.success : '#9ca3af', borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>
+                          {val ? '✓' : '✕'} {key}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: 24 }}>
-            <div style={{ fontWeight: 700, fontSize: 15, color: c.text, marginBottom: 16 }}>User Usage</div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 13 }}>
-              <span style={{ color: c.textMuted }}>Users</span>
-              <span style={{ fontWeight: 600, color: c.text }}>{usedUsers} / {maxUsers}</span>
+
+              {/* Usage & Dates */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: 24 }}>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: c.text, marginBottom: 16 }}>User Usage</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 13 }}>
+                    <span style={{ color: c.textMuted }}>Active Users</span>
+                    <span style={{ fontWeight: 600, color: c.text }}>{usedUsers} / {maxUsers}</span>
+                  </div>
+                  <div style={{ background: c.border, borderRadius: 20, height: 10, marginBottom: 8, overflow: 'hidden' }}>
+                    <div style={{ width: `${usagePct}%`, height: '100%', background: usagePct > 80 ? c.danger : usagePct > 60 ? c.warning : c.success, borderRadius: 20, transition: 'width 0.3s' }} />
+                  </div>
+                  <div style={{ fontSize: 12, color: usagePct > 80 ? c.danger : c.textMuted }}>{usagePct}% of user limit used</div>
+                </div>
+                <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: 24 }}>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: c.text, marginBottom: 12 }}>Billing Dates</div>
+                  {[['Billing Cycle', billing.billing_cycle || '—'], ['Current Period Start', billing.current_period_start ? new Date(billing.current_period_start).toLocaleDateString() : '—'], ['Current Period End', billing.current_period_end ? new Date(billing.current_period_end).toLocaleDateString() : '—'], ['Next Billing Date', billing.next_billing_date ? new Date(billing.next_billing_date).toLocaleDateString() : '—'], ...(billing.trial_ends_at ? [['Trial Ends', new Date(billing.trial_ends_at).toLocaleDateString()]] : [])].map(([label, val]) => (
+                    <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: `1px solid ${c.border}`, fontSize: 13 }}>
+                      <span style={{ color: c.textMuted }}>{label}</span>
+                      <span style={{ fontWeight: 600, color: c.text }}>{val}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
-            <div style={{ background: c.border, borderRadius: 20, height: 10, marginBottom: 12, overflow: 'hidden' }}>
-              <div style={{ width: `${usagePct}%`, height: '100%', background: usagePct > 80 ? c.danger : usagePct > 60 ? c.warning : c.success, borderRadius: 20, transition: 'width 0.3s' }} />
+
+            {/* Upgrade CTA */}
+            <div style={{ background: '#eff6ff', border: '1px solid #c7d2fe', borderRadius: 12, padding: '16px 20px', marginBottom: 20, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#4338ca', marginBottom: 4 }}>Need more users or features?</div>
+                <div style={{ fontSize: 13, color: '#6366f1' }}>Contact your SaaS administrator to upgrade your plan.</div>
+              </div>
+              <a href="mailto:support@ssgzone.in" style={{ background: '#4338ca', color: '#fff', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>Contact Admin</a>
             </div>
-            <div style={{ fontSize: 12, color: usagePct > 80 ? c.danger : c.textMuted }}>{usagePct}% of user limit used</div>
+
+            {/* Invoice History */}
+            <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, overflow: 'hidden' }}>
+              <div style={{ padding: '16px 20px', borderBottom: `1px solid ${c.border}`, fontWeight: 700, fontSize: 15, color: c.text }}>Invoice History</div>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr style={{ background: c.bg, borderBottom: `1px solid ${c.border}` }}>
+                  {['Period', 'Plan', 'Amount', 'Status', 'Paid At'].map(h => (
+                    <th key={h} style={{ textAlign: 'left', padding: '10px 16px', color: c.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {invoices.map(inv => (
+                    <tr key={inv.id} style={{ borderBottom: `1px solid ${c.border}` }}>
+                      <td style={{ padding: '10px 16px', color: c.textMuted, fontSize: 12 }}>{new Date(inv.billing_period_start).toLocaleDateString()} – {new Date(inv.billing_period_end).toLocaleDateString()}</td>
+                      <td style={{ padding: '10px 16px', color: c.text }}>{inv.plan_name || '—'}</td>
+                      <td style={{ padding: '10px 16px', fontWeight: 600, color: c.text }}>{inv.currency} {Number(inv.amount).toLocaleString()}</td>
+                      <td style={{ padding: '10px 16px' }}>
+                        <span style={{ background: (invoiceStatusColors[inv.status] || {}).bg || '#f3f4f6', color: (invoiceStatusColors[inv.status] || {}).color || '#9ca3af', borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>{inv.status}</span>
+                      </td>
+                      <td style={{ padding: '10px 16px', color: c.textMuted, fontSize: 12 }}>{inv.paid_at ? new Date(inv.paid_at).toLocaleDateString() : '—'}</td>
+                    </tr>
+                  ))}
+                  {!invoices.length && <tr><td colSpan={5} style={{ padding: 30, textAlign: 'center', color: c.textMuted }}>No invoices yet</td></tr>}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-        <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, padding: 24 }}>
-          <div style={{ fontWeight: 700, fontSize: 15, color: c.text, marginBottom: 16 }}>Invoice History</div>
-          <div style={{ textAlign: 'center', padding: '40px 0', color: c.textMuted, fontSize: 13 }}>📄 Invoice history coming soon</div>
-        </div>
+        )}
       </div>
     );
   };

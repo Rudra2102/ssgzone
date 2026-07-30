@@ -183,42 +183,36 @@ router.get('/users', tenantAdminAuth, async (req, res) => {
 // Create User
 router.post('/users', tenantAdminAuth, async (req, res) => {
   try {
-    const { username, email, first_name, last_name, department_id, role, phone } = req.body;
+    const { username, email, first_name, last_name, department_id, role, phone, password_override } = req.body;
     const tenantId = req.admin.tenantId;
-    
-    // Validate required fields
+
     if (!username || !email || !first_name || !last_name) {
       return res.status(400).json({ success: false, error: 'Missing required fields' });
     }
-    
-    // Check if username or email already exists
+
     const existingUser = await db.query(
       'SELECT id FROM tenant_users WHERE (username = $1 OR email = $2) AND tenant_id = $3',
       [username, email, tenantId]
     );
-    
     if (existingUser.rows.length > 0) {
       return res.status(400).json({ success: false, error: 'Username or email already exists' });
     }
-    
-    // Generate default password
-    const defaultPassword = 'Welcome@123';
-    const hashedPassword = await bcrypt.hash(defaultPassword, 10);
-    
+
+    // Use password_override when provided (invite flow), otherwise default
+    const hashedPassword = await bcrypt.hash(password_override || 'Welcome@123', 10);
+
     const insertQuery = await db.query(`
       INSERT INTO tenant_users (tenant_id, username, email, first_name, last_name, phone, role, department_id, password_hash, status)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING id, username, email, first_name, last_name, phone, role, status, created_at
     `, [tenantId, username, email, first_name, last_name, phone, role || 'user', department_id || null, hashedPassword, 'active']);
-    
+
     const newUser = insertQuery.rows[0];
-    
-    // Get department name
     if (department_id) {
       const deptQuery = await db.query('SELECT name FROM departments WHERE id = $1', [department_id]);
       newUser.department_name = deptQuery.rows[0]?.name;
     }
-    
+
     res.json({ success: true, data: newUser, message: 'Employee created successfully' });
   } catch (error) {
     console.error('Create user error:', error);
@@ -609,10 +603,10 @@ router.get('/users/:id/permissions', tenantAdminAuth, async (req, res) => {
       `SELECT fd.feature_key, fd.feature_name, fd.category,
               COALESCE(ufp.is_enabled, tfp.is_enabled, sfp.is_enabled, false) as is_enabled
        FROM feature_definitions fd
-       JOIN tenant_companies tc ON tc.id=$1
-       LEFT JOIN saas_feature_permissions sfp ON sfp.feature_key=fd.feature_key AND sfp.saas_id=tc.saas_app_id
-       LEFT JOIN tenant_feature_permissions tfp ON tfp.feature_key=fd.feature_key AND tfp.tenant_id=$1
-       LEFT JOIN user_feature_permissions ufp ON ufp.feature_key=fd.feature_key AND ufp.user_id=$2
+       CROSS JOIN (SELECT saas_app_id FROM tenant_companies WHERE id = $1) tc
+       LEFT JOIN saas_feature_permissions sfp ON sfp.feature_key = fd.feature_key AND sfp.saas_id = tc.saas_app_id
+       LEFT JOIN tenant_feature_permissions tfp ON tfp.feature_key = fd.feature_key AND tfp.tenant_id = $1
+       LEFT JOIN user_feature_permissions ufp ON ufp.feature_key = fd.feature_key AND ufp.user_id = $2
        ORDER BY fd.category, fd.feature_key`,
       [req.admin.tenantId, req.params.id]
     );

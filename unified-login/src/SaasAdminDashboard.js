@@ -227,6 +227,7 @@ export default function SaasAdminDashboard() {
     { id: 'developer', label: 'Developer', icon: '⚡' },
     { id: 'branding', label: 'White-label', icon: '🎨' },
     { id: 'security', label: 'Security', icon: '🔒' },
+    { id: 'billing', label: 'Billing', icon: '💳' },
   ];
 
   const Sidebar = () => (
@@ -875,16 +876,310 @@ export default function SaasAdminDashboard() {
       </div>
     );
   };
+  const BillingView = () => {
+    const BAPI = 'https://api.ssgzone.in/api/v1/billing';
+    const [billingTab, setBillingTab] = React.useState('tenants');
+    const [plans, setPlans] = React.useState([]);
+    const [tenantBilling, setTenantBilling] = React.useState([]);
+    const [assignModal, setAssignModal] = React.useState(null); // tenant row
+    const [invoicesModal, setInvoicesModal] = React.useState(null); // tenant row
+    const [invoices, setInvoices] = React.useState([]);
+    const [newInvoiceForm, setNewInvoiceForm] = React.useState({ amount: '', billing_period_start: '', billing_period_end: '', status: 'pending', notes: '' });
+    const [showNewInvoice, setShowNewInvoice] = React.useState(false);
+    const [assignForm, setAssignForm] = React.useState({ plan_id: '', billing_cycle: 'monthly', custom_price: '', currency: 'INR', status: 'active', next_billing_date: '', trial_ends_at: '', notes: '' });
+    const [saving, setSaving] = React.useState(false);
+
+    const fetchPlans = async () => {
+      const res = await fetch(`${BAPI}/saas-admin/plans`, { headers: auth });
+      const data = await res.json();
+      if (data.success) setPlans(data.data);
+    };
+
+    const fetchTenantBilling = async () => {
+      const res = await fetch(`${BAPI}/saas-admin/tenants`, { headers: auth });
+      const data = await res.json();
+      if (data.success) setTenantBilling(data.data);
+    };
+
+    React.useEffect(() => { fetchPlans(); fetchTenantBilling(); }, []);
+
+    const openAssign = (row) => {
+      setAssignModal(row);
+      setAssignForm({
+        plan_id: row.plan_id || '',
+        billing_cycle: row.billing_cycle || 'monthly',
+        custom_price: row.custom_price || '',
+        currency: row.currency || 'INR',
+        status: row.billing_status || 'active',
+        next_billing_date: row.next_billing_date ? row.next_billing_date.slice(0, 10) : '',
+        trial_ends_at: row.trial_ends_at ? row.trial_ends_at.slice(0, 10) : '',
+        notes: row.notes || ''
+      });
+    };
+
+    const saveAssign = async () => {
+      setSaving(true);
+      try {
+        const res = await fetch(`${BAPI}/saas-admin/tenants/${assignModal.id}/assign`, {
+          method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...assignForm, custom_price: assignForm.custom_price ? parseFloat(assignForm.custom_price) : null })
+        });
+        const data = await res.json();
+        if (data.success) { setAssignModal(null); fetchTenantBilling(); }
+        else alert(data.error);
+      } catch (err) { alert(err.message); }
+      setSaving(false);
+    };
+
+    const removeBilling = async (tenantId) => {
+      if (!window.confirm('Remove billing assignment for this tenant?')) return;
+      const res = await fetch(`${BAPI}/saas-admin/tenants/${tenantId}/billing`, { method: 'DELETE', headers: auth });
+      const data = await res.json();
+      if (data.success) fetchTenantBilling();
+      else alert(data.error);
+    };
+
+    const openInvoices = async (row) => {
+      setInvoicesModal(row);
+      setShowNewInvoice(false);
+      setNewInvoiceForm({ amount: '', billing_period_start: '', billing_period_end: '', status: 'pending', notes: '' });
+      const res = await fetch(`${BAPI}/saas-admin/invoices/${row.id}`, { headers: auth });
+      const data = await res.json();
+      if (data.success) setInvoices(data.data);
+    };
+
+    const createInvoice = async () => {
+      if (!newInvoiceForm.amount || !newInvoiceForm.billing_period_start || !newInvoiceForm.billing_period_end) return alert('Amount and billing period required');
+      const res = await fetch(`${BAPI}/saas-admin/invoices`, {
+        method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenant_id: invoicesModal.id, plan_id: invoicesModal.plan_id || null, ...newInvoiceForm, amount: parseFloat(newInvoiceForm.amount) })
+      });
+      const data = await res.json();
+      if (data.success) { setInvoices(prev => [data.data, ...prev]); setShowNewInvoice(false); }
+      else alert(data.error);
+    };
+
+    const markInvoice = async (invoiceId, status) => {
+      const res = await fetch(`${BAPI}/saas-admin/invoices/${invoiceId}/status`, {
+        method: 'PATCH', headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status })
+      });
+      const data = await res.json();
+      if (data.success) setInvoices(prev => prev.map(i => i.id === invoiceId ? data.data : i));
+      else alert(data.error);
+    };
+
+    const statusColors = { active: { bg: c.successLight, color: c.success }, trial: { bg: '#cffafe', color: '#0891b2' }, past_due: { bg: c.dangerLight, color: c.danger }, cancelled: { bg: '#f3f4f6', color: '#9ca3af' }, suspended: { bg: c.warningLight, color: c.warning } };
+    const invoiceStatusColors = { pending: { bg: c.warningLight, color: c.warning }, paid: { bg: c.successLight, color: c.success }, failed: { bg: c.dangerLight, color: c.danger }, refunded: { bg: '#f3f4f6', color: '#9ca3af' }, waived: { bg: '#ede9fe', color: '#7c3aed' } };
+    const inputS = { width: '100%', padding: '10px 12px', border: `1px solid ${c.border}`, borderRadius: 8, fontSize: 13, color: c.text, background: c.bg, outline: 'none', boxSizing: 'border-box', marginBottom: 12 };
+    const labelS = { fontSize: 12, fontWeight: 600, color: c.textMuted, marginBottom: 4, display: 'block' };
+
+    return (
+      <div>
+        <div style={{ fontSize: 22, fontWeight: 700, color: c.text, marginBottom: 4 }}>Billing</div>
+        <div style={{ fontSize: 13, color: c.textMuted, marginBottom: 20 }}>Manage billing plans and tenant subscriptions</div>
+
+        <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: `1px solid ${c.border}` }}>
+          {[['tenants', '🏢 Tenant Billing'], ['plans', '💳 Available Plans']].map(([id, label]) => (
+            <button key={id} onClick={() => setBillingTab(id)}
+              style={{ padding: '9px 18px', border: 'none', borderBottom: billingTab === id ? `2px solid ${c.primary}` : '2px solid transparent', background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: billingTab === id ? 700 : 400, color: billingTab === id ? c.primary : c.textMuted, marginBottom: -1 }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {billingTab === 'tenants' && (
+          <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead><tr style={{ background: c.bg, borderBottom: `1px solid ${c.border}` }}>
+                {['Tenant', 'Plan', 'Price', 'Cycle', 'Status', 'Next Billing', 'Actions'].map(h => (
+                  <th key={h} style={{ textAlign: 'left', padding: '12px 16px', color: c.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {tenantBilling.map(row => (
+                  <tr key={row.id} style={{ borderBottom: `1px solid ${c.border}` }}>
+                    <td style={{ padding: '12px 16px', fontWeight: 600, color: c.text }}>{row.company_name}</td>
+                    <td style={{ padding: '12px 16px', color: c.text }}>{row.plan_name || <span style={{ color: c.textMuted }}>Not assigned</span>}</td>
+                    <td style={{ padding: '12px 16px', color: c.text }}>
+                      {row.custom_price
+                        ? <span>{row.currency} {Number(row.custom_price).toLocaleString()} <span style={{ fontSize: 10, color: c.warning }}>(custom)</span></span>
+                        : row.price_monthly ? `${row.plan_currency || 'INR'} ${Number(row.price_monthly).toLocaleString()}` : '—'}
+                    </td>
+                    <td style={{ padding: '12px 16px', color: c.textMuted, fontSize: 12 }}>{row.billing_cycle || '—'}</td>
+                    <td style={{ padding: '12px 16px' }}>
+                      {row.billing_status
+                        ? <span style={{ background: (statusColors[row.billing_status] || {}).bg || '#f3f4f6', color: (statusColors[row.billing_status] || {}).color || '#9ca3af', borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>{row.billing_status}</span>
+                        : <span style={{ color: c.textMuted, fontSize: 12 }}>Unassigned</span>}
+                    </td>
+                    <td style={{ padding: '12px 16px', color: c.textMuted, fontSize: 12 }}>{row.next_billing_date ? new Date(row.next_billing_date).toLocaleDateString() : '—'}</td>
+                    <td style={{ padding: '12px 16px' }}>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button onClick={() => openAssign(row)} style={{ background: 'none', border: `1px solid ${c.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: c.text }}>✏️ Assign</button>
+                        <button onClick={() => openInvoices(row)} style={{ background: 'none', border: `1px solid ${c.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: c.text }}>📄 Invoices</button>
+                        {row.billing_id && <button onClick={() => removeBilling(row.id)} style={{ background: 'none', border: `1px solid ${c.danger}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: c.danger }}>✕ Remove</button>}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                {!tenantBilling.length && <tr><td colSpan={7} style={{ padding: 30, textAlign: 'center', color: c.textMuted }}>No tenants found</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {billingTab === 'plans' && (
+          <div style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 12, overflow: 'hidden' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead><tr style={{ background: c.bg, borderBottom: `1px solid ${c.border}` }}>
+                {['Plan', 'Monthly', 'Yearly', 'Max Users', 'Storage', 'Emails/Month', 'Tenants'].map(h => (
+                  <th key={h} style={{ textAlign: 'left', padding: '12px 16px', color: c.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>
+                ))}
+              </tr></thead>
+              <tbody>
+                {plans.map(p => (
+                  <tr key={p.id} style={{ borderBottom: `1px solid ${c.border}` }}>
+                    <td style={{ padding: '12px 16px', fontWeight: 600, color: c.text }}>{p.name}<div style={{ fontSize: 11, color: c.textMuted, fontFamily: 'monospace' }}>{p.slug}</div></td>
+                    <td style={{ padding: '12px 16px', color: c.text, fontWeight: 600 }}>{p.currency} {Number(p.price_monthly).toLocaleString()}</td>
+                    <td style={{ padding: '12px 16px', color: c.textMuted }}>{p.currency} {Number(p.price_yearly).toLocaleString()}</td>
+                    <td style={{ padding: '12px 16px', color: c.text }}>{p.max_users}</td>
+                    <td style={{ padding: '12px 16px', color: c.text }}>{p.max_storage_gb} GB</td>
+                    <td style={{ padding: '12px 16px', color: c.text }}>{Number(p.max_emails_per_month).toLocaleString()}</td>
+                    <td style={{ padding: '12px 16px', color: c.text }}>{p.tenant_count || 0}</td>
+                  </tr>
+                ))}
+                {!plans.length && <tr><td colSpan={7} style={{ padding: 30, textAlign: 'center', color: c.textMuted }}>No plans available. Ask your Super Admin to create billing plans.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Assign Plan Modal */}
+        {assignModal && (
+          <div style={{ position: 'fixed', inset: 0, background: '#0008', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setAssignModal(null)}>
+            <div style={{ background: c.card, borderRadius: 14, padding: 28, width: 500, maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize: 17, fontWeight: 700, color: c.text, marginBottom: 4 }}>Assign Billing — {assignModal.company_name}</div>
+              <div style={{ fontSize: 13, color: c.textMuted, marginBottom: 20 }}>Set billing plan and terms for this tenant</div>
+              <label style={labelS}>Plan</label>
+              <select style={inputS} value={assignForm.plan_id} onChange={e => setAssignForm(p => ({ ...p, plan_id: e.target.value }))}>
+                <option value="">— No Plan —</option>
+                {plans.map(p => <option key={p.id} value={p.id}>{p.name} ({p.currency} {Number(p.price_monthly).toLocaleString()}/mo)</option>)}
+              </select>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={labelS}>Billing Cycle</label>
+                  <select style={inputS} value={assignForm.billing_cycle} onChange={e => setAssignForm(p => ({ ...p, billing_cycle: e.target.value }))}>
+                    <option value="monthly">Monthly</option>
+                    <option value="yearly">Yearly</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={labelS}>Status</label>
+                  <select style={inputS} value={assignForm.status} onChange={e => setAssignForm(p => ({ ...p, status: e.target.value }))}>
+                    {['active','trial','past_due','cancelled','suspended'].map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={labelS}>Custom Price (override)</label>
+                  <input type="number" style={inputS} value={assignForm.custom_price} onChange={e => setAssignForm(p => ({ ...p, custom_price: e.target.value }))} placeholder="Leave blank to use plan price" />
+                </div>
+                <div>
+                  <label style={labelS}>Currency</label>
+                  <select style={inputS} value={assignForm.currency} onChange={e => setAssignForm(p => ({ ...p, currency: e.target.value }))}>
+                    {['INR','USD','EUR','GBP'].map(cur => <option key={cur} value={cur}>{cur}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={labelS}>Next Billing Date</label>
+                  <input type="date" style={inputS} value={assignForm.next_billing_date} onChange={e => setAssignForm(p => ({ ...p, next_billing_date: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={labelS}>Trial Ends At</label>
+                  <input type="date" style={inputS} value={assignForm.trial_ends_at} onChange={e => setAssignForm(p => ({ ...p, trial_ends_at: e.target.value }))} />
+                </div>
+              </div>
+              <label style={labelS}>Notes</label>
+              <textarea style={{ ...inputS, height: 70, resize: 'vertical' }} value={assignForm.notes} onChange={e => setAssignForm(p => ({ ...p, notes: e.target.value }))} placeholder="Internal notes..." />
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button style={{ background: 'none', border: `1px solid ${c.border}`, borderRadius: 8, padding: '10px 20px', fontSize: 13, cursor: 'pointer', color: c.text }} onClick={() => setAssignModal(null)}>Cancel</button>
+                <button style={{ background: c.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: saving ? 0.7 : 1 }} onClick={saveAssign} disabled={saving}>{saving ? 'Saving...' : 'Save Assignment'}</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Invoices Modal */}
+        {invoicesModal && (
+          <div style={{ position: 'fixed', inset: 0, background: '#0008', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setInvoicesModal(null)}>
+            <div style={{ background: c.card, borderRadius: 14, padding: 28, width: 680, maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                <div style={{ fontSize: 17, fontWeight: 700, color: c.text }}>📄 Invoices — {invoicesModal.company_name}</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => setShowNewInvoice(p => !p)} style={{ background: c.primary, color: '#fff', border: 'none', borderRadius: 7, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>+ New Invoice</button>
+                  <button onClick={() => setInvoicesModal(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: c.textMuted }}>✕</button>
+                </div>
+              </div>
+              {showNewInvoice && (
+                <div style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 10, padding: 16, marginBottom: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: c.text, marginBottom: 12 }}>New Invoice</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+                    <div><label style={labelS}>Amount *</label><input type="number" style={inputS} value={newInvoiceForm.amount} onChange={e => setNewInvoiceForm(p => ({ ...p, amount: e.target.value }))} placeholder="0.00" /></div>
+                    <div><label style={labelS}>Period Start *</label><input type="date" style={inputS} value={newInvoiceForm.billing_period_start} onChange={e => setNewInvoiceForm(p => ({ ...p, billing_period_start: e.target.value }))} /></div>
+                    <div><label style={labelS}>Period End *</label><input type="date" style={inputS} value={newInvoiceForm.billing_period_end} onChange={e => setNewInvoiceForm(p => ({ ...p, billing_period_end: e.target.value }))} /></div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button onClick={createInvoice} style={{ background: c.primary, color: '#fff', border: 'none', borderRadius: 7, padding: '8px 18px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Create</button>
+                    <button onClick={() => setShowNewInvoice(false)} style={{ background: 'none', border: `1px solid ${c.border}`, borderRadius: 7, padding: '8px 14px', fontSize: 12, cursor: 'pointer', color: c.textMuted }}>Cancel</button>
+                  </div>
+                </div>
+              )}
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr style={{ background: c.bg, borderBottom: `1px solid ${c.border}` }}>
+                  {['Period', 'Plan', 'Amount', 'Status', 'Paid At', 'Actions'].map(h => (
+                    <th key={h} style={{ textAlign: 'left', padding: '10px 12px', color: c.textMuted, fontWeight: 600, fontSize: 11 }}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {invoices.map(inv => (
+                    <tr key={inv.id} style={{ borderBottom: `1px solid ${c.border}` }}>
+                      <td style={{ padding: '10px 12px', color: c.textMuted, fontSize: 12 }}>{new Date(inv.billing_period_start).toLocaleDateString()} – {new Date(inv.billing_period_end).toLocaleDateString()}</td>
+                      <td style={{ padding: '10px 12px', color: c.text }}>{inv.plan_name || '—'}</td>
+                      <td style={{ padding: '10px 12px', fontWeight: 600, color: c.text }}>{inv.currency} {Number(inv.amount).toLocaleString()}</td>
+                      <td style={{ padding: '10px 12px' }}>
+                        <span style={{ background: (invoiceStatusColors[inv.status] || {}).bg || '#f3f4f6', color: (invoiceStatusColors[inv.status] || {}).color || '#9ca3af', borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>{inv.status}</span>
+                      </td>
+                      <td style={{ padding: '10px 12px', color: c.textMuted, fontSize: 12 }}>{inv.paid_at ? new Date(inv.paid_at).toLocaleDateString() : '—'}</td>
+                      <td style={{ padding: '10px 12px' }}>
+                        {inv.status === 'pending' && (
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <button onClick={() => markInvoice(inv.id, 'paid')} style={{ background: c.successLight, color: c.success, border: 'none', borderRadius: 5, padding: '3px 8px', fontSize: 11, cursor: 'pointer' }}>Mark Paid</button>
+                            <button onClick={() => markInvoice(inv.id, 'waived')} style={{ background: '#ede9fe', color: '#7c3aed', border: 'none', borderRadius: 5, padding: '3px 8px', fontSize: 11, cursor: 'pointer' }}>Waive</button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                  {!invoices.length && <tr><td colSpan={6} style={{ padding: 20, textAlign: 'center', color: c.textMuted }}>No invoices yet</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const SaasComposePanel = () => {
     const [form, setForm] = React.useState({ to: '', subject: '', body: '' });
     const [status, setStatus] = React.useState('');
     const send = async () => {
       if (!form.to || !form.subject || !form.body) { setStatus('Fill all fields'); return; }
       try {
-        const res = await fetch(`${API}/api/v1/communication/email/send`, {
+        const res = await fetch(`${API}/api/saas-admin/email/send`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ tenant_id: user.saas_id, from: user.email, to: form.to, subject: form.subject, html: form.body, text: form.body })
+          body: JSON.stringify({ to_email: form.to, subject: form.subject, body: form.body })
         });
         const data = await res.json();
         setStatus(data.success ? 'Sent!' : (data.error || 'Failed'));
@@ -928,6 +1223,7 @@ export default function SaasAdminDashboard() {
       case 'branding': return <BrandingView />;
       case 'compose': return <SaasComposePanel />;
       case 'security': return <SecurityView />;
+      case 'billing': return <BillingView />;
       default: return <Dashboard />;
     }
   };
