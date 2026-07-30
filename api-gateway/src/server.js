@@ -61,7 +61,7 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'super-admin-secret') 
 
 const rateLimit = require('express-rate-limit');
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
+  windowMs: 1 * 60 * 1000,
   max: 50,
   message: { success: false, error: 'Too many login attempts. Try again in 15 minutes.' },
   standardHeaders: true,
