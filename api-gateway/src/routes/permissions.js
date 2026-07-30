@@ -17,7 +17,7 @@ function authAs(type) {
     const token = req.headers.authorization?.replace('Bearer ', '');
     if (!token) return res.status(401).json({ error: 'Token required' });
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'super-admin-secret');
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
       if (decoded.type !== type) return res.status(403).json({ error: `${type} access required` });
       req.decoded = decoded;
       next();
@@ -168,7 +168,7 @@ router.get('/effective', async (req, res) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) return res.status(401).json({ error: 'Token required' });
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'super-admin-secret');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const { getEffectivePermissions } = require('../middleware/permissions');
     const perms = await getEffectivePermissions(decoded.saas_id, decoded.tenant_id, decoded.id);
     res.json({ success: true, data: perms });

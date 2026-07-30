@@ -15,7 +15,7 @@ const auth = (req, res, next) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) return res.status(401).json({ success: false, error: 'Token required' });
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET || 'super-admin-secret');
+    req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch { res.status(401).json({ success: false, error: 'Invalid token' }); }
 };
@@ -77,6 +77,20 @@ router.post('/create', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// GET /api/v1/notifications/unread-count
+router.get('/unread-count', auth, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT COUNT(*) FROM user_notifications WHERE user_id=$1 AND is_read=false`,
+      [String(req.user.id)]
+    );
+    res.json({ success: true, data: { count: parseInt(result.rows[0].count) } });
+  } catch (err) {
+    if (err.code === '42P01') return res.json({ success: true, data: { count: 0 } });
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // GET /api/v1/notifications?limit=20
 router.get('/', auth, async (req, res) => {
   const limit = parseInt(req.query.limit) || 20;
@@ -90,7 +104,10 @@ router.get('/', auth, async (req, res) => {
       [String(req.user.id)]
     );
     res.json({ success: true, data: result.rows, unread: parseInt(unread.rows[0].count) });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) {
+    if (err.code === '42P01') return res.json({ success: true, data: [], unread: 0 });
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // PATCH /api/v1/notifications/:id/read

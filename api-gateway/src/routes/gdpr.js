@@ -8,16 +8,14 @@ const pool = new Pool({
   port: parseInt(process.env.DB_PORT) || 5432,
   database: process.env.DB_NAME,
   user: process.env.DB_USER,
-  password: String(process.env.DB_PASSWORD)
+  password: process.env.DB_PASSWORD
 });
-
-const JWT_SECRET = process.env.JWT_SECRET || 'super-admin-secret';
 
 const superAdminAuth = (req, res, next) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) return res.status(401).json({ success: false, error: 'Token required' });
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
     if (decoded.type !== 'super_admin') return res.status(403).json({ success: false, error: 'Super admin only' });
     req.user = decoded;
     next();
@@ -33,7 +31,10 @@ router.get('/requests', superAdminAuth, async (req, res) => {
        ORDER BY q.requested_at DESC LIMIT 100`
     );
     res.json({ success: true, data: result.rows });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) {
+    if (err.code === '42P01') return res.json({ success: true, data: [] });
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 router.post('/requests', superAdminAuth, async (req, res) => {
@@ -45,12 +46,10 @@ router.post('/requests', superAdminAuth, async (req, res) => {
     );
     if (!userResult.rows.length) return res.status(404).json({ success: false, error: 'User not found' });
     const userId = userResult.rows[0].id;
-
     const existing = await pool.query(
       `SELECT id FROM gdpr_deletion_queue WHERE user_email=$1 AND status IN ('pending','processing')`, [user_email]
     );
     if (existing.rows.length) return res.status(409).json({ success: false, error: 'Deletion request already pending' });
-
     const result = await pool.query(
       `INSERT INTO gdpr_deletion_queue (user_id, user_email, tenant_id, requested_by, scheduled_for)
        VALUES ($1, $2, $3, $4, NOW() + ($5 || ' hours')::INTERVAL) RETURNING *`,
@@ -77,7 +76,10 @@ router.get('/requests/:id/audit', superAdminAuth, async (req, res) => {
       `SELECT * FROM gdpr_deletion_audit WHERE deletion_id=$1 ORDER BY completed_at ASC`, [req.params.id]
     );
     res.json({ success: true, data: result.rows });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) {
+    if (err.code === '42P01') return res.json({ success: true, data: [] });
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 router.post('/requests/:id/execute', superAdminAuth, async (req, res) => {
@@ -98,7 +100,10 @@ router.get('/retention', superAdminAuth, async (req, res) => {
        JOIN tenant_companies tc ON tc.id = r.tenant_id ORDER BY tc.company_name`
     );
     res.json({ success: true, data: result.rows });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) {
+    if (err.code === '42P01') return res.json({ success: true, data: [] });
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 router.put('/retention/:tenant_id', superAdminAuth, async (req, res) => {
@@ -129,7 +134,10 @@ router.get('/stats', superAdminAuth, async (req, res) => {
        FROM gdpr_deletion_queue`
     );
     res.json({ success: true, data: result.rows[0] });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+  } catch (err) {
+    if (err.code === '42P01') return res.json({ success: true, data: { pending: 0, processing: 0, completed: 0, failed: 0, cancelled: 0, total: 0 } });
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 module.exports = router;
