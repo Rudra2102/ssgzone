@@ -4,7 +4,7 @@
 -- Billing plans created by SuperAdmin per SaaS application
 CREATE TABLE IF NOT EXISTS saas_billing_plans (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    saas_app_id UUID NOT NULL REFERENCES saas_applications(id) ON DELETE CASCADE,
+    saas_app_id INTEGER NOT NULL REFERENCES saas_applications(id) ON DELETE CASCADE,
     name VARCHAR(100) NOT NULL,                        -- e.g. "Starter", "Pro", "Enterprise"
     slug VARCHAR(50) NOT NULL,                         -- e.g. "starter", "pro", "enterprise"
     price_monthly NUMERIC(10,2) NOT NULL DEFAULT 0,

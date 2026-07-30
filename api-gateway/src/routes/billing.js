@@ -39,7 +39,7 @@ router.get('/super-admin/plans', superAdminAuth, async (req, res) => {
       JOIN saas_applications s ON s.id = p.saas_app_id
       ${where}
       ORDER BY p.saas_app_id, p.sort_order, p.created_at
-    `, params);
+    `, saas_app_id ? [parseInt(saas_app_id)] : []);
     res.json({ success: true, data: result.rows });
   } catch (err) {
     console.error(err);
@@ -56,7 +56,7 @@ router.post('/super-admin/plans', superAdminAuth, async (req, res) => {
       INSERT INTO saas_billing_plans (saas_app_id, name, slug, price_monthly, price_yearly, currency, max_users, max_storage_gb, max_emails_per_month, features, sort_order, created_by)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
       RETURNING *
-    `, [saas_app_id, name, slug.toLowerCase(), price_monthly || 0, price_yearly || 0, currency || 'INR', max_users || 10, max_storage_gb || 5, max_emails_per_month || 1000, JSON.stringify(features || {}), sort_order || 0, req.user.id]);
+    `, [parseInt(saas_app_id), name, slug.toLowerCase(), price_monthly || 0, price_yearly || 0, currency || 'INR', max_users || 10, max_storage_gb || 5, max_emails_per_month || 1000, JSON.stringify(features || {}), sort_order || 0, req.user.id]);
     res.json({ success: true, data: result.rows[0] });
   } catch (err) {
     if (err.code === '23505') return res.status(400).json({ success: false, error: 'Plan slug already exists for this SaaS app' });
@@ -136,7 +136,7 @@ router.get('/saas-admin/plans', saasAdminAuth, async (req, res) => {
       FROM saas_billing_plans p
       WHERE p.saas_app_id = $1 AND p.is_active = TRUE
       ORDER BY p.sort_order, p.price_monthly
-    `, [req.user.saas_id]);
+    `, [parseInt(req.user.saas_id)]);
     res.json({ success: true, data: result.rows });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -157,7 +157,7 @@ router.get('/saas-admin/tenants', saasAdminAuth, async (req, res) => {
       LEFT JOIN saas_billing_plans p ON p.id = tb.plan_id
       WHERE tc.saas_app_id = $1
       ORDER BY tc.company_name
-    `, [req.user.saas_id]);
+    `, [parseInt(req.user.saas_id)]);
     res.json({ success: true, data: result.rows });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -171,12 +171,12 @@ router.post('/saas-admin/tenants/:tenantId/assign', saasAdminAuth, async (req, r
     const { plan_id, billing_cycle, custom_price, currency, status, next_billing_date, trial_ends_at, notes } = req.body;
 
     // Verify tenant belongs to this SaaS
-    const tenantCheck = await pool.query('SELECT id FROM tenant_companies WHERE id=$1 AND saas_app_id=$2', [tenantId, req.user.saas_id]);
+    const tenantCheck = await pool.query('SELECT id FROM tenant_companies WHERE id=$1 AND saas_app_id=$2', [tenantId, parseInt(req.user.saas_id)]);
     if (!tenantCheck.rows.length) return res.status(403).json({ success: false, error: 'Tenant not found in your SaaS' });
 
     // Verify plan belongs to this SaaS (if provided)
     if (plan_id) {
-      const planCheck = await pool.query('SELECT id FROM saas_billing_plans WHERE id=$1 AND saas_app_id=$2', [plan_id, req.user.saas_id]);
+      const planCheck = await pool.query('SELECT id FROM saas_billing_plans WHERE id=$1 AND saas_app_id=$2', [plan_id, parseInt(req.user.saas_id)]);
       if (!planCheck.rows.length) return res.status(403).json({ success: false, error: 'Plan not found in your SaaS' });
     }
 
@@ -207,7 +207,7 @@ router.post('/saas-admin/tenants/:tenantId/assign', saasAdminAuth, async (req, r
 // DELETE /api/v1/billing/saas-admin/tenants/:tenantId/billing — remove billing assignment
 router.delete('/saas-admin/tenants/:tenantId/billing', saasAdminAuth, async (req, res) => {
   try {
-    const tenantCheck = await pool.query('SELECT id FROM tenant_companies WHERE id=$1 AND saas_app_id=$2', [req.params.tenantId, req.user.saas_id]);
+    const tenantCheck = await pool.query('SELECT id FROM tenant_companies WHERE id=$1 AND saas_app_id=$2', [req.params.tenantId, parseInt(req.user.saas_id)]);
     if (!tenantCheck.rows.length) return res.status(403).json({ success: false, error: 'Tenant not found in your SaaS' });
     await pool.query('DELETE FROM tenant_billing WHERE tenant_id=$1', [req.params.tenantId]);
     res.json({ success: true });
@@ -219,7 +219,7 @@ router.delete('/saas-admin/tenants/:tenantId/billing', saasAdminAuth, async (req
 // GET /api/v1/billing/saas-admin/invoices/:tenantId
 router.get('/saas-admin/invoices/:tenantId', saasAdminAuth, async (req, res) => {
   try {
-    const tenantCheck = await pool.query('SELECT id FROM tenant_companies WHERE id=$1 AND saas_app_id=$2', [req.params.tenantId, req.user.saas_id]);
+    const tenantCheck = await pool.query('SELECT id FROM tenant_companies WHERE id=$1 AND saas_app_id=$2', [req.params.tenantId, parseInt(req.user.saas_id)]);
     if (!tenantCheck.rows.length) return res.status(403).json({ success: false, error: 'Forbidden' });
     const result = await pool.query(`
       SELECT i.*, p.name AS plan_name FROM billing_invoices i
@@ -237,7 +237,7 @@ router.post('/saas-admin/invoices', saasAdminAuth, async (req, res) => {
   try {
     const { tenant_id, plan_id, amount, currency, billing_period_start, billing_period_end, status, notes } = req.body;
     if (!tenant_id || !amount || !billing_period_start || !billing_period_end) return res.status(400).json({ success: false, error: 'tenant_id, amount, billing_period_start, billing_period_end required' });
-    const tenantCheck = await pool.query('SELECT id FROM tenant_companies WHERE id=$1 AND saas_app_id=$2', [tenant_id, req.user.saas_id]);
+    const tenantCheck = await pool.query('SELECT id FROM tenant_companies WHERE id=$1 AND saas_app_id=$2', [tenant_id, parseInt(req.user.saas_id)]);
     if (!tenantCheck.rows.length) return res.status(403).json({ success: false, error: 'Forbidden' });
     const result = await pool.query(`
       INSERT INTO billing_invoices (tenant_id, plan_id, amount, currency, billing_period_start, billing_period_end, status, notes)
