@@ -27,6 +27,11 @@ const db = new Pool({
   password: process.env.DB_PASSWORD
 });
 
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  if (process.env.NODE_ENV === 'production') { console.error('FATAL: JWT_SECRET not set'); process.exit(1); }
+}
+
 // Super Admin Authentication
 router.post('/auth/login', async (req, res) => {
   try {
@@ -94,7 +99,7 @@ router.post('/auth/login', async (req, res) => {
     if (admin.totp_enabled) {
       const tempToken = jwt.sign(
         { type: 'super_admin_2fa_pending', adminId: admin.id },
-        process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'),
+        process.env.JWT_SECRET,
         { expiresIn: '5m' }
       );
       return res.json({ success: true, requires_2fa: true, temp_token: tempToken });
@@ -103,7 +108,7 @@ router.post('/auth/login', async (req, res) => {
     // Generate JWT token
     const token = jwt.sign(
       { type: 'super_admin', adminId: admin.id, username: admin.username, email: admin.email, role: admin.role },
-      process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'),
+      process.env.JWT_SECRET,
       { expiresIn: '8h' }
     );
     res.json({
@@ -144,7 +149,7 @@ const superAdminAuth = async (req, res, next) => {
       });
     }
     
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'));
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
     
     if (decoded.type !== 'super_admin') {
       return res.status(403).json({
@@ -443,7 +448,7 @@ router.post('/tenants', superAdminAuth, requireRole(), async (req, res) => {
     const { company_name, slug, saas_app_id, admin_name, admin_email, max_users } = req.body;
     
     // Get SaaS app details
-    const saasAppResult = await db.query('SELECT slug FROM saas_applications WHERE id = $1', [saas_app_id]);
+    const saasAppResult = await db.query('SELECT saas_slug FROM saas_applications WHERE id = $1', [saas_app_id]);
     if (saasAppResult.rows.length === 0) {
       return res.status(400).json({
         success: false,
@@ -451,7 +456,7 @@ router.post('/tenants', superAdminAuth, requireRole(), async (req, res) => {
       });
     }
     
-    const saasSlug = saasAppResult.rows[0].slug;
+    const saasSlug = saasAppResult.rows[0].saas_slug;
     const domain = `${slug}.${saasSlug}.ssgzone.in`;
     const tenantAdminEmail = `admin@${domain}`;
     
@@ -533,7 +538,7 @@ router.post('/saas-apps/:id/regenerate-keys', superAdminAuth, async (req, res) =
     const { id } = req.params;
     
     // Get current SaaS app
-    const saasApp = await db.query('SELECT slug, webhook_url FROM saas_applications WHERE id = $1', [id]);
+    const saasApp = await db.query('SELECT saas_slug as slug, webhook_url FROM saas_applications WHERE id = $1', [id]);
     
     if (saasApp.rows.length === 0) {
       return res.status(404).json({
@@ -635,7 +640,7 @@ router.post('/tenants/bulk-create', superAdminAuth, async (req, res) => {
         }
         
         // Get SaaS app details
-        const saasAppResult = await db.query('SELECT slug FROM saas_applications WHERE id = $1', [saas_app_id]);
+        const saasAppResult = await db.query('SELECT saas_slug FROM saas_applications WHERE id = $1', [saas_app_id]);
         if (saasAppResult.rows.length === 0) {
           results.failed.push({
             tenant,
@@ -644,7 +649,7 @@ router.post('/tenants/bulk-create', superAdminAuth, async (req, res) => {
           continue;
         }
         
-        const saasSlug = saasAppResult.rows[0].slug;
+        const saasSlug = saasAppResult.rows[0].saas_slug;
         const domain = `${slug}.${saasSlug}.ssgzone.in`;
         const tenantAdminEmail = `admin@${domain}`;
         
@@ -875,7 +880,7 @@ router.post('/tenants/import-csv', superAdminAuth, async (req, res) => {
         }
         
         // Get SaaS app details
-        const saasAppResult = await db.query('SELECT slug FROM saas_applications WHERE id = $1', [saas_app_id]);
+        const saasAppResult = await db.query('SELECT saas_slug FROM saas_applications WHERE id = $1', [saas_app_id]);
         if (saasAppResult.rows.length === 0) {
           results.failed.push({
             tenant,
@@ -884,7 +889,7 @@ router.post('/tenants/import-csv', superAdminAuth, async (req, res) => {
           continue;
         }
         
-        const saasSlug = saasAppResult.rows[0].slug;
+        const saasSlug = saasAppResult.rows[0].saas_slug;
         const domain = `${slug}.${saasSlug}.ssgzone.in`;
         const tenantAdminEmail = `admin@${domain}`;
         
@@ -994,7 +999,7 @@ router.post('/2fa/verify', async (req, res) => {
   if (!temp_token || !totp_token) return res.status(400).json({ success: false, error: 'temp_token and totp_token required' });
   try {
     let decoded;
-    try { decoded = jwt.verify(temp_token, process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret')); }
+    try { decoded = jwt.verify(temp_token, process.env.JWT_SECRET); }
     catch { return res.status(401).json({ success: false, error: 'Invalid or expired temp token' }); }
     if (decoded.type !== 'super_admin_2fa_pending') return res.status(401).json({ success: false, error: 'Invalid token type' });
     let admin = (await db.query('SELECT * FROM super_admins WHERE id=$1 AND status=$2', [decoded.adminId, 'active'])).rows[0];
@@ -1009,7 +1014,7 @@ router.post('/2fa/verify', async (req, res) => {
     const role = isEmployee ? admin.role : 'super_admin';
     const token = jwt.sign(
       { type: 'super_admin', adminId: admin.id, username: admin.username, email: admin.email, role },
-      process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'),
+      process.env.JWT_SECRET,
       { expiresIn: '8h' }
     );
     res.json({ success: true, data: { token, admin: { id: admin.id, username: admin.username, email: admin.email, full_name: admin.full_name, role, type: 'super_admin' } } });

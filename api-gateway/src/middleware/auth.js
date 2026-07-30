@@ -11,7 +11,7 @@ const authMiddleware = (req, res, next) => {
       return res.status(401).json({ error: 'Unauthorized', message: 'Invalid authorization header format' });
     }
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = { id: decoded.id, email: decoded.email, tenant_id: decoded.tenant_id, full_name: decoded.full_name, role: decoded.role };
+    req.user = { id: decoded.id, email: decoded.email, tenant_id: decoded.tenant_id, full_name: decoded.full_name, role: decoded.role, type: decoded.type };
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
@@ -30,6 +30,12 @@ module.exports.authenticateToken = authMiddleware;
 module.exports.requireTenantAdmin = (req, res, next) => {
   if (req.user?.role !== 'admin' && req.user?.role !== 'tenant_admin') {
     return res.status(403).json({ error: 'Forbidden', message: 'Admin access required' });
+  }
+  next();
+};
+module.exports.requirePlatformAdmin = (req, res, next) => {
+  if (req.user?.type !== 'platform_admin') {
+    return res.status(403).json({ error: 'Forbidden', message: 'Platform admin access required' });
   }
   next();
 };

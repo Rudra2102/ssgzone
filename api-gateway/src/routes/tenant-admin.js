@@ -13,6 +13,11 @@ const db = new Pool({
   password: process.env.DB_PASSWORD
 });
 
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  if (process.env.NODE_ENV === 'production') { console.error('FATAL: JWT_SECRET not set'); process.exit(1); }
+}
+
 // Tenant Admin Login
 router.post('/auth/login', async (req, res) => {
   try {
@@ -48,7 +53,7 @@ router.post('/auth/login', async (req, res) => {
     if (user.totp_enabled) {
       const tempToken = jwt.sign(
         { type: 'tenant_admin_2fa_pending', adminId: user.id },
-        process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'),
+        process.env.JWT_SECRET,
         { expiresIn: '5m' }
       );
       return res.json({ success: true, requires_2fa: true, temp_token: tempToken });
@@ -59,7 +64,7 @@ router.post('/auth/login', async (req, res) => {
 
     const token = jwt.sign(
       { type: 'tenant_admin', id: user.id, adminId: user.id, tenant_id: user.tenant_id, tenantId: user.tenant_id, saas_id: saasId, username: user.username, role: user.role },
-      process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'),
+      process.env.JWT_SECRET,
       { expiresIn: '8h' }
     );
     
@@ -94,7 +99,7 @@ const tenantAdminAuth = async (req, res, next) => {
       return res.status(401).json({ success: false, error: 'Token required' });
     }
     
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'));
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
     if (decoded.type !== 'tenant_admin') {
       return res.status(403).json({ success: false, error: 'Tenant admin access required' });
     }
@@ -445,23 +450,15 @@ router.delete('/departments/:id', tenantAdminAuth, async (req, res) => {
 router.get('/communication/settings', tenantAdminAuth, async (req, res) => {
   try {
     const tenantId = req.admin.tenantId;
-    
-    const settingsQuery = await db.query(
-      'SELECT settings FROM tenant_communication_settings WHERE tenant_id = $1',
+    const result = await db.query(
+      `SELECT email_enabled, chat_enabled, whatsapp_enabled, notifications_enabled
+       FROM tenant_communication_settings WHERE tenant_id = $1`,
       [tenantId]
     );
-    
-    const defaultSettings = {
-      email_enabled: true,
-      chat_enabled: true,
-      whatsapp_enabled: false,
-      notifications_enabled: true
-    };
-    
-    const settings = settingsQuery.rows[0]?.settings || defaultSettings;
-    
-    res.json({ success: true, data: settings });
+    const defaultSettings = { email_enabled: true, chat_enabled: true, whatsapp_enabled: false, notifications_enabled: true };
+    res.json({ success: true, data: result.rows[0] || defaultSettings });
   } catch (error) {
+    if (error.code === '42P01') return res.json({ success: true, data: { email_enabled: true, chat_enabled: true, whatsapp_enabled: false, notifications_enabled: true } });
     console.error('Get communication settings error:', error);
     res.status(500).json({ success: false, error: error.message });
   }
@@ -471,16 +468,15 @@ router.get('/communication/settings', tenantAdminAuth, async (req, res) => {
 router.put('/communication/settings', tenantAdminAuth, async (req, res) => {
   try {
     const tenantId = req.admin.tenantId;
-    const settings = req.body;
-    
-    await db.query(`
-      INSERT INTO tenant_communication_settings (tenant_id, settings)
-      VALUES ($1, $2)
-      ON CONFLICT (tenant_id)
-      DO UPDATE SET settings = $2, updated_at = CURRENT_TIMESTAMP
-    `, [tenantId, JSON.stringify(settings)]);
-    
-    res.json({ success: true, data: settings });
+    const { email_enabled, chat_enabled, whatsapp_enabled, notifications_enabled } = req.body;
+    await db.query(
+      `INSERT INTO tenant_communication_settings (tenant_id, email_enabled, chat_enabled, whatsapp_enabled, notifications_enabled)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (tenant_id) DO UPDATE
+       SET email_enabled=$2, chat_enabled=$3, whatsapp_enabled=$4, notifications_enabled=$5, updated_at=NOW()`,
+      [tenantId, email_enabled ?? true, chat_enabled ?? true, whatsapp_enabled ?? false, notifications_enabled ?? true]
+    );
+    res.json({ success: true, data: { email_enabled, chat_enabled, whatsapp_enabled, notifications_enabled } });
   } catch (error) {
     console.error('Update communication settings error:', error);
     res.status(500).json({ success: false, error: error.message });
@@ -582,7 +578,7 @@ router.post('/2fa/verify', async (req, res) => {
   if (!temp_token || !totp_token) return res.status(400).json({ success: false, error: 'temp_token and totp_token required' });
   try {
     let decoded;
-    try { decoded = jwt.verify(temp_token, process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret')); }
+    try { decoded = jwt.verify(temp_token, process.env.JWT_SECRET); }
     catch { return res.status(401).json({ success: false, error: 'Invalid or expired temp token' }); }
     if (decoded.type !== 'tenant_admin_2fa_pending') return res.status(401).json({ success: false, error: 'Invalid token type' });
     const result = await db.query(
@@ -597,7 +593,7 @@ router.post('/2fa/verify', async (req, res) => {
     if (!valid) return res.status(401).json({ success: false, error: 'Invalid 2FA code' });
     const token = jwt.sign(
       { type: 'tenant_admin', id: user.id, adminId: user.id, tenant_id: user.tenant_id, tenantId: user.tenant_id, saas_id: user.saas_app_id, username: user.username, role: user.role },
-      process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'),
+      process.env.JWT_SECRET,
       { expiresIn: '8h' }
     );
     res.json({ success: true, data: { token, admin: { id: user.id, username: user.username, email: user.email, full_name: `${user.first_name} ${user.last_name}`, tenantId: user.tenant_id, company_name: user.company_name, company_slug: user.company_slug, role: user.role, type: 'tenant_admin' } } });

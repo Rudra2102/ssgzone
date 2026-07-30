@@ -71,10 +71,11 @@ function UnifiedLogin() {
     setError('');
     try {
       const endpoints = [
-        { type: 'super_admin',  endpoint: 'https://api.ssgzone.in/api/v1/super-admin/auth/login',  tokenKey: 'super_admin_token' },
-        { type: 'saas_admin',   endpoint: 'https://api.ssgzone.in/api/saas-admin/login',            tokenKey: 'saas_admin_token' },
-        { type: 'tenant_admin', endpoint: 'https://api.ssgzone.in/api/v1/tenant-admin/auth/login',  tokenKey: 'tenant_admin_token' },
-        { type: 'user',         endpoint: 'https://api.ssgzone.in/api/v1/webmail/auth/login',       tokenKey: 'webmail_token' },
+        { type: 'super_admin',    endpoint: 'https://api.ssgzone.in/api/v1/super-admin/auth/login',  tokenKey: 'super_admin_token' },
+        { type: 'platform_admin', endpoint: 'https://api.ssgzone.in/api/v1/employee/auth/login',     tokenKey: 'platform_admin_token' },
+        { type: 'saas_admin',     endpoint: 'https://api.ssgzone.in/api/saas-admin/login',            tokenKey: 'saas_admin_token' },
+        { type: 'tenant_admin',   endpoint: 'https://api.ssgzone.in/api/v1/tenant-admin/auth/login',  tokenKey: 'tenant_admin_token' },
+        { type: 'user',           endpoint: 'https://api.ssgzone.in/api/v1/webmail/auth/login',       tokenKey: 'webmail_token' },
       ];
       for (const config of endpoints) {
         try {
@@ -98,15 +99,13 @@ function UnifiedLogin() {
             if (config.type === 'super_admin') {
               localStorage.setItem('super_admin_token', data.data.token);
               localStorage.setItem('user_data', JSON.stringify(data.data.admin));
-              try {
-                const payload = JSON.parse(atob(data.data.token.split('.')[1]));
-                const role = payload.role || 'super_admin';
-                localStorage.setItem('user_role', role);
-                window.location.href = role === 'super_admin' ? '/dashboard/super-admin' : '/dashboard/employee';
-              } catch(e) {
-                localStorage.setItem('user_role', 'super_admin');
-                window.location.href = '/dashboard/super-admin';
-              }
+              localStorage.setItem('user_role', 'super_admin');
+              window.location.href = '/dashboard/super-admin';
+            } else if (config.type === 'platform_admin') {
+              localStorage.setItem('platform_admin_token', data.token);
+              localStorage.setItem('user_data', JSON.stringify(data.user));
+              localStorage.setItem('user_role', data.user.role);
+              window.location.href = '/dashboard/employee';
             } else if (config.type === 'saas_admin') {
               localStorage.setItem('user_role', 'saas_admin');
               localStorage.setItem('user_data', JSON.stringify(data.data.admin));

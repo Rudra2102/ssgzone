@@ -36,6 +36,7 @@ const contactsRoutes = require('./routes/contacts');
 const signaturesRoutes = require('./routes/signatures');
 const whatsappRoutes = require('./routes/whatsapp');
 const notificationsRoutes = require('./routes/notifications');
+const employeeRoutes = require('./routes/employee');
 const calendarRoutes = require('./routes/calendar');
 // const searchRoutes = require('./routes/search');
 // const attachmentsRoutes = require('./routes/attachments');
@@ -74,7 +75,7 @@ const twoFALimiter = rateLimit({
   legacyHeaders: false
 });
 
-const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://mail.ssgzone.in,https://api.ssgzone.in').split(',');
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://ssgzone.in,https://www.ssgzone.in,https://mail.ssgzone.in,https://api.ssgzone.in').split(',');
 
 const app = express();
 const PORT = process.env.API_PORT || 4000;
@@ -122,6 +123,7 @@ app.get('/test', (req, res) => {
 // Auth rate limiting
 app.use('/api/v1/super-admin/auth/login', authLimiter);
 app.use('/api/v1/super-admin/auth', authLimiter);
+app.use('/api/v1/employee/auth/login', authLimiter);
 app.use('/api/saas-admin/login', authLimiter);
 app.use('/api/v1/tenant-admin/auth/login', authLimiter);
 app.use('/api/v1/tenant-admin/auth', authLimiter);
@@ -161,6 +163,7 @@ app.use('/api/v1/whatsapp', whatsappRoutes);
 app.use('/api/v1/notifications', notificationsRoutes);
 app.use('/api/v1/calendar', calendarRoutes);
 app.use('/api/v1/saas/integration', saasIntegrationRoutes);
+app.use('/api/v1/employee', employeeRoutes);
 // app.use('/api/v1/webhooks', webhooksRoutes);
 // app.use('/api/v1/search', searchRoutes);
 // app.use('/api/v1/retention', retentionRoutes);

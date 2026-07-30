@@ -16,11 +16,16 @@ const pool = new Pool({
   password: String(process.env.DB_PASSWORD)
 });
 
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  if (process.env.NODE_ENV === 'production') { console.error('FATAL: JWT_SECRET not set'); process.exit(1); }
+}
+
 const webmailAuth = (req, res, next) => {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) return res.status(401).json({ success: false, error: 'Token required' });
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'));
+    req.user = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch {
     res.status(401).json({ success: false, error: 'Invalid token' });
@@ -49,7 +54,7 @@ router.post('/auth/login', async (req, res) => {
     if (user.totp_enabled) {
       const tempToken = jwt.sign(
         { type: 'webmail_2fa_pending', userId: user.id },
-        process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'),
+        process.env.JWT_SECRET,
         { expiresIn: '5m' }
       );
       return res.json({ success: true, requires_2fa: true, temp_token: tempToken });
@@ -57,7 +62,7 @@ router.post('/auth/login', async (req, res) => {
 
     const token = jwt.sign(
       { type: 'user', id: user.id, tenant_id: user.tenant_id, saas_id: user.saas_app_id, email: user.email, role: user.role },
-      process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'),
+      process.env.JWT_SECRET,
       { expiresIn: '8h' }
     );
     res.json({
@@ -598,7 +603,7 @@ router.post('/2fa/verify', async (req, res) => {
   if (!temp_token || !totp_token) return res.status(400).json({ success: false, error: 'temp_token and totp_token required' });
   try {
     let decoded;
-    try { decoded = jwt.verify(temp_token, process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret')); }
+    try { decoded = jwt.verify(temp_token, process.env.JWT_SECRET); }
     catch { return res.status(401).json({ success: false, error: 'Invalid or expired temp token' }); }
     if (decoded.type !== 'webmail_2fa_pending') return res.status(401).json({ success: false, error: 'Invalid token type' });
     const result = await pool.query(
@@ -613,7 +618,7 @@ router.post('/2fa/verify', async (req, res) => {
     if (!valid) return res.status(401).json({ success: false, error: 'Invalid 2FA code' });
     const token = jwt.sign(
       { type: 'user', id: user.id, tenant_id: user.tenant_id, saas_id: user.saas_app_id, email: user.email, role: user.role },
-      process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'),
+      process.env.JWT_SECRET,
       { expiresIn: '8h' }
     );
     res.json({ success: true, data: { token, user: { id: user.id, email: user.email, full_name: `${user.first_name} ${user.last_name}`, role: user.role, tenant_id: user.tenant_id, type: 'user' } } });
@@ -799,7 +804,7 @@ router.post('/auth/refresh', webmailAuth, async (req, res) => {
     const { id, tenant_id, saas_id, email, role, type } = req.user;
     const token = jwt.sign(
       { type, id, tenant_id, saas_id, email, role },
-      process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET not set'); })() : 'super-admin-secret'),
+      process.env.JWT_SECRET,
       { expiresIn: '8h' }
     );
     res.json({ success: true, data: { token } });
