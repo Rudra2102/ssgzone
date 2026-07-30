@@ -221,6 +221,7 @@ export default function SaasAdminDashboard() {
     { id: 'dashboard', label: 'Dashboard', icon: '📊' },
     { id: 'tenants', label: 'Tenants', icon: '🏢' },
     { id: 'analytics', label: 'Analytics', icon: '📈' },
+    { id: 'compose', label: 'Compose Email', icon: '✉️' },
     { id: 'permissions', label: 'Tenant Permissions', icon: '🔑' },
     { id: 'api-keys', label: 'API Keys', icon: '🗝' },
     { id: 'developer', label: 'Developer', icon: '⚡' },
@@ -874,6 +875,48 @@ export default function SaasAdminDashboard() {
       </div>
     );
   };
+  const SaasComposePanel = () => {
+    const [form, setForm] = React.useState({ to: '', subject: '', body: '' });
+    const [status, setStatus] = React.useState('');
+    const send = async () => {
+      if (!form.to || !form.subject || !form.body) { setStatus('Fill all fields'); return; }
+      try {
+        const res = await fetch(`${API}/api/v1/communication/email/send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ tenant_id: user.saas_id, from: user.email, to: form.to, subject: form.subject, html: form.body, text: form.body })
+        });
+        const data = await res.json();
+        setStatus(data.success ? 'Sent!' : (data.error || 'Failed'));
+        if (data.success) setForm({ to: '', subject: '', body: '' });
+      } catch { setStatus('Network error'); }
+    };
+    return (
+      <div>
+        <div style={{ fontSize: 22, fontWeight: 700, color: c.text, marginBottom: 20 }}>Compose Email</div>
+        <div style={{ background: c.card, borderRadius: 8, padding: 24, border: `1px solid ${c.border}`, maxWidth: 600 }}>
+          {['to', 'subject'].map(f => (
+            <div key={f} style={{ marginBottom: 14 }}>
+              <label style={{ display: 'block', marginBottom: 5, fontWeight: 500, fontSize: 13, textTransform: 'capitalize', color: c.textMuted }}>{f}</label>
+              <input value={form[f]} onChange={e => setForm(p => ({ ...p, [f]: e.target.value }))}
+                style={{ width: '100%', padding: '8px 12px', border: `1px solid ${c.border}`, borderRadius: 6, fontSize: 13, boxSizing: 'border-box', outline: 'none', background: c.bg, color: c.text }} />
+            </div>
+          ))}
+          <div style={{ marginBottom: 14 }}>
+            <label style={{ display: 'block', marginBottom: 5, fontWeight: 500, fontSize: 13, color: c.textMuted }}>Message</label>
+            <textarea value={form.body} onChange={e => setForm(p => ({ ...p, body: e.target.value }))}
+              rows={7} style={{ width: '100%', padding: '8px 12px', border: `1px solid ${c.border}`, borderRadius: 6, fontSize: 13, resize: 'vertical', boxSizing: 'border-box', outline: 'none', background: c.bg, color: c.text }} />
+          </div>
+          {status && <p style={{ color: status === 'Sent!' ? c.success : c.danger, marginBottom: 12, fontSize: 13 }}>{status}</p>}
+          <button onClick={send}
+            style={{ background: c.primary, color: '#fff', border: 'none', padding: '10px 24px', borderRadius: 6, cursor: 'pointer', fontSize: 14, fontWeight: 600 }}>
+            Send Email
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   const renderSection = () => {
     switch (section) {
       case 'dashboard': return <Dashboard />;
@@ -883,6 +926,7 @@ export default function SaasAdminDashboard() {
       case 'api-keys': return <ApiKeysView />;
       case 'developer': return <DeveloperView />;
       case 'branding': return <BrandingView />;
+      case 'compose': return <SaasComposePanel />;
       case 'security': return <SecurityView />;
       default: return <Dashboard />;
     }
@@ -894,6 +938,38 @@ export default function SaasAdminDashboard() {
       <div style={{ marginLeft: 220, flex: 1, padding: 28 }}>
         {renderSection()}
       </div>
+
+      {dnsModal && (
+        <div style={{ position: 'fixed', inset: 0, background: '#0008', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ background: c.card, borderRadius: 14, padding: 28, width: 520, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px #0003' }}>
+            <div style={{ fontSize: 17, fontWeight: 700, color: c.text, marginBottom: 4 }}>✅ Tenant Created!</div>
+            <div style={{ fontSize: 13, color: c.textMuted, marginBottom: 4 }}>Domain: <code style={{ fontFamily: 'monospace', background: c.bg, padding: '2px 6px', borderRadius: 4 }}>{dnsModal.domain}</code></div>
+            {dnsModal.password && <div style={{ fontSize: 13, color: c.textMuted, marginBottom: 16 }}>Admin password: <code style={{ fontFamily: 'monospace', background: c.bg, padding: '2px 6px', borderRadius: 4 }}>{dnsModal.password}</code></div>}
+            <div style={{ fontSize: 13, fontWeight: 600, color: c.text, marginBottom: 12 }}>Add these DNS records at your domain provider:</div>
+            {[
+              { type: 'MX',    name: dnsModal.domain,              value: 'mail.ssgzone.in',                                    note: 'Priority: 10' },
+              { type: 'TXT',   name: dnsModal.domain,              value: 'v=spf1 include:ssgzone.in ~all',                     note: 'SPF' },
+              { type: 'TXT',   name: `_dmarc.${dnsModal.domain}`, value: 'v=DMARC1; p=none; rua=mailto:dmarc@ssgzone.in',      note: 'DMARC' },
+              { type: 'CNAME', name: `mail.${dnsModal.domain}`,   value: 'mail.ssgzone.in',                                    note: 'Webmail' },
+            ].map((r, i) => (
+              <div key={i} style={{ background: c.bg, border: `1px solid ${c.border}`, borderRadius: 8, padding: '10px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ background: c.primaryLight, color: c.primary, borderRadius: 4, padding: '2px 7px', fontSize: 11, fontWeight: 700, minWidth: 44, textAlign: 'center' }}>{r.type}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 11, color: c.textMuted, marginBottom: 2 }}>{r.name} {r.note && <span style={{ color: c.warning }}>({r.note})</span>}</div>
+                  <div style={{ fontFamily: 'monospace', fontSize: 12, color: c.text, wordBreak: 'break-all' }}>{r.value}</div>
+                </div>
+                <button onClick={() => navigator.clipboard.writeText(r.value)}
+                  style={{ background: c.card, border: `1px solid ${c.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: c.textMuted, flexShrink: 0 }}>📋</button>
+              </div>
+            ))}
+            <div style={{ fontSize: 11, color: c.warning, marginBottom: 16 }}>⚠ DNS propagation may take 5–30 minutes.</div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={() => setDnsModal(null)}
+                style={{ background: c.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

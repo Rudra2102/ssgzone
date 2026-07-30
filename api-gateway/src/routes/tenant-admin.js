@@ -10,7 +10,7 @@ const db = new Pool({
   port: process.env.DB_PORT || 5432,
   database: process.env.DB_NAME || 'ssgzone_mail',
   user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'academy'
+  password: process.env.DB_PASSWORD
 });
 
 // Tenant Admin Login

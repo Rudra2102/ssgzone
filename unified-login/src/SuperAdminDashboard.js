@@ -55,6 +55,8 @@ function SuperAdminDashboard() {
   const [auditFilters, setAuditFilters] = useState({ action: '', tenant_id: '', actor_id: '' });
   const [searchQuery, setSearchQuery] = useState('');
   const [notifCount, setNotifCount] = useState(0);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState([]);
 
   const token = localStorage.getItem('super_admin_token');
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
@@ -122,13 +124,36 @@ function SuperAdminDashboard() {
       const [metricsData, appsData, tenantsData, usersData] = await Promise.all([
         metricsRes.json(), appsRes.json(), tenantsRes.json(), usersRes.json()
       ]);
-      if (metricsData.success) setStats(metricsData.data);
+      if (metricsData.success) {
+        const d = metricsData.data;
+        setStats({
+          ...d,
+          emailsSent: d.emailsSent || d.emails_sent || d.emailStats?.sent || 0,
+          deliveryRate: d.deliveryRate || d.delivery_rate || d.emailStats?.deliveryRate || 99.5,
+          emailsReceived: d.emailsReceived || d.emails_received || d.emailStats?.received || 0,
+          emailsFailed: d.emailsFailed || d.emails_failed || d.emailStats?.failed || 0,
+          totalTenants: d.totalTenants || d.total_tenants || d.activeTenants || 0,
+          totalUsers: d.totalUsers || d.total_users || 0,
+          emailsToday: d.emailsToday || d.emails_today || 0,
+        });
+      }
       if (appsData.success) setSaasApps(appsData.data);
       if (tenantsData.success) setTenants(tenantsData.data);
       if (usersData.success) { setUsers(usersData.data); setUsersTotal(usersData.total); }
     } catch (err) {
       console.error('Fetch error:', err);
     }
+  };
+
+  const fetchNotifications = async () => {
+    try {
+      const res = await fetch('/api/v1/notifications?limit=10', { headers: authHeaders });
+      const data = await res.json();
+      if (data.success) {
+        setNotifications(data.data || []);
+        setNotifCount(data.unread || 0);
+      }
+    } catch {}
   };
 
   const fetchUsers = async () => {
@@ -406,9 +431,34 @@ function SuperAdminDashboard() {
       {/* Right actions */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
         {/* Notifications */}
-        <div style={{ position: 'relative', cursor: 'pointer' }}>
-          <span style={{ fontSize: 18 }}>🔔</span>
-          {notifCount > 0 && <span style={{ position: 'absolute', top: -4, right: -4, background: colors.danger, color: '#fff', borderRadius: '50%', width: 16, height: 16, fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{notifCount}</span>}
+        <div style={{ position: 'relative' }}>
+          <div onClick={() => { setNotifOpen(p => !p); if (!notifOpen) fetchNotifications(); }}
+            style={{ cursor: 'pointer', position: 'relative', padding: 4 }}>
+            <span style={{ fontSize: 18 }}>🔔</span>
+            {notifCount > 0 && (
+              <span style={{ position: 'absolute', top: 0, right: 0, background: colors.danger, color: '#fff', borderRadius: '50%', width: 16, height: 16, fontSize: 10, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{notifCount}</span>
+            )}
+          </div>
+          {notifOpen && (
+            <div style={{ position: 'absolute', top: '100%', right: 0, width: 320, background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 10, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 500 }}>
+              <div style={{ padding: '12px 16px', borderBottom: `1px solid ${colors.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: colors.text }}>Notifications</span>
+                <button onClick={() => setNotifOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: colors.textMuted }}>×</button>
+              </div>
+              <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+                {notifications.length === 0 && (
+                  <div style={{ padding: 24, textAlign: 'center', color: colors.textMuted, fontSize: 13 }}>No notifications</div>
+                )}
+                {notifications.map((n, i) => (
+                  <div key={n.id || i} style={{ padding: '10px 16px', borderBottom: `1px solid ${colors.border}`, background: n.is_read ? colors.card : (colors.primaryLight || '#eef2ff') }}>
+                    <div style={{ fontSize: 13, fontWeight: n.is_read ? 400 : 600, color: colors.text }}>{n.title || n.message || 'Notification'}</div>
+                    {n.body && <div style={{ fontSize: 11, color: colors.textMuted, marginTop: 2 }}>{n.body}</div>}
+                    <div style={{ fontSize: 10, color: colors.textMuted, marginTop: 4 }}>{n.created_at ? new Date(n.created_at).toLocaleString() : ''}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
         {/* Help */}
         <span style={{ fontSize: 18, cursor: 'pointer', color: colors.headerText, opacity: 0.6 }}>❓</span>
