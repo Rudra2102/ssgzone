@@ -2616,7 +2616,7 @@ function SuperAdminDashboard() {
     const [editingPlan, setEditingPlan] = React.useState(null);
     const [deletingPlan, setDeletingPlan] = React.useState(null);
     const [saasFilter, setSaasFilter] = React.useState('');
-    const [planForm, setPlanForm] = React.useState({ saas_app_id: '', name: '', slug: '', price_monthly: 0, price_yearly: 0, currency: 'INR', max_users: 10, max_storage_gb: 5, max_emails_per_month: 1000, features: {}, sort_order: 0 });
+    const [planForm, setPlanForm] = React.useState({ saas_app_id: '', name: '', slug: '', price_monthly: 0, price_yearly: 0, currency: 'INR', max_users: 10, max_storage_gb: 5, max_emails_per_month: 1000, features: {}, sort_order: 0, is_standard: false });
     const [saving, setSaving] = React.useState(false);
 
     const fetchPlans = async () => {
@@ -2636,13 +2636,13 @@ function SuperAdminDashboard() {
 
     const openCreate = () => {
       setEditingPlan(null);
-      setPlanForm({ saas_app_id: saasFilter || '', name: '', slug: '', price_monthly: 0, price_yearly: 0, currency: 'INR', max_users: 10, max_storage_gb: 5, max_emails_per_month: 1000, features: {}, sort_order: 0 });
+      setPlanForm({ saas_app_id: saasFilter || '', name: '', slug: '', price_monthly: 0, price_yearly: 0, currency: 'INR', max_users: 10, max_storage_gb: 5, max_emails_per_month: 1000, features: {}, sort_order: 0, is_standard: false });
       setOpenPlanDialog(true);
     };
 
     const openEdit = (plan) => {
       setEditingPlan(plan);
-      setPlanForm({ saas_app_id: plan.saas_app_id, name: plan.name, slug: plan.slug, price_monthly: plan.price_monthly, price_yearly: plan.price_yearly, currency: plan.currency, max_users: plan.max_users, max_storage_gb: plan.max_storage_gb, max_emails_per_month: plan.max_emails_per_month, features: plan.features || {}, sort_order: plan.sort_order || 0 });
+      setPlanForm({ saas_app_id: plan.saas_app_id || '', name: plan.name, slug: plan.slug, price_monthly: plan.price_monthly, price_yearly: plan.price_yearly, currency: plan.currency, max_users: plan.max_users, max_storage_gb: plan.max_storage_gb, max_emails_per_month: plan.max_emails_per_month, features: plan.features || {}, sort_order: plan.sort_order || 0, is_standard: plan.is_standard || false });
       setOpenPlanDialog(true);
     };
 
@@ -2725,9 +2725,12 @@ function SuperAdminDashboard() {
                     <tr key={p.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
                       <td style={{ padding: '12px 16px', fontWeight: 600, color: colors.text }}>
                         {p.name}
-                        <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: 'monospace' }}>{p.slug}</div>
+                        <div style={{ display: 'flex', gap: 4, marginTop: 2 }}>
+                          <span style={{ fontSize: 10, color: colors.textMuted, fontFamily: 'monospace' }}>{p.slug}</span>
+                          {p.is_standard && <span style={{ background: colors.cyanLight, color: colors.cyan, borderRadius: 10, padding: '1px 6px', fontSize: 10, fontWeight: 700 }}>STANDARD</span>}
+                        </div>
                       </td>
-                      <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{p.saas_name}</td>
+                      <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{p.is_standard ? <span style={{ color: colors.cyan }}>All Apps</span> : p.saas_name}</td>
                       <td style={{ padding: '12px 16px', color: colors.text, fontWeight: 600 }}>{p.currency} {Number(p.price_monthly).toLocaleString()}</td>
                       <td style={{ padding: '12px 16px', color: colors.textMuted }}>{p.currency} {Number(p.price_yearly).toLocaleString()}</td>
                       <td style={{ padding: '12px 16px', color: colors.text }}>{p.max_users}</td>
@@ -2789,11 +2792,24 @@ function SuperAdminDashboard() {
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setOpenPlanDialog(false)}>
             <div style={{ background: colors.card, borderRadius: 12, padding: 28, width: 560, maxHeight: '90vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
               <div style={{ fontSize: 17, fontWeight: 700, color: colors.text, marginBottom: 20 }}>{editingPlan ? 'Edit Billing Plan' : 'Create Billing Plan'}</div>
-              <label style={labelS}>SaaS Application *</label>
-              <select style={inputS} value={planForm.saas_app_id} onChange={e => setPlanForm(p => ({ ...p, saas_app_id: e.target.value }))} disabled={!!editingPlan}>
-                <option value="">Select SaaS App</option>
-                {saasApps.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
+              {/* Standard Plan Toggle */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, padding: '10px 14px', background: planForm.is_standard ? colors.cyanLight : colors.bg, borderRadius: 8, border: `1px solid ${planForm.is_standard ? colors.cyan : colors.border}` }}>
+                <div onClick={() => !editingPlan && setPlanForm(p => ({ ...p, is_standard: !p.is_standard, saas_app_id: '' }))}
+                  style={{ width: 44, height: 24, borderRadius: 12, background: planForm.is_standard ? colors.cyan : colors.border, cursor: editingPlan ? 'not-allowed' : 'pointer', position: 'relative', flexShrink: 0 }}>
+                  <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: planForm.is_standard ? 23 : 3, transition: 'left 0.2s' }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>Standard Plan</div>
+                  <div style={{ fontSize: 11, color: colors.textMuted }}>Visible to all SaaS apps — for generic/public pricing display</div>
+                </div>
+              </div>
+              {!planForm.is_standard && (<>
+                <label style={labelS}>SaaS Application *</label>
+                <select style={inputS} value={planForm.saas_app_id} onChange={e => setPlanForm(p => ({ ...p, saas_app_id: e.target.value }))} disabled={!!editingPlan}>
+                  <option value="">Select SaaS App</option>
+                  {saasApps.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </>)}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div><label style={labelS}>Plan Name *</label><input style={inputS} value={planForm.name} onChange={e => setPlanForm(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Starter" /></div>
                 <div><label style={labelS}>Slug *</label><input style={inputS} value={planForm.slug} onChange={e => setPlanForm(p => ({ ...p, slug: e.target.value.toLowerCase() }))} placeholder="e.g. starter" disabled={!!editingPlan} /></div>

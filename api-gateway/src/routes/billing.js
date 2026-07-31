@@ -26,20 +26,26 @@ const tenantAdminAuth = auth(['tenant_admin']);
 
 // ─── SUPER ADMIN — Billing Plans CRUD ────────────────────────────────────────
 
-// GET /api/v1/billing/super-admin/plans?saas_app_id=
+// GET /api/v1/billing/super-admin/plans?saas_app_id=&standard=true
 router.get('/super-admin/plans', superAdminAuth, async (req, res) => {
   try {
-    const { saas_app_id } = req.query;
-    const where = saas_app_id ? 'WHERE p.saas_app_id = $1' : '';
-    const params = saas_app_id ? [saas_app_id] : [];
+    const { saas_app_id, standard } = req.query;
+    let where = '';
+    let params = [];
+    if (standard === 'true') {
+      where = 'WHERE p.saas_app_id IS NULL';
+    } else if (saas_app_id) {
+      where = 'WHERE p.saas_app_id = $1';
+      params = [parseInt(saas_app_id)];
+    }
     const result = await pool.query(`
-      SELECT p.*, s.name AS saas_name,
+      SELECT p.*, COALESCE(s.name, 'Standard') AS saas_name,
         (SELECT COUNT(*) FROM tenant_billing tb WHERE tb.plan_id = p.id) AS tenant_count
       FROM saas_billing_plans p
-      JOIN saas_applications s ON s.id = p.saas_app_id
+      LEFT JOIN saas_applications s ON s.id = p.saas_app_id
       ${where}
-      ORDER BY p.saas_app_id, p.sort_order, p.created_at
-    `, saas_app_id ? [parseInt(saas_app_id)] : []);
+      ORDER BY p.is_standard DESC, p.saas_app_id, p.sort_order, p.created_at
+    `, params);
     res.json({ success: true, data: result.rows });
   } catch (err) {
     console.error(err);
@@ -50,16 +56,18 @@ router.get('/super-admin/plans', superAdminAuth, async (req, res) => {
 // POST /api/v1/billing/super-admin/plans
 router.post('/super-admin/plans', superAdminAuth, async (req, res) => {
   try {
-    const { saas_app_id, name, slug, price_monthly, price_yearly, currency, max_users, max_storage_gb, max_emails_per_month, features, sort_order } = req.body;
-    if (!saas_app_id || !name || !slug) return res.status(400).json({ success: false, error: 'saas_app_id, name, slug required' });
+    const { saas_app_id, name, slug, price_monthly, price_yearly, currency, max_users, max_storage_gb, max_emails_per_month, features, sort_order, is_standard } = req.body;
+    if (!name || !slug) return res.status(400).json({ success: false, error: 'name and slug required' });
+    if (!is_standard && !saas_app_id) return res.status(400).json({ success: false, error: 'saas_app_id required for non-standard plans' });
+    const saasId = (is_standard || !saas_app_id) ? null : parseInt(saas_app_id);
     const result = await pool.query(`
-      INSERT INTO saas_billing_plans (saas_app_id, name, slug, price_monthly, price_yearly, currency, max_users, max_storage_gb, max_emails_per_month, features, sort_order, created_by)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+      INSERT INTO saas_billing_plans (saas_app_id, name, slug, price_monthly, price_yearly, currency, max_users, max_storage_gb, max_emails_per_month, features, sort_order, is_standard, created_by)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
       RETURNING *
-    `, [parseInt(saas_app_id), name, slug.toLowerCase(), price_monthly || 0, price_yearly || 0, currency || 'INR', max_users || 10, max_storage_gb || 5, max_emails_per_month || 1000, JSON.stringify(features || {}), sort_order || 0, req.user.id]);
+    `, [saasId, name, slug.toLowerCase(), price_monthly || 0, price_yearly || 0, currency || 'INR', max_users || 10, max_storage_gb || 5, max_emails_per_month || 1000, JSON.stringify(features || {}), sort_order || 0, !!is_standard, req.user.id]);
     res.json({ success: true, data: result.rows[0] });
   } catch (err) {
-    if (err.code === '23505') return res.status(400).json({ success: false, error: 'Plan slug already exists for this SaaS app' });
+    if (err.code === '23505') return res.status(400).json({ success: false, error: 'Plan slug already exists' });
     res.status(500).json({ success: false, error: err.message });
   }
 });
@@ -134,8 +142,8 @@ router.get('/saas-admin/plans', saasAdminAuth, async (req, res) => {
       SELECT p.*,
         (SELECT COUNT(*) FROM tenant_billing tb WHERE tb.plan_id = p.id) AS tenant_count
       FROM saas_billing_plans p
-      WHERE p.saas_app_id = $1 AND p.is_active = TRUE
-      ORDER BY p.sort_order, p.price_monthly
+      WHERE (p.saas_app_id = $1 OR p.is_standard = TRUE) AND p.is_active = TRUE
+      ORDER BY p.is_standard, p.sort_order, p.price_monthly
     `, [parseInt(req.user.saas_id)]);
     res.json({ success: true, data: result.rows });
   } catch (err) {
