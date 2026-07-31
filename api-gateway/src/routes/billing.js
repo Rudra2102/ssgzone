@@ -43,7 +43,7 @@ router.get('/super-admin/plans', superAdminAuth, async (req, res) => {
       params = [parseInt(saas_app_id)];
     }
     const result = await pool.query(`
-      SELECT p.*, COALESCE(s.name, 'Standard') AS saas_name,
+      SELECT p.*, COALESCE(s.saas_name, 'Standard') AS saas_name,
         (SELECT COUNT(*) FROM tenant_billing tb WHERE tb.plan_id = p.id) AS tenant_count
       FROM saas_billing_plans p
       LEFT JOIN saas_applications s ON s.id = p.saas_app_id
@@ -111,7 +111,7 @@ router.get('/super-admin/overview', superAdminAuth, async (req, res) => {
   try {
     const result = await pool.query(`
       SELECT tc.id, tc.company_name, tc.company_slug,
-        s.name AS saas_name,
+        s.saas_name AS saas_name,
         p.name AS plan_name, p.price_monthly, p.currency,
         tb.status AS billing_status, tb.billing_cycle,
         tb.custom_price, tb.next_billing_date, tb.trial_ends_at,
