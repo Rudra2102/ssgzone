@@ -368,7 +368,7 @@ function SuperAdminDashboard() {
   ];
 
   const Sidebar = () => (
-    <div style={{ width: 220, minHeight: '100vh', background: colors.sidebar, borderRight: `1px solid ${colors.border}`, display: 'flex', flexDirection: 'column', position: 'fixed', top: 0, left: 0, zIndex: 100, overflowY: 'auto' }}>
+    <div style={{ width: 220, height: '100vh', background: colors.sidebar, borderRight: `1px solid ${colors.border}`, display: 'flex', flexDirection: 'column', position: 'fixed', top: 0, left: 0, zIndex: 100, overflowY: 'auto' }}>
       {/* Logo */}
       <div onClick={() => setActiveSection('dashboard')} style={{ padding: '20px 16px', borderBottom: `1px solid ${colors.border}`, cursor: 'pointer' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
