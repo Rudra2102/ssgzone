@@ -2647,7 +2647,8 @@ function SuperAdminDashboard() {
     };
 
     const savePlan = async () => {
-      if (!planForm.saas_app_id || !planForm.name || !planForm.slug) return alert('SaaS App, Name and Slug required');
+      if (!planForm.name || !planForm.slug) return alert('Name and Slug required');
+      if (!planForm.is_standard && !planForm.saas_app_id) return alert('SaaS App required (or enable Standard Plan)');
       setSaving(true);
       try {
         const url = editingPlan ? `${BAPI}/super-admin/plans/${editingPlan.id}` : `${BAPI}/super-admin/plans`;
