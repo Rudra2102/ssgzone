@@ -36,6 +36,8 @@ const contactsRoutes = require('./routes/contacts');
 const signaturesRoutes = require('./routes/signatures');
 const whatsappRoutes = require('./routes/whatsapp');
 const notificationsRoutes = require('./routes/notifications');
+const { router: authRoutes } = require('./routes/auth');
+const redis = require('./services/RedisService');
 const employeeRoutes = require('./routes/employee');
 const calendarRoutes = require('./routes/calendar');
 const billingRoutes = require('./routes/billing');
@@ -53,6 +55,12 @@ const { requestLogger } = require('./middleware/logger');
 const { checkAPIUsage } = require('./middleware/usageRateLimit');
 const { csrfProtection } = require('./middleware/security');
 
+
+// Redis startup connection
+redis.connect().catch((err) => {
+  console.error('FATAL: Redis connection failed:', err.message);
+  if (process.env.NODE_ENV === 'production') process.exit(1);
+});
 
 // JWT_SECRET startup enforcement
 if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'super-admin-secret') {
@@ -166,6 +174,7 @@ app.use('/api/v1/calendar', calendarRoutes);
 app.use('/api/v1/saas/integration', saasIntegrationRoutes);
 app.use('/api/v1/employee', employeeRoutes);
 app.use('/api/v1/billing', billingRoutes);
+app.use('/api/v1/auth', authRoutes);
 // app.use('/api/v1/webhooks', webhooksRoutes);
 // app.use('/api/v1/search', searchRoutes);
 // app.use('/api/v1/retention', retentionRoutes);

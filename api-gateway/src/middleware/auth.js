@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
+const redis = require('../services/RedisService');
 
-const authMiddleware = (req, res, next) => {
+const authMiddleware = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader) {
@@ -10,8 +11,26 @@ const authMiddleware = (req, res, next) => {
     if (!token) {
       return res.status(401).json({ error: 'Unauthorized', message: 'Invalid authorization header format' });
     }
+
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = { id: decoded.id, email: decoded.email, tenant_id: decoded.tenant_id, full_name: decoded.full_name, role: decoded.role, type: decoded.type };
+
+    // Check Redis blacklist — covers logout and forced revocation
+    if (decoded.jti) {
+      const blacklisted = await redis.isBlacklisted(decoded.jti);
+      if (blacklisted) {
+        return res.status(401).json({ error: 'Unauthorized', message: 'Token has been revoked' });
+      }
+    }
+
+    req.user = {
+      id: decoded.id,
+      email: decoded.email,
+      tenant_id: decoded.tenant_id,
+      full_name: decoded.full_name,
+      role: decoded.role,
+      type: decoded.type,
+      jti: decoded.jti,
+    };
     next();
   } catch (error) {
     if (error.name === 'TokenExpiredError') {
