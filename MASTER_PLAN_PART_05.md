@@ -135,7 +135,7 @@
 - [x] CSRF middleware enabled and tested
 - [x] WebSocket join requires valid JWT
 - [x] All `new Pool()` calls removed from route files
-- [ ] STARTTLS enabled on mail server
+- [x] STARTTLS enabled on mail server
 - [x] `/auth/refresh` endpoint implemented
 - [x] `/auth/logout` blacklists token in Redis
 - [x] Auth middleware checks Redis blacklist
