@@ -1,7 +1,12 @@
-# Environment files
+# Environment files — NEVER commit real credentials
 .env
 .env.local
 .env.production
+.env.staging
+.env.server.backup
+.env.backup
+*.env.backup
+# .env.example is safe to commit (no real values)
 
 # Logs
 logs/
