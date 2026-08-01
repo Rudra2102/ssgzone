@@ -31,8 +31,6 @@ const CSRF_EXEMPT_PREFIXES = [
   '/api/v1/employee/auth/login',
   '/api/saas-admin/login',
   '/api/v1/webmail/track/',   // pixel tracking — no auth
-  '/api/v1/auth/refresh',
-  '/api/v1/auth/logout',
 ];
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
