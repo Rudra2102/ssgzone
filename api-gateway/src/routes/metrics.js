@@ -1,15 +1,8 @@
 const express = require('express');
+const pool = require('../services/DatabaseService');
 const router = express.Router();
 const client = require('prom-client');
-const { Pool } = require('pg');
 
-const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT) || 5432,
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: String(process.env.DB_PASSWORD)
-});
 
 // Default Node.js metrics (CPU, memory, event loop, etc.)
 const register = new client.Registry();

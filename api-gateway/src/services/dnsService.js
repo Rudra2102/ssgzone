@@ -1,15 +1,8 @@
-const { Pool } = require('pg');
 const axios = require('axios');
 const DkimService = require('./dkimService');
 
-const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT) || 5432,
-  database: process.env.DB_NAME || 'ssghub_mail',
-  user: process.env.DB_USER || 'postgres',
-  password: String(process.env.DB_PASSWORD || '')
-});
 
+const pool = require('./DatabaseService');
 class DnsService {
   static async setupTenantDns(tenant_id, domain) {
     // Extract saas_slug from domain (e.g., nabc.lms.ssghub.com -> lms)

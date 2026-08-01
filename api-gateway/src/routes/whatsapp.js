@@ -1,16 +1,9 @@
 const express = require('express');
+const pool = require('../services/DatabaseService');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
-const { Pool } = require('pg');
 const axios = require('axios');
 
-const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT) || 5432,
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: String(process.env.DB_PASSWORD)
-});
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-admin-secret';
 const WA_PHONE_ID = process.env.WHATSAPP_PHONE_NUMBER_ID || '';

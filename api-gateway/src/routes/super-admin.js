@@ -1,7 +1,7 @@
 ﻿const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const { Pool } = require('pg');
+
 const nodemailer = require('nodemailer');
 
 const mailer = nodemailer.createTransport({
@@ -11,6 +11,7 @@ const mailer = nodemailer.createTransport({
   auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
 });
 
+const db = require('../services/DatabaseService');
 const router = express.Router();
 
 // Test endpoint
@@ -19,13 +20,7 @@ router.get('/test', (req, res) => {
 });
 
 // Database connection
-const db = new Pool({
-  host: process.env.DB_HOST || 'postgres',
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'ssgzone_mail',
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD
-});
+
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {

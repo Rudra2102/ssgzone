@@ -1,13 +1,5 @@
-const { Pool } = require('pg');
 const { enqueueEmail, emailQueue } = require('../services/queueService');
 
-const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT) || 5432,
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: String(process.env.DB_PASSWORD)
-});
 
 // On startup, re-enqueue any pending emails from old email_queue table
 async function migratePendingEmails() {
@@ -41,6 +33,7 @@ async function migratePendingEmails() {
   }
 }
 
+const pool = require('../services/DatabaseService');
 function startEmailScheduler() {
   console.log('Email scheduler started');
   migratePendingEmails();

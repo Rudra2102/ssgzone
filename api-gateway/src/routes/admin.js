@@ -1,23 +1,16 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const { Pool } = require('pg');
 const SaasService = require('../services/saasService');
 const TenantService = require('../services/tenantService');
 const UserService = require('../services/userService');
 const DnsService = require('../services/dnsService');
 const AuditService = require('../services/auditService');
 
+const db = require('../services/DatabaseService');
 const router = express.Router();
 
 // Database connection for admin users
-const db = new Pool({
-  host: process.env.DB_HOST || 'postgres',
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'ssgzone_mail',
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'academy'
-});
 
 // Admin login
 router.post('/auth/login', async (req, res) => {

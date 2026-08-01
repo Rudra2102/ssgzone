@@ -1,12 +1,4 @@
-const { Pool } = require('pg');
 
-const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT) || 5432,
-  database: process.env.DB_NAME || 'ssgzone_mail',
-  user: process.env.DB_USER || 'ssgzone',
-  password: process.env.DB_PASSWORD || 'academy'
-});
 
 // Debug logging
 console.log('SaasService DB Config:', {
@@ -17,6 +9,7 @@ console.log('SaasService DB Config:', {
   password: process.env.DB_PASSWORD ? '***SET***' : '***NOT SET***'
 });
 
+const pool = require('./DatabaseService');
 class SaasService {
   static async create(saasData) {
     const { saas_name, saas_slug, api_key } = saasData;

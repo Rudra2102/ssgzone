@@ -1,20 +1,12 @@
 const express = require('express');
+const pool = require('../services/DatabaseService');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { Pool } = require('pg');
 const speakeasy = require('speakeasy');
 const qrcode = require('qrcode');
 const { authenticate, requirePlatformAdmin } = require('../middleware/auth');
 
-const pool = new Pool({
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : false,
-});
 
 const makeToken = (admin) => jwt.sign(
   { type: 'platform_admin', id: admin.id, email: admin.email, role: admin.role, full_name: admin.full_name },

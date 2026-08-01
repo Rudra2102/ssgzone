@@ -1,13 +1,6 @@
-const { Pool } = require('pg');
 
-const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT) || 5432,
-  database: process.env.DB_NAME || 'ssghub_mail',
-  user: process.env.DB_USER || 'postgres',
-  password: String(process.env.DB_PASSWORD || '')
-});
 
+const pool = require('./DatabaseService');
 class TenantService {
   static async create(tenantData) {
     const { saas_id, company_name, tenant_slug, domain } = tenantData;

@@ -1,14 +1,6 @@
 const crypto = require('crypto');
 const axios = require('axios');
-const { Pool } = require('pg');
 
-const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT) || 5432,
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: String(process.env.DB_PASSWORD)
-});
 
 const VALID_EVENTS = [
   'email.received', 'email.sent', 'email.bounced', 'email.spam',
@@ -19,6 +11,7 @@ const VALID_EVENTS = [
 ];
 
 // Sign payload with HMAC-SHA256
+const pool = require('./DatabaseService');
 function signPayload(payload, secret) {
   return crypto.createHmac('sha256', secret).update(JSON.stringify(payload)).digest('hex');
 }

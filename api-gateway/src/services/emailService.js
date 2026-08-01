@@ -1,12 +1,4 @@
-const { Pool } = require('pg');
 
-const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: parseInt(process.env.DB_PORT) || 5432,
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: String(process.env.DB_PASSWORD)
-});
 
 async function searchEmails(tenantId, query, filters = {}) {
   try {
@@ -90,4 +82,5 @@ async function scheduleEmail(tenantId, to, subject, html, text, scheduledAt) {
   }
 }
 
+const pool = require('./DatabaseService');
 module.exports = { searchEmails, moveEmailToFolder, addLabelToEmail, markEmailReadStatus, scheduleEmail };

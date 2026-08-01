@@ -1,25 +1,19 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const { Pool } = require('pg');
 const crypto = require('crypto');
+const { Pool } = require('pg');
 
+const db = require('../services/DatabaseService');
 const router = express.Router();
 
-const db = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'ssgzone_mail',
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'academy'
-});
-
+// Separate pool for vmail DB (mail server — different database instance)
 const vmailDb = new Pool({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
   database: 'vmail',
   user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'academy'
+  password: process.env.DB_PASSWORD || ''
 });
 
 const hashMailPassword = (password) => {
@@ -51,7 +45,7 @@ router.post('/auth/login', async (req, res) => {
 
     const token = jwt.sign(
       { type: 'user', userId: user.id, tenantId: user.tenant_id, username: user.username, role: user.role },
-      process.env.JWT_SECRET || 'super-admin-secret',
+      process.env.JWT_SECRET,
       { expiresIn: '8h' }
     );
 
@@ -77,7 +71,7 @@ const userAuth = (req, res, next) => {
   try {
     const token = req.headers.authorization?.replace('Bearer ', '');
     if (!token) return res.status(401).json({ success: false, error: 'Token required' });
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'super-admin-secret');
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
     if (decoded.type !== 'user') return res.status(403).json({ success: false, error: 'User access required' });
     req.user = decoded;
     next();
@@ -106,7 +100,7 @@ router.get('/profile', userAuth, async (req, res) => {
   }
 });
 
-// PUT /profile - Update own profile
+// PUT /profile
 router.put('/profile', userAuth, async (req, res) => {
   try {
     const { first_name, last_name, phone } = req.body;
@@ -139,7 +133,7 @@ router.patch('/change-password', userAuth, async (req, res) => {
   }
 });
 
-// GET /mailbox - Own mailbox info
+// GET /mailbox
 router.get('/mailbox', userAuth, async (req, res) => {
   try {
     const userResult = await db.query(
@@ -151,7 +145,6 @@ router.get('/mailbox', userAuth, async (req, res) => {
     const { email, domain, custom_domain, domain_verified } = userResult.rows[0];
     const username = email.split('@')[0];
 
-    // Check mailboxes on both domains
     const domains = [domain];
     if (custom_domain && domain_verified) domains.push(custom_domain);
     const placeholders = domains.map((_, i) => `$${i + 1}`).join(',');
@@ -167,7 +160,7 @@ router.get('/mailbox', userAuth, async (req, res) => {
   }
 });
 
-// PATCH /mailbox/change-password - Change own mailbox password
+// PATCH /mailbox/change-password
 router.patch('/mailbox/change-password', userAuth, async (req, res) => {
   try {
     const { new_password } = req.body;
@@ -189,7 +182,7 @@ router.patch('/mailbox/change-password', userAuth, async (req, res) => {
   }
 });
 
-// GET /dashboard - User dashboard summary
+// GET /dashboard
 router.get('/dashboard', userAuth, async (req, res) => {
   try {
     const userResult = await db.query(`

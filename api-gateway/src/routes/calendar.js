@@ -1,15 +1,8 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
-const { Pool } = require('pg');
 
+const db = require('../services/DatabaseService');
 const router = express.Router();
-const db = new Pool({
-  host: process.env.DB_HOST || 'postgres',
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'ssgzone_mail',
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'academy'
-});
 
 // Create table on startup
 db.query(`CREATE TABLE IF NOT EXISTS calendar_events (

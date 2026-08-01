@@ -13,7 +13,7 @@ const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
-const db = require('../utils/database');
+const db = require('../services/DatabaseService');
 
 // ============================================
 // 1. CREATE TENANT (SaaS Company)

@@ -1,7 +1,6 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
-const { Pool } = require('pg');
 const nodemailer = require('nodemailer');
 const multer = require('multer');
 const path = require('path');
@@ -34,14 +33,7 @@ router.get('/test', (req, res) => {
   res.json({ message: 'Super admin routes working', timestamp: new Date().toISOString() });
 });
 
-// Database connection
-const db = new Pool({
-  host: process.env.DB_HOST || 'postgres',
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'ssgzone_mail',
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'academy'
-});
+const db = require('./services/DatabaseService');
 
 // Super Admin Authentication
 router.post('/auth/login', async (req, res) => {
@@ -1265,9 +1257,12 @@ router.delete('/email/templates/:id', superAdminAuth, async (req, res) => {
   }
 });
 
+const { Pool: PgPool } = require('pg');
+
 // ==================== MAILBOX ====================
 
-const vmailDb = new Pool({
+// Separate pool for vmail DB (mail server — different database instance)
+const vmailDb = new PgPool({
   host: process.env.DB_HOST || 'localhost',
   port: process.env.DB_PORT || 5432,
   database: 'vmail',

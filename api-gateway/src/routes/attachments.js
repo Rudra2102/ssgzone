@@ -1,5 +1,6 @@
 const express = require('express');
 const multer = require('multer');
+const pool = require('../services/DatabaseService');
 const router = express.Router();
 const StorageService = require('../services/storageService');
 const { authenticateToken } = require('../middleware/auth');
@@ -76,15 +77,7 @@ router.get('/:id', async (req, res) => {
 // GET /api/v1/attachments/email/:emailId — list attachments for an email
 router.get('/email/:emailId', authenticateToken, async (req, res) => {
   try {
-    const { Pool } = require('pg');
-    const pool = new Pool({
-      host: process.env.DB_HOST || 'localhost',
-      port: parseInt(process.env.DB_PORT) || 5432,
-      database: process.env.DB_NAME,
-      user: process.env.DB_USER,
-      password: String(process.env.DB_PASSWORD)
-    });
-    const result = await pool.query(
+            const result = await pool.query(
       `SELECT id, filename, file_size, content_type, storage_key, created_at
        FROM email_attachments WHERE email_id = $1`,
       [req.params.emailId]

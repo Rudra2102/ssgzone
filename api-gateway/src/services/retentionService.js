@@ -1,13 +1,6 @@
-const { Pool } = require('pg');
 
-const pool = new Pool({
-  host: process.env.DB_HOST || 'localhost',
-  port: process.env.DB_PORT || 5432,
-  database: process.env.DB_NAME || 'ssgzone_mail',
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD
-});
 
+const pool = require('./DatabaseService');
 class RetentionService {
   static async setRetentionPolicy(tenantId, retentionDays) {
     try {
