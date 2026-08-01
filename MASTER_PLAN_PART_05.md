@@ -127,19 +127,19 @@
 
 ## Phase 0 — Completion Checklist
 
-- [ ] AWS key `AKIAT5ZX2F2NFGUTFQQA` rotated in AWS IAM
-- [ ] `.env` file contains no real credentials
-- [ ] `.gitignore` excludes all `.env` files
-- [ ] DB password changed from `academy`
-- [ ] JWT secret is cryptographically random
-- [ ] CSRF middleware enabled and tested
-- [ ] WebSocket join requires valid JWT
-- [ ] All `new Pool()` calls removed from route files
+- [x] AWS key `AKIAT5ZX2F2NFGUTFQQA` rotated in AWS IAM
+- [x] `.env` file contains no real credentials
+- [x] `.gitignore` excludes all `.env` files
+- [x] DB password changed from `academy`
+- [x] JWT secret is cryptographically random
+- [x] CSRF middleware enabled and tested
+- [x] WebSocket join requires valid JWT
+- [x] All `new Pool()` calls removed from route files
 - [ ] STARTTLS enabled on mail server
-- [ ] `/auth/refresh` endpoint implemented
-- [ ] `/auth/logout` blacklists token in Redis
-- [ ] Auth middleware checks Redis blacklist
-- [ ] Nginx config references `ssgzone.in` only
+- [x] `/auth/refresh` endpoint implemented
+- [x] `/auth/logout` blacklists token in Redis
+- [x] Auth middleware checks Redis blacklist
+- [x] Nginx config references `ssgzone.in` only
 - [ ] Full team review confirms no remaining P0 items
 
 ---
