@@ -2610,13 +2610,16 @@ function SuperAdminDashboard() {
     const BAPI = 'https://api.ssgzone.in/api/v1/billing';
     const [billingTab, setBillingTab] = React.useState('plans');
     const [plans, setPlans] = React.useState([]);
-    const [overview, setOverview] = React.useState([]);
-    const [overviewStats, setOverviewStats] = React.useState({});
+    const [subscriptions, setSubscriptions] = React.useState([]);
+    const [subStats, setSubStats] = React.useState({});
     const [openPlanDialog, setOpenPlanDialog] = React.useState(false);
+    const [openSubDialog, setOpenSubDialog] = React.useState(false);
     const [editingPlan, setEditingPlan] = React.useState(null);
     const [deletingPlan, setDeletingPlan] = React.useState(null);
+    const [assigningSub, setAssigningSub] = React.useState(null); // saas row
     const [saasFilter, setSaasFilter] = React.useState('');
     const [planForm, setPlanForm] = React.useState({ saas_app_id: '', name: '', slug: '', price_monthly: 0, price_yearly: 0, currency: 'INR', max_users: 10, max_storage_gb: 5, max_emails_per_month: 1000, features: {}, sort_order: 0, is_standard: false });
+    const [subForm, setSubForm] = React.useState({ plan_id: '', billing_cycle: 'monthly', custom_price: '', currency: 'INR', status: 'active', notes: '' });
     const [saving, setSaving] = React.useState(false);
 
     const fetchPlans = async () => {
@@ -2626,13 +2629,13 @@ function SuperAdminDashboard() {
       if (data.success) setPlans(data.data);
     };
 
-    const fetchOverview = async () => {
-      const res = await fetch(`${BAPI}/super-admin/overview`, { headers: authHeaders });
+    const fetchSubscriptions = async () => {
+      const res = await fetch(`${BAPI}/super-admin/subscriptions`, { headers: authHeaders });
       const data = await res.json();
-      if (data.success) { setOverview(data.data); setOverviewStats(data.stats || {}); }
+      if (data.success) { setSubscriptions(data.data); setSubStats(data.stats || {}); }
     };
 
-    React.useEffect(() => { fetchPlans(); fetchOverview(); }, [saasFilter]);
+    React.useEffect(() => { fetchPlans(); fetchSubscriptions(); }, [saasFilter]);
 
     const openCreate = () => {
       setEditingPlan(null);
@@ -2668,6 +2671,34 @@ function SuperAdminDashboard() {
       else alert(data.error);
     };
 
+    const openAssignSub = (row) => {
+      setAssigningSub(row);
+      setSubForm({ plan_id: row.plan_id || '', billing_cycle: row.billing_cycle || 'monthly', custom_price: row.custom_price || '', currency: row.currency || 'INR', status: row.status || 'active', notes: row.notes || '' });
+      setOpenSubDialog(true);
+    };
+
+    const saveSub = async () => {
+      if (!subForm.plan_id) return alert('Plan required');
+      setSaving(true);
+      try {
+        const res = await fetch(`${BAPI}/super-admin/subscriptions`, {
+          method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ saas_app_id: assigningSub.id, ...subForm, custom_price: subForm.custom_price || null })
+        });
+        const data = await res.json();
+        if (data.success) { setOpenSubDialog(false); fetchSubscriptions(); }
+        else alert(data.error);
+      } catch (err) { alert(err.message); }
+      setSaving(false);
+    };
+
+    const removeSub = async (saasAppId) => {
+      if (!window.confirm('Remove subscription?')) return;
+      const res = await fetch(`${BAPI}/super-admin/subscriptions/${saasAppId}`, { method: 'DELETE', headers: authHeaders });
+      const data = await res.json();
+      if (data.success) fetchSubscriptions(); else alert(data.error);
+    };
+
     const featureKeys = ['email', 'chat', 'whatsapp', 'video', 'drive', 'notifications', 'custom_domain'];
     const statusColors = { active: { bg: colors.successLight, color: colors.success }, trial: { bg: colors.cyanLight, color: colors.cyan }, past_due: { bg: colors.dangerLight, color: colors.danger }, cancelled: { bg: colors.border, color: colors.textMuted }, suspended: { bg: colors.warningLight, color: colors.warning } };
     const inputS = { width: '100%', padding: '10px 12px', border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 13, color: colors.text, background: colors.bg, outline: 'none', boxSizing: 'border-box', marginBottom: 12 };
@@ -2687,17 +2718,17 @@ function SuperAdminDashboard() {
 
         {/* Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 24 }}>
-          {[['Active Subscriptions', overviewStats.active_subscriptions, colors.success], ['Trials', overviewStats.trials, colors.cyan], ['Past Due', overviewStats.past_due, colors.danger], ['Unassigned', overviewStats.unassigned, colors.warning]].map(([label, val, color]) => (
+          {[['Active', subStats.active, colors.success], ['Trial', subStats.trial, colors.cyan], ['Past Due', subStats.past_due, colors.danger], ['Unsubscribed', subStats.unsubscribed, colors.warning]].map(([label, val, color]) => (
             <div key={label} style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 20, textAlign: 'center' }}>
               <div style={{ fontSize: 28, fontWeight: 700, color }}>{val || 0}</div>
-              <div style={{ fontSize: 12, color: colors.textMuted }}>{label}</div>
+              <div style={{ fontSize: 12, color: colors.textMuted }}>{label} SaaS</div>
             </div>
           ))}
         </div>
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 4, marginBottom: 20, borderBottom: `1px solid ${colors.border}` }}>
-          {[['plans', '💳 Billing Plans'], ['overview', '🏢 Tenant Overview']].map(([id, label]) => (
+          {[['plans', '💳 SSGzone Plans'], ['subscriptions', '🏢 SaaS Subscriptions']].map(([id, label]) => (
             <button key={id} onClick={() => setBillingTab(id)}
               style={{ padding: '9px 18px', border: 'none', borderBottom: billingTab === id ? `2px solid ${colors.primary}` : '2px solid transparent', background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: billingTab === id ? 700 : 400, color: billingTab === id ? colors.primary : colors.textMuted, marginBottom: -1 }}>
               {label}
@@ -2755,36 +2786,96 @@ function SuperAdminDashboard() {
           </div>
         )}
 
-        {billingTab === 'overview' && (
-          <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead><tr style={{ background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
-                {['Tenant', 'SaaS', 'Plan', 'Monthly Price', 'Billing Cycle', 'Status', 'Next Billing'].map(h => (
-                  <th key={h} style={{ textAlign: 'left', padding: '12px 16px', color: colors.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>
+        {billingTab === 'subscriptions' && (
+          <div>
+            <div style={{ fontSize: 13, color: colors.textMuted, marginBottom: 16 }}>Assign SSGzone plans to SaaS applications. SaaS will manage their own tenant billing independently.</div>
+            <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, overflow: 'hidden' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead><tr style={{ background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+                  {['SaaS App', 'Plan', 'Quota (Users/Storage/Emails)', 'Status', 'Billing Cycle', 'Next Billing', 'Tenants', 'Actions'].map(h => (
+                    <th key={h} style={{ textAlign: 'left', padding: '12px 16px', color: colors.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {subscriptions.map((row, i) => (
+                    <tr key={i} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                      <td style={{ padding: '12px 16px', fontWeight: 600, color: colors.text }}>
+                        {row.saas_name}
+                        <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: 'monospace' }}>{row.saas_slug}</div>
+                      </td>
+                      <td style={{ padding: '12px 16px', color: colors.text }}>{row.plan_name || <span style={{ color: colors.textMuted }}>—</span>}</td>
+                      <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>
+                        {row.plan_name ? `${row.max_users} users / ${row.max_storage_gb}GB / ${(row.max_emails_per_month||0).toLocaleString()} emails` : '—'}
+                      </td>
+                      <td style={{ padding: '12px 16px' }}>
+                        {row.status
+                          ? <span style={{ background: (statusColors[row.status]||{}).bg||colors.border, color: (statusColors[row.status]||{}).color||colors.textMuted, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>{row.status}</span>
+                          : <span style={{ color: colors.warning, fontSize: 12 }}>Not subscribed</span>}
+                      </td>
+                      <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{row.billing_cycle || '—'}</td>
+                      <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{row.next_billing_date ? new Date(row.next_billing_date).toLocaleDateString() : '—'}</td>
+                      <td style={{ padding: '12px 16px', color: colors.text }}>{row.tenant_count || 0}</td>
+                      <td style={{ padding: '12px 16px' }}>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <button onClick={() => openAssignSub(row)} style={{ background: colors.primaryLight, color: colors.primary, border: 'none', borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer' }}>
+                            {row.status ? '✏ Update' : '+ Assign'}
+                          </button>
+                          {row.status && <button onClick={() => removeSub(row.id)} style={{ background: colors.dangerLight, color: colors.danger, border: 'none', borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer' }}>🗑</button>}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {subscriptions.length === 0 && <tr><td colSpan={8} style={{ padding: 30, textAlign: 'center', color: colors.textMuted }}>No SaaS applications found</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Assign Subscription Dialog */}
+        {openSubDialog && assigningSub && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setOpenSubDialog(false)}>
+            <div style={{ background: colors.card, borderRadius: 12, padding: 28, width: 480 }} onClick={e => e.stopPropagation()}>
+              <div style={{ fontSize: 17, fontWeight: 700, color: colors.text, marginBottom: 4 }}>Assign Plan — {assigningSub.saas_name}</div>
+              <div style={{ fontSize: 13, color: colors.textMuted, marginBottom: 20 }}>SaaS will manage its own tenant billing within this quota</div>
+              <label style={labelS}>SSGzone Plan *</label>
+              <select style={inputS} value={subForm.plan_id} onChange={e => setSubForm(p => ({ ...p, plan_id: e.target.value }))}>
+                <option value="">Select Plan</option>
+                {plans.filter(p => p.is_active).map(p => (
+                  <option key={p.id} value={p.id}>{p.name} — {p.currency} {Number(p.price_monthly).toLocaleString()}/mo ({p.max_users} users, {p.max_storage_gb}GB)</option>
                 ))}
-              </tr></thead>
-              <tbody>
-                {overview.map((row, i) => (
-                  <tr key={i} style={{ borderBottom: `1px solid ${colors.border}` }}>
-                    <td style={{ padding: '12px 16px', fontWeight: 600, color: colors.text }}>{row.company_name}</td>
-                    <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{row.saas_name}</td>
-                    <td style={{ padding: '12px 16px', color: colors.text }}>{row.plan_name || <span style={{ color: colors.textMuted }}>—</span>}</td>
-                    <td style={{ padding: '12px 16px', color: colors.text }}>
-                      {row.custom_price ? <span style={{ color: colors.warning }}>{row.currency} {Number(row.custom_price).toLocaleString()} <span style={{ fontSize: 10 }}>(custom)</span></span>
-                        : row.price_monthly ? `${row.currency} ${Number(row.price_monthly).toLocaleString()}` : '—'}
-                    </td>
-                    <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{row.billing_cycle || '—'}</td>
-                    <td style={{ padding: '12px 16px' }}>
-                      {row.billing_status
-                        ? <span style={{ background: (statusColors[row.billing_status] || {}).bg || colors.border, color: (statusColors[row.billing_status] || {}).color || colors.textMuted, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>{row.billing_status}</span>
-                        : <span style={{ color: colors.textMuted, fontSize: 12 }}>Not assigned</span>}
-                    </td>
-                    <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{row.next_billing_date ? new Date(row.next_billing_date).toLocaleDateString() : '—'}</td>
-                  </tr>
-                ))}
-                {overview.length === 0 && <tr><td colSpan={7} style={{ padding: 30, textAlign: 'center', color: colors.textMuted }}>No tenants found</td></tr>}
-              </tbody>
-            </table>
+              </select>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div><label style={labelS}>Billing Cycle</label>
+                  <select style={inputS} value={subForm.billing_cycle} onChange={e => setSubForm(p => ({ ...p, billing_cycle: e.target.value }))}>
+                    <option value="monthly">Monthly</option>
+                    <option value="yearly">Yearly</option>
+                    <option value="custom">Custom</option>
+                  </select>
+                </div>
+                <div><label style={labelS}>Status</label>
+                  <select style={inputS} value={subForm.status} onChange={e => setSubForm(p => ({ ...p, status: e.target.value }))}>
+                    <option value="active">Active</option>
+                    <option value="trial">Trial</option>
+                    <option value="past_due">Past Due</option>
+                    <option value="suspended">Suspended</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                </div>
+                <div><label style={labelS}>Custom Price (optional)</label><input type="number" style={inputS} value={subForm.custom_price} onChange={e => setSubForm(p => ({ ...p, custom_price: e.target.value }))} placeholder="Leave blank for plan price" /></div>
+                <div><label style={labelS}>Currency</label>
+                  <select style={inputS} value={subForm.currency} onChange={e => setSubForm(p => ({ ...p, currency: e.target.value }))}>
+                    {['INR','USD','EUR','GBP'].map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+              <label style={labelS}>Notes</label>
+              <textarea style={{ ...inputS, height: 60, resize: 'none' }} value={subForm.notes} onChange={e => setSubForm(p => ({ ...p, notes: e.target.value }))} placeholder="Internal notes..." />
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button style={{ background: colors.bg, color: colors.text, border: `1px solid ${colors.border}`, borderRadius: 8, padding: '10px 20px', fontSize: 13, cursor: 'pointer' }} onClick={() => setOpenSubDialog(false)}>Cancel</button>
+                <button style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: saving ? 0.7 : 1 }} onClick={saveSub} disabled={saving}>{saving ? 'Saving...' : 'Assign Plan'}</button>
+              </div>
+            </div>
           </div>
         )}
 
