@@ -106,4 +106,19 @@ router.post('/logout', authMiddleware, async (req, res) => {
   }
 });
 
+// GET /api/v1/auth/csrf-token
+// Issues a CSRF token cookie + returns it in body for the client to store.
+router.get('/csrf-token', (req, res) => {
+  const { generateCSRFToken, CSRF_COOKIE } = require('../middleware/security');
+  const token = generateCSRFToken();
+  res.cookie(CSRF_COOKIE, token, {
+    httpOnly: false,           // must be readable by JS so client can send it as header
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'strict',
+    maxAge: 24 * 60 * 60 * 1000, // 24h
+    path: '/',
+  });
+  res.json({ success: true, csrf_token: token });
+});
+
 module.exports = { router, issueAccessToken, REFRESH_EXPIRY_SECONDS };

@@ -54,6 +54,7 @@ const { errorHandler } = require('./middleware/errorHandler');
 const { requestLogger } = require('./middleware/logger');
 const { checkAPIUsage } = require('./middleware/usageRateLimit');
 const { csrfProtection } = require('./middleware/security');
+const cookieParser = require('cookie-parser');
 
 
 // Redis startup connection
@@ -118,6 +119,10 @@ try {
 // Body parsing
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
+
+// CSRF protection on all state-changing routes
+app.use(csrfProtection);
 
 // Health check
 app.get('/health', (req, res) => {
