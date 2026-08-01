@@ -3,14 +3,16 @@ module.exports = {
     name: 'ssgzone-api',
     script: 'src/server.js',
     cwd: '/opt/ssgzone/api-gateway',
+    env_file: '/opt/ssgzone/.env',
     env: {
       NODE_ENV: 'production',
-      JWT_SECRET: 'ssgzone_pems_production_secret_2025_secure',
-      DB_HOST: 'localhost',
-      DB_PORT: 5432,
-      DB_NAME: 'ssgzone_mail',
-      DB_USER: 'postgres',
-      DB_PASSWORD: 'academy'
-    }
+    },
+    instances: 1,
+    autorestart: true,
+    watch: false,
+    max_memory_restart: '1G',
+    error_file: '/root/.pm2/logs/ssgzone-api-error.log',
+    out_file: '/root/.pm2/logs/ssgzone-api-out.log',
+    log_date_format: 'YYYY-MM-DD HH:mm:ss',
   }]
-}
+};
