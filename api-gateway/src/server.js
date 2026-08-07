@@ -124,6 +124,14 @@ app.use(cookieParser());
 // CSRF protection on all state-changing routes
 app.use(csrfProtection);
 
+// Static uploads (branding assets)
+app.use('/uploads', express.static('/opt/ssgzone/uploads', {
+  setHeaders: (res) => {
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
+  }
+}));
+
 // Health check
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });

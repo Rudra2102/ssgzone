@@ -72,10 +72,10 @@ const metricsMiddleware = (req, res, next) => {
 async function collectDbMetrics() {
   try {
     const [queueStats, tenantStats, searchStats] = await Promise.all([
-      pool.query(`SELECT status, COUNT(*) as count FROM email_delivery_queue GROUP BY status`),
+      pool.query(`SELECT status, COUNT(*) as count FROM email_queue GROUP BY status`),
       pool.query(`SELECT 
         COUNT(*) FILTER (WHERE status = 'active') as active_tenants,
-        (SELECT COUNT(*) FROM users WHERE status = 'active') as active_users
+        (SELECT COUNT(*) FROM tenant_users WHERE status = 'active') as active_users
         FROM tenant_companies`),
       pool.query(`SELECT COUNT(*) as total FROM email_search_index`)
     ]);

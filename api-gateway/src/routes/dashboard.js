@@ -63,15 +63,15 @@ async function getSuperAdminMetrics() {
   const metrics = {};
 
   // Total SaaS Apps
-  const appsResult = await db.query('SELECT COUNT(*) as count FROM saas_applications WHERE deleted_at IS NULL');
+  const appsResult = await db.query("SELECT COUNT(*) as count FROM saas_applications WHERE status = 'active'");
   metrics.totalSaasApps = parseInt(appsResult.rows[0].count);
 
   // Active Tenants
-  const tenantsResult = await db.query('SELECT COUNT(*) as count FROM tenant_companies WHERE deleted_at IS NULL');
+  const tenantsResult = await db.query("SELECT COUNT(*) as count FROM tenant_companies WHERE status = 'active'");
   metrics.activeTenants = parseInt(tenantsResult.rows[0].count);
 
   // Total Users
-  const usersResult = await db.query('SELECT COUNT(*) as count FROM users WHERE deleted_at IS NULL');
+  const usersResult = await db.query("SELECT COUNT(*) as count FROM tenant_users WHERE status = 'active'");
   metrics.totalUsers = parseInt(usersResult.rows[0].count);
 
   // Emails Today
@@ -82,7 +82,7 @@ async function getSuperAdminMetrics() {
   metrics.emailsToday = parseInt(emailsResult.rows[0].count);
 
   // Platform Admins
-  const adminsResult = await db.query('SELECT COUNT(*) as count FROM users WHERE role = $1 AND deleted_at IS NULL', ['admin']);
+  const adminsResult = await db.query("SELECT COUNT(*) as count FROM platform_admins WHERE status = 'active'");
   metrics.platformAdmins = parseInt(adminsResult.rows[0].count);
 
   // Email Stats
@@ -133,9 +133,7 @@ async function getSuperAdminMetrics() {
 
   // Storage Usage
   const storageResult = await db.query(`
-    SELECT 
-      COALESCE(SUM(size_bytes), 0) as total_bytes
-    FROM email_attachments
+    SELECT COALESCE(SUM(file_size), 0) as total_bytes FROM attachments
   `);
   const totalBytes = parseInt(storageResult.rows[0].total_bytes);
   const usedGB = totalBytes / (1024 * 1024 * 1024);
