@@ -1164,6 +1164,29 @@ router.delete('/tenants/:id', superAdminAuth, requireRole(), async (req, res) =>
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// POST /users — create single tenant user
+router.post('/users', superAdminAuth, requireRole('admin', 'support'), async (req, res) => {
+  const { first_name, last_name, username, email, password, tenant_id, role } = req.body;
+  if (!first_name || !last_name || !username || !email || !tenant_id)
+    return res.status(400).json({ success: false, error: 'first_name, last_name, username, email, tenant_id required' });
+  try {
+    const tenantCheck = await db.query('SELECT id FROM tenant_companies WHERE id=$1', [tenant_id]);
+    if (!tenantCheck.rows.length) return res.status(404).json({ success: false, error: 'Tenant not found' });
+    const plain = password || 'Welcome@123';
+    const hash = await bcrypt.hash(plain, 10);
+    const result = await db.query(
+      `INSERT INTO tenant_users (tenant_id, username, email, first_name, last_name, role, password_hash, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'active')
+       RETURNING id, username, email, first_name, last_name, role, status, created_at`,
+      [tenant_id, username, email, first_name, last_name, role || 'user', hash]
+    );
+    res.json({ success: true, data: result.rows[0], credentials: { email, password: plain } });
+  } catch (err) {
+    if (err.code === '23505') return res.status(400).json({ success: false, error: 'Username or email already exists in this tenant' });
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // PATCH /users/:id/status
 router.patch('/users/:id/status', superAdminAuth, requireRole('admin', 'support'), async (req, res) => {
   const { status } = req.body;
