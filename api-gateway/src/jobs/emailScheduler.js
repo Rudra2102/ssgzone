@@ -1,5 +1,5 @@
 const { enqueueEmail, emailQueue } = require('../services/queueService');
-
+const pool = require('../services/DatabaseService');
 
 // On startup, re-enqueue any pending emails from old email_queue table
 async function migratePendingEmails() {
@@ -33,7 +33,6 @@ async function migratePendingEmails() {
   }
 }
 
-const pool = require('../services/DatabaseService');
 function startEmailScheduler() {
   console.log('Email scheduler started');
   migratePendingEmails();
