@@ -1562,4 +1562,85 @@ router.get('/audit-logs', superAdminAuth, requireRole('admin', 'support'), async
   }
 });
 
+// ── Direct Clients (Solo Tenant — Option A) ─────────────────────────────
+// GET /api/v1/super-admin/direct-clients
+router.get('/direct-clients', superAdminAuth, async (req, res) => {
+  try {
+    const tenant = await db.query(
+      `SELECT tc.id FROM tenant_companies tc
+       JOIN saas_applications sa ON sa.id = tc.saas_app_id
+       WHERE sa.saas_slug = 'direct' AND tc.company_slug = 'platform' LIMIT 1`
+    );
+    if (!tenant.rows.length) return res.json({ success: true, data: [], message: 'Direct tenant not set up yet' });
+    const tenantId = tenant.rows[0].id;
+    const { search } = req.query;
+    const params = [tenantId];
+    let where = 'WHERE tu.tenant_id = $1';
+    if (search) { params.push(`%${search}%`); where += ` AND (tu.email ILIKE $${params.length} OR tu.first_name ILIKE $${params.length} OR tu.last_name ILIKE $${params.length})`; }
+    const result = await db.query(
+      `SELECT tu.id, tu.username, tu.email, tu.first_name, tu.last_name,
+              tu.status, tu.last_login, tu.created_at
+       FROM tenant_users tu ${where} ORDER BY tu.created_at DESC`,
+      params
+    );
+    res.json({ success: true, data: result.rows, total: result.rows.length });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /api/v1/super-admin/direct-clients
+router.post('/direct-clients', superAdminAuth, async (req, res) => {
+  const { first_name, last_name, username, email, password } = req.body;
+  if (!first_name || !last_name || !username || !email)
+    return res.status(400).json({ success: false, error: 'first_name, last_name, username, email required' });
+  try {
+    const tenant = await db.query(
+      `SELECT tc.id FROM tenant_companies tc
+       JOIN saas_applications sa ON sa.id = tc.saas_app_id
+       WHERE sa.saas_slug = 'direct' AND tc.company_slug = 'platform' LIMIT 1`
+    );
+    if (!tenant.rows.length)
+      return res.status(500).json({ success: false, error: 'Direct tenant not configured. Run phase6b.sql migration first.' });
+    const tenantId = tenant.rows[0].id;
+    const plain = password || 'Welcome@123';
+    const hash = await bcrypt.hash(plain, 10);
+    const result = await db.query(
+      `INSERT INTO tenant_users (tenant_id, username, email, first_name, last_name, role, password_hash, status)
+       VALUES ($1, $2, $3, $4, $5, 'user', $6, 'active')
+       RETURNING id, username, email, first_name, last_name, status, created_at`,
+      [tenantId, username, email, first_name, last_name, hash]
+    );
+    res.json({
+      success: true,
+      data: result.rows[0],
+      credentials: { email, password: plain, login_url: 'https://mail.ssgzone.in' }
+    });
+  } catch (err) {
+    if (err.code === '23505') return res.status(400).json({ success: false, error: 'Username or email already exists' });
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PATCH /api/v1/super-admin/direct-clients/:id/status
+router.patch('/direct-clients/:id/status', superAdminAuth, async (req, res) => {
+  const { status } = req.body;
+  if (!['active', 'suspended'].includes(status))
+    return res.status(400).json({ success: false, error: 'Invalid status' });
+  try {
+    const result = await db.query(
+      `UPDATE tenant_users SET status=$1 WHERE id=$2 RETURNING id, email, status`,
+      [status, req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Client not found' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// DELETE /api/v1/super-admin/direct-clients/:id
+router.delete('/direct-clients/:id', superAdminAuth, async (req, res) => {
+  try {
+    await db.query('DELETE FROM tenant_users WHERE id=$1', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 module.exports = router;

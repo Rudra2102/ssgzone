@@ -346,6 +346,8 @@ function SuperAdminDashboard() {
     { section: 'MANAGEMENT', items: [
       { id: 'applications', label: 'Applications', icon: '▦' },
       { id: 'tenants', label: 'Tenants', icon: '🏢' },
+      { id: 'direct-clients', label: 'Direct Clients', icon: '👤' },
+      { id: 'direct-clients', label: 'Direct Clients', icon: '👤' },
       { id: 'users', label: 'Users', icon: '👥' },
       { id: 'mailboxes', label: 'Mailboxes', icon: '📬' },
       { id: 'permissions', label: 'Feature Permissions', icon: '🔑' },
@@ -2340,6 +2342,171 @@ function SuperAdminDashboard() {
     );
   };
 
+  const DirectClientsSection = () => {
+    const [clients, setClients] = React.useState([]);
+    const [loading, setLoading] = React.useState(false);
+    const [search, setSearch] = React.useState('');
+    const [showForm, setShowForm] = React.useState(false);
+    const [form, setForm] = React.useState({ first_name: '', last_name: '', username: '', email: '', password: '' });
+    const [saving, setSaving] = React.useState(false);
+    const [msg, setMsg] = React.useState('');
+    const [newCreds, setNewCreds] = React.useState(null);
+
+    const load = async (q) => {
+      setLoading(true);
+      const params = q ? '?search=' + encodeURIComponent(q) : '';
+      const res = await fetch(API + '/direct-clients' + params, { headers: authHeaders });
+      const data = await res.json();
+      if (data.success) setClients(data.data);
+      setLoading(false);
+    };
+    React.useEffect(() => { load(); }, []);
+
+    const create = async () => {
+      if (!form.first_name || !form.last_name || !form.username || !form.email) { setMsg('All fields except password are required'); return; }
+      setSaving(true); setMsg('');
+      const res = await fetch(API + '/direct-clients', {
+        method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify(form)
+      });
+      const data = await res.json();
+      setSaving(false);
+      if (data.success) {
+        setNewCreds(data.credentials);
+        setClients(p => [data.data, ...p]);
+        setShowForm(false);
+        setForm({ first_name: '', last_name: '', username: '', email: '', password: '' });
+      } else setMsg(data.error || 'Failed');
+    };
+
+    const toggleStatus = async (client) => {
+      const newStatus = client.status === 'active' ? 'suspended' : 'active';
+      const res = await fetch(API + '/direct-clients/' + client.id + '/status', {
+        method: 'PATCH', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      });
+      const data = await res.json();
+      if (data.success) setClients(p => p.map(cl => cl.id === client.id ? { ...cl, status: newStatus } : cl));
+    };
+
+    const del = async (id) => {
+      if (!window.confirm('Delete this client?')) return;
+      await fetch(API + '/direct-clients/' + id, { method: 'DELETE', headers: authHeaders });
+      setClients(p => p.filter(cl => cl.id !== id));
+    };
+
+    const inp = { padding: '9px 12px', border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 13, color: colors.text, background: colors.bg, outline: 'none', boxSizing: 'border-box' };
+
+    return (
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: colors.text }}>Direct Clients</div>
+            <div style={{ fontSize: 13, color: colors.textMuted, marginTop: 2 }}>Individual users with direct ssgzone.in mailboxes</div>
+          </div>
+          <button onClick={() => setShowForm(p => !p)}
+            style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            + New Client
+          </button>
+        </div>
+
+        {showForm && (
+          <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: colors.text, marginBottom: 16 }}>Create Direct Client</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+              {[['first_name','First Name'],['last_name','Last Name'],['username','Username (login)'],['email','Email Address']].map(([k, lbl]) => (
+                <div key={k}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4 }}>{lbl} *</div>
+                  <input value={form[k]} onChange={e => setForm(p => ({ ...p, [k]: e.target.value }))}
+                    style={{ ...inp, width: '100%' }} placeholder={lbl} />
+                </div>
+              ))}
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4 }}>Password (optional)</div>
+                <input type="password" value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
+                  style={{ ...inp, width: '100%' }} placeholder="Leave blank for Welcome@123" />
+              </div>
+            </div>
+            {msg && <div style={{ color: colors.danger, fontSize: 13, marginBottom: 10 }}>{msg}</div>}
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={create} disabled={saving}
+                style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: saving ? 0.7 : 1 }}>
+                {saving ? 'Creating...' : 'Create Client'}
+              </button>
+              <button onClick={() => { setShowForm(false); setMsg(''); }}
+                style={{ background: 'none', border: `1px solid ${colors.border}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, cursor: 'pointer', color: colors.textMuted }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {newCreds && (
+          <div style={{ background: colors.successLight, border: `1px solid ${colors.success}`, borderRadius: 10, padding: 16, marginBottom: 20 }}>
+            <div style={{ fontWeight: 700, color: colors.success, marginBottom: 8 }}>✅ Client Created — Share these credentials:</div>
+            <div style={{ fontSize: 13, color: colors.text }}>Email: <strong>{newCreds.email}</strong></div>
+            <div style={{ fontSize: 13, color: colors.text }}>Password: <strong>{newCreds.password}</strong></div>
+            <div style={{ fontSize: 13, color: colors.text }}>Login URL: <a href={newCreds.login_url} target="_blank" rel="noreferrer" style={{ color: colors.primary }}>{newCreds.login_url}</a></div>
+            <button onClick={() => setNewCreds(null)} style={{ marginTop: 10, background: 'none', border: `1px solid ${colors.success}`, borderRadius: 6, padding: '4px 12px', fontSize: 12, cursor: 'pointer', color: colors.success }}>Dismiss</button>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+          <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && load(search)}
+            placeholder="Search by name or email..."
+            style={{ ...inp, flex: 1 }} />
+          <button onClick={() => load(search)} style={{ background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, cursor: 'pointer', color: colors.text }}>Search</button>
+        </div>
+
+        <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead><tr style={{ background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+              {['Name', 'Email / Login', 'Status', 'Last Login', 'Created', 'Actions'].map(h => (
+                <th key={h} style={{ textAlign: 'left', padding: '12px 16px', color: colors.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {loading && <tr><td colSpan={6} style={{ padding: 30, textAlign: 'center', color: colors.textMuted }}>Loading...</td></tr>}
+              {!loading && clients.length === 0 && (
+                <tr><td colSpan={6} style={{ padding: 40, textAlign: 'center', color: colors.textMuted }}>
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>👤</div>
+                  <div style={{ fontWeight: 600, color: colors.text }}>No direct clients yet</div>
+                  <div style={{ fontSize: 12, marginTop: 4 }}>Click "+ New Client" to create one</div>
+                </td></tr>
+              )}
+              {clients.map(cl => (
+                <tr key={cl.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                  <td style={{ padding: '12px 16px', fontWeight: 600, color: colors.text }}>{cl.first_name} {cl.last_name}</td>
+                  <td style={{ padding: '12px 16px' }}>
+                    <div style={{ color: colors.text, fontFamily: 'monospace', fontSize: 12 }}>{cl.email}</div>
+                    <div style={{ color: colors.textMuted, fontSize: 11 }}>@{cl.username}</div>
+                  </td>
+                  <td style={{ padding: '12px 16px' }}>
+                    <span style={{ background: cl.status === 'active' ? colors.successLight : colors.dangerLight, color: cl.status === 'active' ? colors.success : colors.danger, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>{cl.status}</span>
+                  </td>
+                  <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{cl.last_login ? new Date(cl.last_login).toLocaleDateString() : '—'}</td>
+                  <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{new Date(cl.created_at).toLocaleDateString()}</td>
+                  <td style={{ padding: '12px 16px' }}>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button onClick={() => toggleStatus(cl)}
+                        style={{ background: 'none', border: `1px solid ${cl.status === 'active' ? colors.danger : colors.success}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: cl.status === 'active' ? colors.danger : colors.success, fontWeight: 600 }}>
+                        {cl.status === 'active' ? 'Suspend' : 'Activate'}
+                      </button>
+                      <button onClick={() => del(cl.id)}
+                        style={{ background: 'none', border: `1px solid ${colors.danger}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: colors.danger }}>
+                        Delete
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
   const GDPRSection = () => {
     const [gdprTab, setGdprTab] = useState('requests');
     const [requests, setRequests] = useState([]);
@@ -3007,6 +3174,7 @@ function SuperAdminDashboard() {
       case 'templates': return <TemplatesSection />;
       case 'permissions': return <PermissionsSection />;
       case 'admins': return <AdminsSection />;
+      case 'direct-clients': return <DirectClientsSection />;
       case 'gdpr': return <GDPRSection />;
       case 'settings': return <SettingsSection />;
       case 'mailboxes': return <MailboxSection />;
