@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "description": "Database migration management for SSGzone Communication Platform",
   "scripts": {
-    "migrate:up": "node-pg-migrate up --envPath ../.env",
-    "migrate:down": "node-pg-migrate down --envPath ../.env",
-    "migrate:create": "node-pg-migrate create",
-    "migrate:status": "node-pg-migrate up --dry-run --envPath ../.env",
+    "migrate:up": "node-pg-migrate up -m migrations/versioned --envPath ../.env",
+    "migrate:down": "node-pg-migrate down -m migrations/versioned --envPath ../.env",
+    "migrate:create": "node-pg-migrate create -m migrations/versioned",
+    "migrate:status": "node-pg-migrate up --dry-run -m migrations/versioned --envPath ../.env",
     "migrate:seed-history": "node scripts/seed-migration-history.js"
   },
   "dependencies": {
