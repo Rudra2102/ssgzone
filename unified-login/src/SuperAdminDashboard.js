@@ -653,6 +653,33 @@ function SuperAdminDashboard() {
     </div>
   );
 
+  const [openAddUserDialog, setOpenAddUserDialog] = useState(false);
+  const [addUserForm, setAddUserForm] = useState({ first_name: '', last_name: '', username: '', email: '', password: '', tenant_id: '', role: 'user' });
+  const [addUserError, setAddUserError] = useState('');
+  const [addUserSaving, setAddUserSaving] = useState(false);
+
+  const handleAddUser = async () => {
+    if (!addUserForm.first_name || !addUserForm.last_name || !addUserForm.username || !addUserForm.email || !addUserForm.tenant_id) {
+      setAddUserError('First name, last name, username, email and tenant are required'); return;
+    }
+    setAddUserSaving(true); setAddUserError('');
+    try {
+      const res = await apiFetch(`${API}/users`, {
+        method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify(addUserForm)
+      });
+      const data = await res.json();
+      if (data.success) {
+        setOpenAddUserDialog(false);
+        setAddUserForm({ first_name: '', last_name: '', username: '', email: '', password: '', tenant_id: '', role: 'user' });
+        fetchUsers();
+        if (data.data?.temp_password) alert(`✅ User created!\nTemp Password: ${data.data.temp_password}`);
+      } else setAddUserError(data.error || 'Failed to create user');
+    } catch (err) { setAddUserError(err.message); }
+    setAddUserSaving(false);
+  };
+
   const UsersSection = () => (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
@@ -660,6 +687,8 @@ function SuperAdminDashboard() {
           <div style={{ fontSize: 22, fontWeight: 700, color: colors.text }}>Users</div>
           <div style={{ fontSize: 13, color: colors.textMuted }}>Total {usersTotal} users across all tenants</div>
         </div>
+        <button onClick={() => { setAddUserForm({ first_name: '', last_name: '', username: '', email: '', password: '', tenant_id: '', role: 'user' }); setAddUserError(''); setOpenAddUserDialog(true); }}
+          style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>+ Add User</button>
       </div>
       <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
         <div style={{ flex: 1, position: 'relative' }}>
@@ -1172,6 +1201,41 @@ function SuperAdminDashboard() {
         </div>
       </div>
     )}
+    {/* Add User Dialog */}
+    {openAddUserDialog && (
+      <div style={modalStyle} onClick={() => setOpenAddUserDialog(false)}>
+        <div style={{ ...boxStyle, width: 500 }} onClick={e => e.stopPropagation()}>
+          <div style={{ fontSize: 17, fontWeight: 700, color: colors.text, marginBottom: 20 }}>Add New User</div>
+          {addUserError && <div style={{ background: colors.dangerLight, color: colors.danger, borderRadius: 8, padding: '8px 12px', fontSize: 13, marginBottom: 12 }}>{addUserError}</div>}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            {[['First Name *', 'first_name'], ['Last Name *', 'last_name'], ['Username *', 'username'], ['Email *', 'email']].map(([lbl, key]) => (
+              <div key={key}>
+                <label style={labelStyle}>{lbl}</label>
+                <input style={{ ...inputStyle, marginBottom: 0 }} value={addUserForm[key]} onChange={e => setAddUserForm(f => ({ ...f, [key]: e.target.value }))} placeholder={lbl.replace(' *', '')} />
+              </div>
+            ))}
+          </div>
+          <label style={{ ...labelStyle, marginTop: 12 }}>Tenant *</label>
+          <select style={inputStyle} value={addUserForm.tenant_id} onChange={e => setAddUserForm(f => ({ ...f, tenant_id: e.target.value }))}>
+            <option value="">Select Tenant</option>
+            {tenants.map(t => <option key={t.id} value={t.id}>{t.company_name}</option>)}
+          </select>
+          <label style={labelStyle}>Role</label>
+          <select style={inputStyle} value={addUserForm.role} onChange={e => setAddUserForm(f => ({ ...f, role: e.target.value }))}>
+            <option value="user">User</option>
+            <option value="admin">Admin</option>
+            <option value="manager">Manager</option>
+          </select>
+          <label style={labelStyle}>Password (leave blank to auto-generate)</label>
+          <input type="password" style={inputStyle} value={addUserForm.password} onChange={e => setAddUserForm(f => ({ ...f, password: e.target.value }))} placeholder="Auto-generate if blank" />
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
+            <button style={btnSecondary} onClick={() => setOpenAddUserDialog(false)}>Cancel</button>
+            <button style={{ ...btnPrimary, opacity: addUserSaving ? 0.7 : 1 }} disabled={addUserSaving} onClick={handleAddUser}>{addUserSaving ? 'Creating...' : 'Create User'}</button>
+          </div>
+        </div>
+      </div>
+    )}
+
     {/* Delete User Dialog */}
     {openDeleteUserDialog && (
       <div style={modalStyle} onClick={() => setOpenDeleteUserDialog(false)}>
