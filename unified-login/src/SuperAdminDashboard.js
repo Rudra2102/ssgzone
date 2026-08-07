@@ -1208,12 +1208,22 @@ function SuperAdminDashboard() {
           <div style={{ fontSize: 17, fontWeight: 700, color: colors.text, marginBottom: 20 }}>Add New User</div>
           {addUserError && <div style={{ background: colors.dangerLight, color: colors.danger, borderRadius: 8, padding: '8px 12px', fontSize: 13, marginBottom: 12 }}>{addUserError}</div>}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            {[['First Name *', 'first_name'], ['Last Name *', 'last_name'], ['Username *', 'username'], ['Email *', 'email']].map(([lbl, key]) => (
-              <div key={key}>
-                <label style={labelStyle}>{lbl}</label>
-                <input style={{ ...inputStyle, marginBottom: 0 }} value={addUserForm[key]} onChange={e => setAddUserForm(f => ({ ...f, [key]: e.target.value }))} placeholder={lbl.replace(' *', '')} />
-              </div>
-            ))}
+            <div>
+              <label style={labelStyle}>First Name *</label>
+              <input style={{ ...inputStyle, marginBottom: 0 }} value={addUserForm.first_name} onChange={e => setAddUserForm(f => ({ ...f, first_name: e.target.value }))} placeholder="First Name" />
+            </div>
+            <div>
+              <label style={labelStyle}>Last Name *</label>
+              <input style={{ ...inputStyle, marginBottom: 0 }} value={addUserForm.last_name} onChange={e => setAddUserForm(f => ({ ...f, last_name: e.target.value }))} placeholder="Last Name" />
+            </div>
+            <div>
+              <label style={labelStyle}>Username *</label>
+              <input style={{ ...inputStyle, marginBottom: 0 }} value={addUserForm.username} onChange={e => setAddUserForm(f => ({ ...f, username: e.target.value }))} placeholder="Username" />
+            </div>
+            <div>
+              <label style={labelStyle}>Email *</label>
+              <input style={{ ...inputStyle, marginBottom: 0 }} value={addUserForm.email} onChange={e => setAddUserForm(f => ({ ...f, email: e.target.value }))} placeholder="Email" />
+            </div>
           </div>
           <label style={{ ...labelStyle, marginTop: 12 }}>Tenant *</label>
           <select style={inputStyle} value={addUserForm.tenant_id} onChange={e => setAddUserForm(f => ({ ...f, tenant_id: e.target.value }))}>
