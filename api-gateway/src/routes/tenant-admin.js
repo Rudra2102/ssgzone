@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 
 const db = require('../services/DatabaseService');
+const { checkLockout, recordFailedAttempt, clearFailedAttempts } = require('../middleware/loginLockout');
 const router = express.Router();
 
 
@@ -12,7 +13,7 @@ if (!JWT_SECRET) {
 }
 
 // Tenant Admin Login
-router.post('/auth/login', async (req, res) => {
+router.post('/auth/login', checkLockout(req => req.body.username), async (req, res) => {
   try {
     const { username, password } = req.body;
     
@@ -28,6 +29,7 @@ router.post('/auth/login', async (req, res) => {
     `, [username]);
     
     if (userQuery.rows.length === 0) {
+      await recordFailedAttempt(username);
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
     
@@ -36,9 +38,11 @@ router.post('/auth/login', async (req, res) => {
     // Verify password
     const isValidPassword = await bcrypt.compare(password, user.password_hash);
     if (!isValidPassword) {
+      await recordFailedAttempt(username);
       return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
     
+    await clearFailedAttempts(username);
     // Update last login
     await db.query('UPDATE tenant_users SET last_login = NOW() WHERE id = $1', [user.id]);
     

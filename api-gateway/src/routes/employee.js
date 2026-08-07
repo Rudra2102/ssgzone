@@ -6,6 +6,7 @@ const jwt = require('jsonwebtoken');
 const speakeasy = require('speakeasy');
 const qrcode = require('qrcode');
 const { authenticate, requirePlatformAdmin } = require('../middleware/auth');
+const { checkLockout, recordFailedAttempt, clearFailedAttempts } = require('../middleware/loginLockout');
 
 
 const makeToken = (admin) => jwt.sign(
@@ -15,7 +16,7 @@ const makeToken = (admin) => jwt.sign(
 );
 
 // POST /api/v1/employee/auth/login
-router.post('/auth/login', async (req, res) => {
+router.post('/auth/login', checkLockout(req => req.body.email), async (req, res) => {
   try {
     const { email, password, totp_code } = req.body;
     if (!email || !password) return res.status(400).json({ success: false, error: 'Email and password required' });
@@ -24,11 +25,17 @@ router.post('/auth/login', async (req, res) => {
       'SELECT * FROM platform_admins WHERE email = $1 AND status = $2',
       [email.toLowerCase().trim(), 'active']
     );
-    if (!rows.length) return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    if (!rows.length) {
+      await recordFailedAttempt(email.toLowerCase().trim());
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    }
 
     const admin = rows[0];
     const valid = await bcrypt.compare(password, admin.password_hash);
-    if (!valid) return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    if (!valid) {
+      await recordFailedAttempt(email.toLowerCase().trim());
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    }
 
     if (admin.totp_enabled) {
       if (!totp_code) return res.status(200).json({ success: false, requires_2fa: true });
@@ -36,6 +43,7 @@ router.post('/auth/login', async (req, res) => {
       if (!ok) return res.status(401).json({ success: false, error: 'Invalid 2FA code' });
     }
 
+    await clearFailedAttempts(email.toLowerCase().trim());
     await pool.query('UPDATE platform_admins SET last_login = NOW() WHERE id = $1', [admin.id]);
 
     res.json({

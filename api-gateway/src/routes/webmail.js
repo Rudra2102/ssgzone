@@ -7,6 +7,7 @@ const { notifyNewEmailSms } = require('../jobs/smsNotificationJob');
 const { requireFeature } = require('../middleware/permissions');
 
 const pool = require('../services/DatabaseService');
+const { checkLockout, recordFailedAttempt, clearFailedAttempts } = require('../middleware/loginLockout');
 const router = express.Router();
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -26,7 +27,7 @@ const webmailAuth = (req, res, next) => {
 };
 
 // POST /api/v1/webmail/auth/login
-router.post('/auth/login', async (req, res) => {
+router.post('/auth/login', checkLockout(req => req.body.email), async (req, res) => {
   const bcrypt = require('bcryptjs');
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ success: false, error: 'Email and password required' });
@@ -38,10 +39,18 @@ router.post('/auth/login', async (req, res) => {
        WHERE tu.email = $1 AND tu.status = 'active'`,
       [email]
     );
-    if (!result.rows.length) return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    if (!result.rows.length) {
+      await recordFailedAttempt(email);
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    }
     const user = result.rows[0];
     const valid = await bcrypt.compare(password, user.password_hash);
-    if (!valid) return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    if (!valid) {
+      await recordFailedAttempt(email);
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
+    }
+
+    await clearFailedAttempts(email);
 
     // Check 2FA
     if (user.totp_enabled) {
