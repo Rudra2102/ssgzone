@@ -106,20 +106,18 @@ async function getSuperAdminMetrics() {
     deliveryRate: 98.5
   };
 
-  // Health Metrics - Calculate from email_logs
-  const healthResult = await db.query(`
-    SELECT 
-      COUNT(*) as total_emails,
-      SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent_count,
-      SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_count
-    FROM email_logs
-    WHERE sent_at > NOW() - INTERVAL '7 days'
-  `);
-  const healthData = healthResult.rows[0];
-  const totalEmails = parseInt(healthData.total_emails) || 1;
-  const sentEmails = parseInt(healthData.sent_count) || 0;
-  const uptime = totalEmails > 0 ? ((sentEmails / totalEmails) * 100) : 99.9;
-  
+  // Health Metrics
+  let uptime = 99.9;
+  try {
+    const healthResult = await db.query(`
+      SELECT COUNT(*) as total_emails,
+        SUM(CASE WHEN status = 'sent' THEN 1 ELSE 0 END) as sent_count
+      FROM email_logs WHERE sent_at > NOW() - INTERVAL '7 days'
+    `);
+    const h = healthResult.rows[0];
+    const total = parseInt(h.total_emails) || 0;
+    if (total > 0) uptime = parseFloat(((parseInt(h.sent_count) / total) * 100).toFixed(1));
+  } catch {}
   metrics.healthMetrics = {
     uptime: parseFloat(uptime.toFixed(1)),
     avgDeliveryTime: 1.2,
@@ -132,10 +130,12 @@ async function getSuperAdminMetrics() {
   };
 
   // Storage Usage
-  const storageResult = await db.query(`
-    SELECT COALESCE(SUM(file_size), 0) as total_bytes FROM attachments
-  `);
-  const totalBytes = parseInt(storageResult.rows[0].total_bytes);
+  // Storage Usage
+  let totalBytes = 0;
+  try {
+    const storageResult = await db.query(`SELECT COALESCE(SUM(file_size), 0) as total_bytes FROM attachments`);
+    totalBytes = parseInt(storageResult.rows[0].total_bytes);
+  } catch {}
   const usedGB = totalBytes / (1024 * 1024 * 1024);
   const totalGB = 1000;
   metrics.storageUsage = {
