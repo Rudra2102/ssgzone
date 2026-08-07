@@ -109,12 +109,16 @@ export default function WebmailDashboard() {
 
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const token = localStorage.getItem('webmail_token');
-  const [csrfToken] = useState(() => localStorage.getItem('csrf_token') || '');
-  const auth = { Authorization: `Bearer ${token}`, 'X-CSRF-Token': csrfToken };
+  const csrfTokenRef = React.useRef(localStorage.getItem('csrf_token') || '');
+  const auth = { Authorization: `Bearer ${token}`, 'X-CSRF-Token': csrfTokenRef.current };
+  const apiFetch = (url, opts = {}) => {
+    const headers = { Authorization: `Bearer ${token}`, 'X-CSRF-Token': csrfTokenRef.current, ...(opts.headers || {}) };
+    return fetch(url, { credentials: 'include', ...opts, headers });
+  };
 
   React.useEffect(() => {
     fetch('https://api.ssgzone.in/api/v1/auth/csrf-token', { credentials: 'include' })
-      .then(r => r.json()).then(d => { if (d.csrf_token) localStorage.setItem('csrf_token', d.csrf_token); }).catch(() => {});
+      .then(r => r.json()).then(d => { if (d.csrf_token) { csrfTokenRef.current = d.csrf_token; localStorage.setItem('csrf_token', d.csrf_token); } }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -2468,7 +2472,7 @@ export default function WebmailDashboard() {
                 <div
                   contentEditable
                   suppressContentEditableWarning
-                  ref={el => { if (el && el.innerHTML !== compose.body_html) el.innerHTML = compose.body_html || ''; }}
+                  ref={el => { if (el && !el.dataset.init) { el.innerHTML = compose.body_html || ''; el.dataset.init = '1'; } }}
                   onInput={e => setCompose(p => ({ ...p, body_html: e.currentTarget.innerHTML }))}
                   style={{ minHeight: 200, maxHeight: 400, overflowY: 'auto', padding: 12, fontSize: 13, outline: 'none', lineHeight: 1.6 }}
                 />
