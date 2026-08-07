@@ -12,6 +12,7 @@ const mailer = nodemailer.createTransport({
 });
 
 const db = require('../services/DatabaseService');
+const { checkLockout, recordFailedAttempt, clearFailedAttempts } = require('../middleware/loginLockout');
 const router = express.Router();
 
 // Test endpoint
@@ -28,17 +29,11 @@ if (!JWT_SECRET) {
 }
 
 // Super Admin Authentication
-router.post('/auth/login', async (req, res) => {
+router.post('/auth/login', checkLockout(req => req.body.username), async (req, res) => {
   try {
     const { username, password } = req.body;
-    console.log('Login attempt:', { username, password: '***' });
-    
-    if (!username || !password) {
-      return res.status(400).json({
-        success: false,
-        error: 'Username and password are required'
-      });
-    }
+    if (!username || !password)
+      return res.status(400).json({ success: false, error: 'Username and password are required' });
     
     // Find super admin or platform employee
     let isEmployee = false;
@@ -54,40 +49,19 @@ router.post('/auth/login', async (req, res) => {
       isEmployee = result.rows.length > 0;
     }
     
-    console.log('Database result:', result.rows.length > 0 ? 'User found' : 'User not found');
-    
     const admin = result.rows[0];
     if (!admin) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid credentials'
-      });
+      await recordFailedAttempt(username);
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
     
-    console.log('Comparing password with hash');
-    console.log('Retrieved hash:', admin.password_hash);
-    console.log('Hash length:', admin.password_hash.length);
-    // Fix escaped backslashes in hash
     const cleanHash = admin.password_hash.replace(/\\/g, '');
-    console.log('Cleaned hash:', cleanHash);
-    // Verify password using bcrypt
     const isValid = await bcrypt.compare(password, cleanHash);
-    console.log('Password valid:', isValid);
-    
     if (!isValid) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid credentials'
-      });
+      await recordFailedAttempt(username);
+      return res.status(401).json({ success: false, error: 'Invalid credentials' });
     }
-    
-    // Update last login (column doesn't exist yet)
-    // await db.query(
-    //   'UPDATE super_admins SET last_login = CURRENT_TIMESTAMP WHERE id = $1',
-    //   [admin.id]
-    // );
-    
-    // super_admins table has no role column — force it
+    await clearFailedAttempts(username);
     if (!isEmployee) admin.role = 'super_admin';
 
     // Check if 2FA is enabled
