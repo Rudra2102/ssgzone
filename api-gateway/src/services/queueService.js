@@ -1,5 +1,6 @@
 const Bull = require('bull');
 const nodemailer = require('nodemailer');
+const pool = require('./DatabaseService');
 
 
 const redisConfig = {
@@ -131,5 +132,4 @@ async function getJobStatus(dbId, tenantId) {
   return rows[0];
 }
 
-const pool = require('./DatabaseService');
 module.exports = { emailQueue, enqueueEmail, cancelEmail, getQueueStats, getJobStatus };
