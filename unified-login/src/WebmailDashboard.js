@@ -106,6 +106,7 @@ export default function WebmailDashboard() {
   const [sessionWarning, setSessionWarning] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [jumpPage, setJumpPage] = useState('');
+  const bodyEditorRef = React.useRef(null);
 
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const token = localStorage.getItem('webmail_token');
@@ -2472,8 +2473,8 @@ export default function WebmailDashboard() {
                 <div
                   contentEditable
                   suppressContentEditableWarning
-                  ref={el => { if (el && !el.dataset.init) { el.innerHTML = compose.body_html || ''; el.dataset.init = '1'; } }}
-                  onInput={e => setCompose(p => ({ ...p, body_html: e.currentTarget.innerHTML }))}
+                  ref={el => { bodyEditorRef.current = el; if (el && el.innerHTML !== (compose.body_html || '')) el.innerHTML = compose.body_html || ''; }}
+                  onInput={e => { const v = e.currentTarget.innerHTML; setCompose(p => p.body_html === v ? p : ({ ...p, body_html: v })); }}
                   style={{ minHeight: 200, maxHeight: 400, overflowY: 'auto', padding: 12, fontSize: 13, outline: 'none', lineHeight: 1.6 }}
                 />
               </div>
