@@ -58,7 +58,13 @@ export default function EmployeeDashboard() {
   const token    = localStorage.getItem('platform_admin_token');
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const role     = localStorage.getItem('user_role') || userData.role || 'support';
-  const authH    = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' };
+  const csrfToken = localStorage.getItem('csrf_token') || '';
+  const authH    = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken };
+
+  React.useEffect(() => {
+    fetch('https://api.ssgzone.in/api/v1/auth/csrf-token', { credentials: 'include' })
+      .then(r => r.json()).then(d => { if (d.csrf_token) localStorage.setItem('csrf_token', d.csrf_token); }).catch(() => {});
+  }, []);
 
   const [section, setSection]     = useState('dashboard');
   const [stats, setStats]         = useState({});

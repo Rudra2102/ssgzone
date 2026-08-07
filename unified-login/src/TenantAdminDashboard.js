@@ -90,7 +90,13 @@ function TenantAdminDashboard() {
 
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const token = localStorage.getItem('tenant_admin_token');
-  const auth = { Authorization: `Bearer ${token}` };
+  const [csrfToken] = React.useState(() => localStorage.getItem('csrf_token') || '');
+  const auth = { Authorization: `Bearer ${token}`, 'X-CSRF-Token': csrfToken };
+
+  React.useEffect(() => {
+    fetch('https://api.ssgzone.in/api/v1/auth/csrf-token', { credentials: 'include' })
+      .then(r => r.json()).then(d => { if (d.csrf_token) localStorage.setItem('csrf_token', d.csrf_token); }).catch(() => {});
+  }, []);
 
   const getJwtPermissions = () => {
     try { return JSON.parse(atob(token.split('.')[1])).permissions || {}; } catch { return {}; }

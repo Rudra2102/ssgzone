@@ -62,7 +62,17 @@ function SuperAdminDashboard() {
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const API = 'https://api.ssgzone.in/api/v1/super-admin';
 
-  const authHeaders = { 'Authorization': `Bearer ${token}` };
+  const [csrfToken, setCsrfToken] = useState(localStorage.getItem('csrf_token') || '');
+
+  const authHeaders = { 'Authorization': `Bearer ${token}`, 'X-CSRF-Token': csrfToken };
+
+  useEffect(() => {
+    // Fetch CSRF token on mount
+    fetch('https://api.ssgzone.in/api/v1/auth/csrf-token', { credentials: 'include' })
+      .then(r => r.json())
+      .then(d => { if (d.csrf_token) { setCsrfToken(d.csrf_token); localStorage.setItem('csrf_token', d.csrf_token); } })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     fetchAll(); fetchBranding();

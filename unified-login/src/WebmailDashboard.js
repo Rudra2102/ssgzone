@@ -109,7 +109,13 @@ export default function WebmailDashboard() {
 
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const token = localStorage.getItem('webmail_token');
-  const auth = { Authorization: `Bearer ${token}` };
+  const [csrfToken] = useState(() => localStorage.getItem('csrf_token') || '');
+  const auth = { Authorization: `Bearer ${token}`, 'X-CSRF-Token': csrfToken };
+
+  React.useEffect(() => {
+    fetch('https://api.ssgzone.in/api/v1/auth/csrf-token', { credentials: 'include' })
+      .then(r => r.json()).then(d => { if (d.csrf_token) localStorage.setItem('csrf_token', d.csrf_token); }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!token) return;
