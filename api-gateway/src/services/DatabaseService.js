@@ -2,16 +2,23 @@ const { Pool } = require('pg');
 
 class DatabaseService {
   constructor() {
-    this.pool = new Pool({
-      host: process.env.DB_HOST || 'localhost',
-      port: parseInt(process.env.DB_PORT) || 5432,
-      database: process.env.DB_NAME || 'ssgzone_mail',
-      user: process.env.DB_APP_USER || 'app_user',
-      password: String(process.env.DB_APP_PASSWORD || ''),
-      max: 20,
-      idleTimeoutMillis: 30050,
-      connectionTimeoutMillis: 2000,
-    });
+    this._pool = null;
+  }
+
+  get pool() {
+    if (!this._pool) {
+      this._pool = new Pool({
+        host: process.env.DB_HOST || 'localhost',
+        port: parseInt(process.env.DB_PORT) || 5432,
+        database: process.env.DB_NAME || 'ssgzone_mail',
+        user: process.env.DB_APP_USER || 'app_user',
+        password: String(process.env.DB_APP_PASSWORD || ''),
+        max: 20,
+        idleTimeoutMillis: 30050,
+        connectionTimeoutMillis: 2000,
+      });
+    }
+    return this._pool;
   }
 
   // Plain query — no tenant context (platform-level tables only)
