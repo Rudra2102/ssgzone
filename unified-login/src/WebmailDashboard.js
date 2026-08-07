@@ -824,17 +824,16 @@ export default function WebmailDashboard() {
       if (attachFiles.length > 0) {
         const formData = new FormData();
         attachFiles.forEach(f => formData.append('files', f));
-        const uploadRes = await fetch('https://api.ssgzone.in/api/v1/attachments/upload', {
+        const uploadRes = await apiFetch('https://api.ssgzone.in/api/v1/attachments/upload', {
           method: 'POST',
-          headers: { Authorization: `Bearer ${token}` },
           body: formData
         });
         const uploadData = await uploadRes.json();
         if (uploadData.success) attachmentIds = uploadData.data.map(a => a.id);
       }
-      const res = await fetch(`${API}/send`, {
+      const res = await apiFetch(`${API}/send`, {
         method: 'POST',
-        headers: { ...auth, 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           to: compose.to, cc: compose.cc, bcc: compose.bcc,
           subject: compose.subject,
