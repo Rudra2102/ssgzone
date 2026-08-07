@@ -62,28 +62,34 @@ function SuperAdminDashboard() {
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const API = 'https://api.ssgzone.in/api/v1/super-admin';
 
-  const [csrfToken, setCsrfToken] = useState(localStorage.getItem('csrf_token') || '');
+  const csrfTokenRef = React.useRef(localStorage.getItem('csrf_token') || '');
 
-  const authHeaders = { 'Authorization': `Bearer ${token}`, 'X-CSRF-Token': csrfToken };
+  const authHeaders = { 'Authorization': `Bearer ${token}`, 'X-CSRF-Token': csrfTokenRef.current };
+
+  // apiFetch: always sends credentials (cookie) so CSRF double-submit works cross-origin
+  const apiFetch = (url, opts = {}) => {
+    const headers = { 'Authorization': `Bearer ${token}`, 'X-CSRF-Token': csrfTokenRef.current, ...(opts.headers || {}) };
+    return fetch(url, { credentials: 'include', ...opts, headers });
+  };
 
   useEffect(() => {
     // Fetch CSRF token on mount
-    fetch('https://api.ssgzone.in/api/v1/auth/csrf-token', { credentials: 'include' })
+    apiFetch('https://api.ssgzone.in/api/v1/auth/csrf-token', { credentials: 'include' })
       .then(r => r.json())
-      .then(d => { if (d.csrf_token) { setCsrfToken(d.csrf_token); localStorage.setItem('csrf_token', d.csrf_token); } })
+      .then(d => { if (d.csrf_token) { csrfTokenRef.current = d.csrf_token; localStorage.setItem('csrf_token', d.csrf_token); } })
       .catch(() => {});
   }, []);
 
   useEffect(() => {
     fetchAll(); fetchBranding();
     const t = localStorage.getItem('super_admin_token');
-    if (t) fetch('https://api.ssgzone.in/api/v1/notifications/unread-count', { headers: { Authorization: `Bearer ${t}` } })
+    if (t) apiFetch('https://api.ssgzone.in/api/v1/notifications/unread-count', { headers: { Authorization: `Bearer ${t}` } })
       .then(r => r.json()).then(d => { if (d.success) setNotifCount(d.data?.count || 0); }).catch(() => {});
   }, []);
 
   const fetchBranding = async () => {
     try {
-      const res = await fetch(`${API}/branding`);
+      const res = await apiFetch(`${API}/branding`);
       const data = await res.json();
       if (data.success) setBranding(data.data);
     } catch (err) { console.error(err); }
@@ -94,20 +100,20 @@ function SuperAdminDashboard() {
     (async () => {
       if (activeSection === 'reports') {
         const [tr, tn] = await Promise.all([
-          fetch(`${API}/support-tickets`, { headers: authHeaders }).then(r => r.json()),
-          fetch(`${API}/tenants`, { headers: authHeaders }).then(r => r.json()),
+          apiFetch(`${API}/support-tickets`, { headers: authHeaders }).then(r => r.json()),
+          apiFetch(`${API}/tenants`, { headers: authHeaders }).then(r => r.json()),
         ]);
         setReports({ tickets: tr.data || [], tenants: tn.data || [] });
       } else if (activeSection === 'analytics') {
         const [st, tn] = await Promise.all([
-          fetch(`${API}/dashboard/stats`, { headers: authHeaders }).then(r => r.json()),
-          fetch(`${API}/tenants`, { headers: authHeaders }).then(r => r.json()),
+          apiFetch(`${API}/dashboard/stats`, { headers: authHeaders }).then(r => r.json()),
+          apiFetch(`${API}/tenants`, { headers: authHeaders }).then(r => r.json()),
         ]);
         setAnalytics({ stats: st.data || {}, tenants: (tn.data || []).slice(0, 10) });
       } else if (activeSection === 'security') {
         const [sec, br] = await Promise.all([
-          fetch(`${API}/security/stats`, { headers: authHeaders }).then(r => r.json()),
-          fetch(`${API}/branding`).then(r => r.json()),
+          apiFetch(`${API}/security/stats`, { headers: authHeaders }).then(r => r.json()),
+          apiFetch(`${API}/branding`).then(r => r.json()),
         ]);
         setSecurityStats({ ...(sec.data || {}), branding: br.data || {} });
       } else if (activeSection === 'audit') {
@@ -115,7 +121,7 @@ function SuperAdminDashboard() {
         if (auditFilters.action) params.append('action', auditFilters.action);
         if (auditFilters.tenant_id) params.append('tenant_id', auditFilters.tenant_id);
         if (auditFilters.actor_id) params.append('actor_id', auditFilters.actor_id);
-        const res = await fetch(`${API}/audit-logs?${params}`, { headers: authHeaders }).then(r => r.json());
+        const res = await apiFetch(`${API}/audit-logs?${params}`, { headers: authHeaders }).then(r => r.json());
         setAuditLogs(res.data || []);
         setAuditTotal(res.total || 0);
         setAuditMsg(res.message || '');
@@ -126,10 +132,10 @@ function SuperAdminDashboard() {
   const fetchAll = async () => {
     try {
       const [metricsRes, appsRes, tenantsRes, usersRes] = await Promise.all([
-        fetch('https://api.ssgzone.in/api/v1/dashboard/metrics', { headers: authHeaders }),
-        fetch(`${API}/saas-apps`, { headers: authHeaders }),
-        fetch(`${API}/tenants`, { headers: authHeaders }),
-        fetch(`${API}/users?limit=5`, { headers: authHeaders })
+        apiFetch('https://api.ssgzone.in/api/v1/dashboard/metrics', { headers: authHeaders }),
+        apiFetch(`${API}/saas-apps`, { headers: authHeaders }),
+        apiFetch(`${API}/tenants`, { headers: authHeaders }),
+        apiFetch(`${API}/users?limit=5`, { headers: authHeaders })
       ]);
       const [metricsData, appsData, tenantsData, usersData] = await Promise.all([
         metricsRes.json(), appsRes.json(), tenantsRes.json(), usersRes.json()
@@ -157,7 +163,7 @@ function SuperAdminDashboard() {
 
   const fetchNotifications = async () => {
     try {
-      const res = await fetch('https://api.ssgzone.in/api/v1/notifications?limit=10', { headers: authHeaders });
+      const res = await apiFetch('https://api.ssgzone.in/api/v1/notifications?limit=10', { headers: authHeaders });
       const data = await res.json();
       if (data.success) {
         setNotifications(data.data || []);
@@ -173,7 +179,7 @@ function SuperAdminDashboard() {
       if (usersTenantFilter) params.append('tenant_id', usersTenantFilter);
       if (usersSaasFilter) params.append('saas_app_id', usersSaasFilter);
       if (usersStatusFilter) params.append('status', usersStatusFilter);
-      const res = await fetch(`${API}/users?${params}`, { headers: authHeaders });
+      const res = await apiFetch(`${API}/users?${params}`, { headers: authHeaders });
       const data = await res.json();
       if (data.success) { setUsers(data.data); setUsersTotal(data.total); }
     } catch (err) { console.error('Fetch users error:', err); }
@@ -182,7 +188,7 @@ function SuperAdminDashboard() {
   const fetchUserSuggestions = async (q) => {
     if (!q || q.length < 2) { setUsersSearchSuggestions([]); setShowSuggestions(false); return; }
     try {
-      const res = await fetch(`${API}/users?search=${encodeURIComponent(q)}&limit=5`, { headers: authHeaders });
+      const res = await apiFetch(`${API}/users?search=${encodeURIComponent(q)}&limit=5`, { headers: authHeaders });
       const data = await res.json();
       if (data.success) { setUsersSearchSuggestions(data.data); setShowSuggestions(true); }
     } catch (err) { console.error(err); }
@@ -191,7 +197,7 @@ function SuperAdminDashboard() {
   const handleToggleUserStatus = async (user) => {
     const newStatus = user.status === 'active' ? 'suspended' : 'active';
     try {
-      const res = await fetch(`${API}/users/${user.id}/status`, {
+      const res = await apiFetch(`${API}/users/${user.id}/status`, {
         method: 'PATCH',
         headers: { ...authHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus })
@@ -204,7 +210,7 @@ function SuperAdminDashboard() {
 
   const handleDeleteUser = async () => {
     try {
-      const res = await fetch(`${API}/users/${deletingUser.id}`, { method: 'DELETE', headers: authHeaders });
+      const res = await apiFetch(`${API}/users/${deletingUser.id}`, { method: 'DELETE', headers: authHeaders });
       const data = await res.json();
       if (data.success) { setOpenDeleteUserDialog(false); setDeletingUser(null); fetchUsers(); }
       else alert(data.error);
@@ -217,7 +223,7 @@ function SuperAdminDashboard() {
     if (!newSaasApp.name || !newSaasApp.slug) return alert('Name and Slug required');
     try {
       if (editingSaasApp) {
-        const res = await fetch(`${API}/saas-apps/${editingSaasApp.id}`, {
+        const res = await apiFetch(`${API}/saas-apps/${editingSaasApp.id}`, {
           method: 'PUT',
           headers: { ...authHeaders, 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: newSaasApp.name })
@@ -226,7 +232,7 @@ function SuperAdminDashboard() {
         if (data.success) { setOpenSaasDialog(false); setEditingSaasApp(null); setNewSaasApp({ name: '', slug: '' }); fetchAll(); }
         else alert(data.error);
       } else {
-        const res = await fetch(`${API}/saas-apps`, {
+        const res = await apiFetch(`${API}/saas-apps`, {
           method: 'POST',
           headers: { ...authHeaders, 'Content-Type': 'application/json' },
           body: JSON.stringify({ saas_name: newSaasApp.name, saas_slug: newSaasApp.slug })
@@ -241,7 +247,7 @@ function SuperAdminDashboard() {
   const handleCreateTenant = async () => {
     if (!newTenant.company_name || !newTenant.slug || !newTenant.saas_app_id || !newTenant.admin_name) return alert('Fill all required fields');
     try {
-      const res = await fetch(`${API}/tenants`, {
+      const res = await apiFetch(`${API}/tenants`, {
         method: 'POST',
         headers: { ...authHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify(newTenant)
@@ -258,7 +264,7 @@ function SuperAdminDashboard() {
 
   const handleViewApiKeys = async (app) => {
     try {
-      const res = await fetch(`${API}/saas-apps/${app.id}`, { headers: authHeaders });
+      const res = await apiFetch(`${API}/saas-apps/${app.id}`, { headers: authHeaders });
       const data = await res.json();
       if (data.success) { setViewingApiKeys(data.data); setOpenApiKeysDialog(true); }
     } catch (err) { alert(err.message); }
@@ -266,7 +272,7 @@ function SuperAdminDashboard() {
 
   const handleViewFeatures = async (app) => {
     try {
-      const res = await fetch(`${API}/saas-apps/${app.id}/features`, { headers: authHeaders });
+      const res = await apiFetch(`${API}/saas-apps/${app.id}/features`, { headers: authHeaders });
       const data = await res.json();
       setFeaturesForm(data.success ? data.data : {});
       setViewingFeatures(app);
@@ -278,7 +284,7 @@ function SuperAdminDashboard() {
 
   const handleDeleteSaasApp = async () => {
     try {
-      const res = await fetch(`${API}/saas-apps/${deletingSaasApp.id}`, { method: 'DELETE', headers: authHeaders });
+      const res = await apiFetch(`${API}/saas-apps/${deletingSaasApp.id}`, { method: 'DELETE', headers: authHeaders });
       const data = await res.json();
       if (data.success) { setOpenDeleteDialog(false); setDeletingSaasApp(null); fetchAll(); }
       else alert(data.error);
@@ -307,7 +313,7 @@ function SuperAdminDashboard() {
     if (!csvData.length) return alert('Upload CSV first');
     setImporting(true);
     try {
-      const res = await fetch(`${API}/tenants/import-csv`, {
+      const res = await apiFetch(`${API}/tenants/import-csv`, {
         method: 'POST',
         headers: { ...authHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ csv_data: csvData })
@@ -810,7 +816,7 @@ function SuperAdminDashboard() {
       setDomainInfo(null);
       setDomainStatus(null);
       try {
-        const res = await fetch(`${API}/tenants/${t.id}/domain/status`, { headers: authHeaders });
+        const res = await apiFetch(`${API}/tenants/${t.id}/domain/status`, { headers: authHeaders });
         const data = await res.json();
         if (data.success && data.data.custom_domain) {
           setDomainInput(data.data.custom_domain);
@@ -823,7 +829,7 @@ function SuperAdminDashboard() {
       if (!domainInput.trim()) return alert('Domain required');
       setDomainLoading(true);
       try {
-        const res = await fetch(`${API}/tenants/${domainTenant.id}/domain/setup`, {
+        const res = await apiFetch(`${API}/tenants/${domainTenant.id}/domain/setup`, {
           method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
           body: JSON.stringify({ custom_domain: domainInput.trim() })
         });
@@ -837,7 +843,7 @@ function SuperAdminDashboard() {
     const verifyDomain = async () => {
       setDomainLoading(true);
       try {
-        const res = await fetch(`${API}/tenants/${domainTenant.id}/domain/verify`, {
+        const res = await apiFetch(`${API}/tenants/${domainTenant.id}/domain/verify`, {
           method: 'POST', headers: authHeaders
         });
         const data = await res.json();
@@ -849,7 +855,7 @@ function SuperAdminDashboard() {
 
     const removeDomain = async () => {
       if (!window.confirm('Remove custom domain?')) return;
-      const res = await fetch(`${API}/tenants/${domainTenant.id}/domain`, { method: 'DELETE', headers: authHeaders });
+      const res = await apiFetch(`${API}/tenants/${domainTenant.id}/domain`, { method: 'DELETE', headers: authHeaders });
       const data = await res.json();
       if (data.success) { setDomainTenant(null); fetchAll(); }
       else alert(data.error);
@@ -858,7 +864,7 @@ function SuperAdminDashboard() {
     const toggleTenantStatus = async (t) => {
       const newStatus = t.status === 'active' ? 'suspended' : 'active';
       try {
-        const res = await fetch(`${API}/tenants/${t.id}/status`, {
+        const res = await apiFetch(`${API}/tenants/${t.id}/status`, {
           method: 'PATCH', headers: { ...authHeaders, 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: newStatus })
         });
@@ -870,7 +876,7 @@ function SuperAdminDashboard() {
 
     const deleteTenant = async () => {
       try {
-        const res = await fetch(`${API}/tenants/${deletingTenant.id}`, { method: 'DELETE', headers: authHeaders });
+        const res = await apiFetch(`${API}/tenants/${deletingTenant.id}`, { method: 'DELETE', headers: authHeaders });
         const data = await res.json();
         if (data.success) { setDeletingTenant(null); fetchAll(); }
         else alert(data.error);
@@ -1016,7 +1022,7 @@ function SuperAdminDashboard() {
     const submit = async () => {
       if (!form.company_name || !form.slug || !form.saas_app_id || !form.admin_name) return alert('Fill all required fields');
       try {
-        const res = await fetch(`${API}/tenants`, {
+        const res = await apiFetch(`${API}/tenants`, {
           method: 'POST',
           headers: { ...authHeaders, 'Content-Type': 'application/json' },
           body: JSON.stringify(form)
@@ -1193,7 +1199,7 @@ function SuperAdminDashboard() {
                 const current = featuresForm[key] ?? false;
                 const newVal = !current;
                 setFeaturesForm(f => ({ ...f, [key]: newVal }));
-                await fetch(`${API}/saas-apps/${viewingFeatures.id}/features`, {
+                await apiFetch(`${API}/saas-apps/${viewingFeatures.id}/features`, {
                   method: 'PUT', headers: { ...authHeaders, 'Content-Type': 'application/json' },
                   body: JSON.stringify({ ...featuresForm, [key]: newVal })
                 });
@@ -1251,7 +1257,7 @@ function SuperAdminDashboard() {
     const [showPreview, setShowPreview] = useState(false);
     const [form, setForm] = useState({ name: '', subject: '', body: '', category: 'general' });
 
-    const fetchTemplates = () => fetch(`${API}/email/templates`, { headers: authHeaders })
+    const fetchTemplates = () => apiFetch(`${API}/email/templates`, { headers: authHeaders })
       .then(r => r.json()).then(d => { if (d.success) setTemplates(d.data); });
     useEffect(() => { fetchTemplates(); }, []);
 
@@ -1263,14 +1269,14 @@ function SuperAdminDashboard() {
       if (!form.name || !form.subject || !form.body) return alert('All fields required');
       const url = editingTemplate ? `${API}/email/templates/${editingTemplate.id}` : `${API}/email/templates`;
       const method = editingTemplate ? 'PUT' : 'POST';
-      const res = await fetch(url, { method, headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+      const res = await apiFetch(url, { method, headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
       const data = await res.json();
       if (data.success) { setOpenDialog(false); setForm({ name: '', subject: '', body: '', category: 'general' }); setEditingTemplate(null); setShowPreview(false); fetchTemplates(); }
       else alert(data.error);
     };
 
     const del = async () => {
-      const res = await fetch(`${API}/email/templates/${deletingTemplate.id}`, { method: 'DELETE', headers: authHeaders });
+      const res = await apiFetch(`${API}/email/templates/${deletingTemplate.id}`, { method: 'DELETE', headers: authHeaders });
       const data = await res.json();
       if (data.success) { setDeletingTemplate(null); fetchTemplates(); }
     };
@@ -1395,19 +1401,19 @@ function SuperAdminDashboard() {
     const [resetingAdmin, setResetingAdmin] = useState(null);
     const [newPassword, setNewPassword] = useState('');
     const [form, setForm] = useState({ username: '', email: '', full_name: '', password: '', role: 'admin' });
-    const fetchAdmins = () => fetch(`${API}/admins`, { headers: authHeaders }).then(r => r.json()).then(d => { if (d.success) setAdmins(d.data); });
+    const fetchAdmins = () => apiFetch(`${API}/admins`, { headers: authHeaders }).then(r => r.json()).then(d => { if (d.success) setAdmins(d.data); });
     useEffect(() => { fetchAdmins(); }, []);
 
     const create = async () => {
       if (!form.username || !form.email || !form.full_name || !form.password) return alert('All fields required');
-      const res = await fetch(`${API}/admins`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+      const res = await apiFetch(`${API}/admins`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
       const data = await res.json();
       if (data.success) { setOpenDialog(false); setForm({ username: '', email: '', full_name: '', password: '', role: 'admin' }); fetchAdmins(); }
       else alert(data.error);
     };
 
     const update = async () => {
-      const res = await fetch(`${API}/admins/${editingAdmin.id}`, { method: 'PUT', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ full_name: form.full_name, role: form.role, permissions: editingAdmin.permissions, assigned_tenants: editingAdmin.assigned_tenants, status: editingAdmin.status }) });
+      const res = await apiFetch(`${API}/admins/${editingAdmin.id}`, { method: 'PUT', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ full_name: form.full_name, role: form.role, permissions: editingAdmin.permissions, assigned_tenants: editingAdmin.assigned_tenants, status: editingAdmin.status }) });
       const data = await res.json();
       if (data.success) { setOpenDialog(false); setEditingAdmin(null); setForm({ username: '', email: '', full_name: '', password: '', role: 'admin' }); fetchAdmins(); }
       else alert(data.error);
@@ -1415,13 +1421,13 @@ function SuperAdminDashboard() {
 
     const toggleStatus = async (admin) => {
       const newStatus = admin.status === 'active' ? 'suspended' : 'active';
-      const res = await fetch(`${API}/admins/${admin.id}`, { method: 'PUT', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...admin, status: newStatus }) });
+      const res = await apiFetch(`${API}/admins/${admin.id}`, { method: 'PUT', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ ...admin, status: newStatus }) });
       const data = await res.json();
       if (data.success) fetchAdmins();
     };
 
     const deleteAdmin = async () => {
-      const res = await fetch(`${API}/admins/${deletingAdmin.id}`, { method: 'DELETE', headers: authHeaders });
+      const res = await apiFetch(`${API}/admins/${deletingAdmin.id}`, { method: 'DELETE', headers: authHeaders });
       const data = await res.json();
       if (data.success) { setDeletingAdmin(null); fetchAdmins(); }
       else alert(data.error);
@@ -1429,7 +1435,7 @@ function SuperAdminDashboard() {
 
     const resetPassword = async () => {
       if (!newPassword) return alert('New password required');
-      const res = await fetch(`${API}/admins/${resetingAdmin.id}/reset-password`, { method: 'PATCH', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ new_password: newPassword }) });
+      const res = await apiFetch(`${API}/admins/${resetingAdmin.id}/reset-password`, { method: 'PATCH', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ new_password: newPassword }) });
       const data = await res.json();
       if (data.success) { setResetingAdmin(null); setNewPassword(''); alert('Password reset successfully!'); }
       else alert(data.error);
@@ -1555,7 +1561,7 @@ function SuperAdminDashboard() {
       const params = new URLSearchParams();
       if (tenantFilter) params.append('tenant_id', tenantFilter);
       if (search) params.append('search', search);
-      fetch(`${API}/mailboxes?${params}`, { headers: authHeaders })
+      apiFetch(`${API}/mailboxes?${params}`, { headers: authHeaders })
         .then(r => r.json()).then(d => { if (d.success) setMailboxes(d.data); });
     };
 
@@ -1567,7 +1573,7 @@ function SuperAdminDashboard() {
 
     const toggleStatus = async (m) => {
       const newStatus = m.status === 'active' ? 'suspended' : 'active';
-      const res = await fetch(`${API}/mailboxes/${m.id}/status`, {
+      const res = await apiFetch(`${API}/mailboxes/${m.id}/status`, {
         method: 'PATCH', headers: { ...authHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus })
       });
@@ -1580,7 +1586,7 @@ function SuperAdminDashboard() {
       if (expandedId === mailboxId) { setExpandedId(null); return; }
       setExpandedId(mailboxId);
       if (aliases[mailboxId]) return;
-      const res = await fetch(`${API}/aliases?mailbox_id=${mailboxId}`, { headers: authHeaders });
+      const res = await apiFetch(`${API}/aliases?mailbox_id=${mailboxId}`, { headers: authHeaders });
       const data = await res.json();
       if (data.success) setAliases(a => ({ ...a, [mailboxId]: data.data }));
     };
@@ -1588,7 +1594,7 @@ function SuperAdminDashboard() {
     const addAlias = async (mailboxId) => {
       const email = (aliasInput[mailboxId] || '').trim();
       if (!email) return alert('Enter alias email');
-      const res = await fetch(`${API}/aliases`, {
+      const res = await apiFetch(`${API}/aliases`, {
         method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ mailbox_id: mailboxId, alias_email: email })
       });
@@ -1600,7 +1606,7 @@ function SuperAdminDashboard() {
     };
 
     const deleteAlias = async (mailboxId, aliasId) => {
-      const res = await fetch(`${API}/aliases/${aliasId}`, { method: 'DELETE', headers: authHeaders });
+      const res = await apiFetch(`${API}/aliases/${aliasId}`, { method: 'DELETE', headers: authHeaders });
       const data = await res.json();
       if (data.success) setAliases(a => ({ ...a, [mailboxId]: a[mailboxId].filter(x => x.id !== aliasId) }));
       else alert(data.error);
@@ -1708,7 +1714,7 @@ function SuperAdminDashboard() {
       if (search) q.append('search', search);
       if (activeTab === 'failed') q.append('status', 'failed');
       else if (activeTab !== 'all') q.append('email_type', activeTab);
-      fetch(`${API}/email/sent?${q}`, { headers: authHeaders })
+      apiFetch(`${API}/email/sent?${q}`, { headers: authHeaders })
         .then(r => r.json()).then(d => { if (d.success) { setEmails(d.data); setTotal(d.total); } });
     }, [search, activeTab]);
 
@@ -1777,7 +1783,7 @@ function SuperAdminDashboard() {
     const [showPreview, setShowPreview] = useState(false);
 
     useEffect(() => {
-      fetch(`${API}/email/templates`, { headers: authHeaders }).then(r => r.json()).then(d => { if (d.success) setTemplates(d.data); });
+      apiFetch(`${API}/email/templates`, { headers: authHeaders }).then(r => r.json()).then(d => { if (d.success) setTemplates(d.data); });
     }, []);
 
     const handleTemplateSelect = (templateId) => {
@@ -1793,7 +1799,7 @@ function SuperAdminDashboard() {
       if (!form.to_email || !form.subject || !form.body) return alert('To Email, Subject and Body required');
       setSending(true);
       try {
-        const res = await fetch(`${API}/email/send`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+        const res = await apiFetch(`${API}/email/send`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
         const data = await res.json();
         if (data.success) { alert('✅ Email sent successfully!'); setForm({ to_email: '', to_name: '', subject: '', body: '', tenant_id: '' }); setSelectedTemplate(''); }
         else alert(data.error);
@@ -1806,7 +1812,7 @@ function SuperAdminDashboard() {
       if (!window.confirm(`Send broadcast to all ${broadcastForm.target}? This cannot be undone.`)) return;
       setSending(true);
       try {
-        const res = await fetch(`${API}/email/broadcast`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(broadcastForm) });
+        const res = await apiFetch(`${API}/email/broadcast`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(broadcastForm) });
         const data = await res.json();
         if (data.success) { alert(`✅ Broadcast complete!\nSent: ${data.sent}\nFailed: ${data.failed}\nTotal: ${data.total}`); setBroadcastForm({ subject: '', body: '', target: 'tenants' }); setSelectedTemplate(''); }
         else alert(data.error);
@@ -1948,7 +1954,7 @@ function SuperAdminDashboard() {
     const saveSettings = async () => {
       setSaving(true);
       try {
-        const res = await fetch(`${API}/branding`, { method: 'PUT', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+        const res = await apiFetch(`${API}/branding`, { method: 'PUT', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
         const data = await res.json();
         if (data.success) { setBranding({ ...branding, ...form }); alert('✅ Settings saved!'); }
         else alert(data.error);
@@ -1959,7 +1965,7 @@ function SuperAdminDashboard() {
     const uploadLogo = async (e) => {
       const file = e.target.files[0]; if (!file) return;
       const formData = new FormData(); formData.append('logo', file);
-      const res = await fetch(`${API}/branding/logo`, { method: 'POST', headers: authHeaders, body: formData });
+      const res = await apiFetch(`${API}/branding/logo`, { method: 'POST', headers: authHeaders, body: formData });
       const data = await res.json();
       if (data.success) { setBranding({ ...branding, logo_url: data.data.logo_url }); alert('Logo uploaded!'); }
       else alert(data.error);
@@ -1968,7 +1974,7 @@ function SuperAdminDashboard() {
     const uploadFavicon = async (e) => {
       const file = e.target.files[0]; if (!file) return;
       const formData = new FormData(); formData.append('favicon', file);
-      const res = await fetch(`${API}/branding/favicon`, { method: 'POST', headers: authHeaders, body: formData });
+      const res = await apiFetch(`${API}/branding/favicon`, { method: 'POST', headers: authHeaders, body: formData });
       const data = await res.json();
       if (data.success) { setBranding({ ...branding, favicon_url: data.data.favicon_url }); alert('Favicon uploaded!'); }
       else alert(data.error);
@@ -1978,7 +1984,7 @@ function SuperAdminDashboard() {
       if (!pwdForm.current_password || !pwdForm.new_password) return alert('All fields required');
       if (pwdForm.new_password !== pwdForm.confirm_password) return alert('New passwords do not match');
       if (pwdForm.new_password.length < 8) return alert('Password must be at least 8 characters');
-      const res = await fetch(`${API}/profile/change-password`, { method: 'PATCH', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ current_password: pwdForm.current_password, new_password: pwdForm.new_password }) });
+      const res = await apiFetch(`${API}/profile/change-password`, { method: 'PATCH', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ current_password: pwdForm.current_password, new_password: pwdForm.new_password }) });
       const data = await res.json();
       if (data.success) { alert('✅ Password changed!'); setPwdForm({ current_password: '', new_password: '', confirm_password: '' }); }
       else alert(data.error);
@@ -1996,25 +2002,25 @@ function SuperAdminDashboard() {
       const [loading2fa, setLoading2fa] = useState(false);
       const SA = 'https://api.ssgzone.in/api/v1/super-admin';
       useEffect(() => {
-        fetch(`${SA}/2fa/status`, { headers: authHeaders })
+        apiFetch(`${SA}/2fa/status`, { headers: authHeaders })
           .then(r => r.json()).then(d => d.success && setTwoFAStatus(d.data.enabled));
       }, []);
       const setup = async () => {
         setLoading2fa(true);
-        const res = await fetch(`${SA}/2fa/setup`, { method: 'POST', headers: authHeaders });
+        const res = await apiFetch(`${SA}/2fa/setup`, { method: 'POST', headers: authHeaders });
         const data = await res.json();
         if (data.success) { setQrCode(data.data.qr_code); setSecret(data.data.secret); } else alert(data.error);
         setLoading2fa(false);
       };
       const enable = async () => {
         if (!verifyCode) return alert('Enter the 6-digit code');
-        const res = await fetch(`${SA}/2fa/enable`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ token: verifyCode }) });
+        const res = await apiFetch(`${SA}/2fa/enable`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ token: verifyCode }) });
         const data = await res.json();
         if (data.success) { setTwoFAStatus(true); setQrCode(null); setSecret(''); setVerifyCode(''); alert('✅ 2FA enabled!'); } else alert(data.error);
       };
       const disable = async () => {
         if (!window.confirm('Disable 2FA? Your account will be less secure.')) return;
-        const res = await fetch(`${SA}/2fa/disable`, { method: 'POST', headers: authHeaders });
+        const res = await apiFetch(`${SA}/2fa/disable`, { method: 'POST', headers: authHeaders });
         const data = await res.json();
         if (data.success) { setTwoFAStatus(false); alert('2FA disabled'); } else alert(data.error);
       };
@@ -2275,13 +2281,13 @@ function SuperAdminDashboard() {
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
-      fetch('https://api.ssgzone.in/api/v1/permissions/features')
+      apiFetch('https://api.ssgzone.in/api/v1/permissions/features')
         .then(r => r.json()).then(d => d.success && setFeatures(d.data));
     }, []);
 
     useEffect(() => {
       if (!selectedSaas) return;
-      fetch(`https://api.ssgzone.in/api/v1/permissions/saas/${selectedSaas}`, { headers: authHeaders })
+      apiFetch(`https://api.ssgzone.in/api/v1/permissions/saas/${selectedSaas}`, { headers: authHeaders })
         .then(r => r.json()).then(d => {
           if (d.success) {
             const map = {};
@@ -2293,7 +2299,7 @@ function SuperAdminDashboard() {
 
     const save = async () => {
       setSaving(true);
-      const res = await fetch(`https://api.ssgzone.in/api/v1/permissions/saas/${selectedSaas}`, {
+      const res = await apiFetch(`https://api.ssgzone.in/api/v1/permissions/saas/${selectedSaas}`, {
         method: 'PUT',
         headers: { ...authHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ permissions: saasPerms })
@@ -2364,7 +2370,7 @@ function SuperAdminDashboard() {
     const load = async (q) => {
       setLoading(true);
       const params = q ? '?search=' + encodeURIComponent(q) : '';
-      const res = await fetch(API + '/direct-clients' + params, { headers: authHeaders });
+      const res = await apiFetch(API + '/direct-clients' + params, { headers: authHeaders });
       const data = await res.json();
       if (data.success) setClients(data.data);
       setLoading(false);
@@ -2374,7 +2380,7 @@ function SuperAdminDashboard() {
     const create = async () => {
       if (!form.first_name || !form.last_name || !form.username || !form.email) { setMsg('All fields except password are required'); return; }
       setSaving(true); setMsg('');
-      const res = await fetch(API + '/direct-clients', {
+      const res = await apiFetch(API + '/direct-clients', {
         method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify(form)
       });
@@ -2390,7 +2396,7 @@ function SuperAdminDashboard() {
 
     const toggleStatus = async (client) => {
       const newStatus = client.status === 'active' ? 'suspended' : 'active';
-      const res = await fetch(API + '/direct-clients/' + client.id + '/status', {
+      const res = await apiFetch(API + '/direct-clients/' + client.id + '/status', {
         method: 'PATCH', headers: { ...authHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus })
       });
@@ -2400,7 +2406,7 @@ function SuperAdminDashboard() {
 
     const del = async (id) => {
       if (!window.confirm('Delete this client?')) return;
-      await fetch(API + '/direct-clients/' + id, { method: 'DELETE', headers: authHeaders });
+      await apiFetch(API + '/direct-clients/' + id, { method: 'DELETE', headers: authHeaders });
       setClients(p => p.filter(cl => cl.id !== id));
     };
 
@@ -2530,15 +2536,15 @@ function SuperAdminDashboard() {
     const GDPR = 'https://api.ssgzone.in/api/v1/gdpr';
 
     const load = () => {
-      fetch(`${GDPR}/requests`, { headers: authHeaders }).then(r => r.json()).then(d => d.success && setRequests(d.data));
-      fetch(`${GDPR}/stats`, { headers: authHeaders }).then(r => r.json()).then(d => d.success && setGdprStats(d.data));
-      fetch(`${GDPR}/retention`, { headers: authHeaders }).then(r => r.json()).then(d => d.success && setRetentionPolicies(d.data));
+      apiFetch(`${GDPR}/requests`, { headers: authHeaders }).then(r => r.json()).then(d => d.success && setRequests(d.data));
+      apiFetch(`${GDPR}/stats`, { headers: authHeaders }).then(r => r.json()).then(d => d.success && setGdprStats(d.data));
+      apiFetch(`${GDPR}/retention`, { headers: authHeaders }).then(r => r.json()).then(d => d.success && setRetentionPolicies(d.data));
     };
     useEffect(() => { load(); }, []);
 
     const createRequest = async () => {
       if (!newRequest.user_email || !newRequest.tenant_id) return alert('Email and tenant required');
-      const res = await fetch(`${GDPR}/requests`, {
+      const res = await apiFetch(`${GDPR}/requests`, {
         method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify(newRequest)
       });
@@ -2549,27 +2555,27 @@ function SuperAdminDashboard() {
 
     const cancelRequest = async (id) => {
       if (!window.confirm('Cancel this deletion request?')) return;
-      const res = await fetch(`${GDPR}/requests/${id}`, { method: 'DELETE', headers: authHeaders });
+      const res = await apiFetch(`${GDPR}/requests/${id}`, { method: 'DELETE', headers: authHeaders });
       const data = await res.json();
       if (data.success) load(); else alert(data.error);
     };
 
     const executeNow = async (id) => {
       if (!window.confirm('Execute deletion immediately? This cannot be undone.')) return;
-      const res = await fetch(`${GDPR}/requests/${id}/execute`, { method: 'POST', headers: authHeaders });
+      const res = await apiFetch(`${GDPR}/requests/${id}/execute`, { method: 'POST', headers: authHeaders });
       const data = await res.json();
       if (data.success) { alert('✅ Deletion triggered'); load(); } else alert(data.error);
     };
 
     const loadAudit = async (req) => {
-      const res = await fetch(`${GDPR}/requests/${req.id}/audit`, { headers: authHeaders });
+      const res = await apiFetch(`${GDPR}/requests/${req.id}/audit`, { headers: authHeaders });
       const data = await res.json();
       if (data.success) { setAuditTrail(data.data); setAuditRequest(req); }
     };
 
     const saveRetention = async () => {
       if (!retentionForm.tenant_id) return alert('Select a tenant');
-      const res = await fetch(`${GDPR}/retention/${retentionForm.tenant_id}`, {
+      const res = await apiFetch(`${GDPR}/retention/${retentionForm.tenant_id}`, {
         method: 'PUT', headers: { ...authHeaders, 'Content-Type': 'application/json' },
         body: JSON.stringify(retentionForm)
       });
@@ -2800,13 +2806,13 @@ function SuperAdminDashboard() {
 
     const fetchPlans = async () => {
       const q = saasFilter ? `?saas_app_id=${saasFilter}` : '';
-      const res = await fetch(`${BAPI}/super-admin/plans${q}`, { headers: authHeaders });
+      const res = await apiFetch(`${BAPI}/super-admin/plans${q}`, { headers: authHeaders });
       const data = await res.json();
       if (data.success) setPlans(data.data);
     };
 
     const fetchSubscriptions = async () => {
-      const res = await fetch(`${BAPI}/super-admin/subscriptions`, { headers: authHeaders });
+      const res = await apiFetch(`${BAPI}/super-admin/subscriptions`, { headers: authHeaders });
       const data = await res.json();
       if (data.success) { setSubscriptions(data.data); setSubStats(data.stats || {}); }
     };
@@ -2832,7 +2838,7 @@ function SuperAdminDashboard() {
       try {
         const url = editingPlan ? `${BAPI}/super-admin/plans/${editingPlan.id}` : `${BAPI}/super-admin/plans`;
         const method = editingPlan ? 'PUT' : 'POST';
-        const res = await fetch(url, { method, headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(planForm) });
+        const res = await apiFetch(url, { method, headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(planForm) });
         const data = await res.json();
         if (data.success) { setOpenPlanDialog(false); fetchPlans(); }
         else alert(data.error);
@@ -2841,7 +2847,7 @@ function SuperAdminDashboard() {
     };
 
     const deletePlan = async () => {
-      const res = await fetch(`${BAPI}/super-admin/plans/${deletingPlan.id}`, { method: 'DELETE', headers: authHeaders });
+      const res = await apiFetch(`${BAPI}/super-admin/plans/${deletingPlan.id}`, { method: 'DELETE', headers: authHeaders });
       const data = await res.json();
       if (data.success) { setDeletingPlan(null); fetchPlans(); }
       else alert(data.error);
@@ -2857,7 +2863,7 @@ function SuperAdminDashboard() {
       if (!subForm.plan_id) return alert('Plan required');
       setSaving(true);
       try {
-        const res = await fetch(`${BAPI}/super-admin/subscriptions`, {
+        const res = await apiFetch(`${BAPI}/super-admin/subscriptions`, {
           method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
           body: JSON.stringify({ saas_app_id: assigningSub.id, ...subForm, custom_price: subForm.custom_price || null })
         });
@@ -2870,7 +2876,7 @@ function SuperAdminDashboard() {
 
     const removeSub = async (saasAppId) => {
       if (!window.confirm('Remove subscription?')) return;
-      const res = await fetch(`${BAPI}/super-admin/subscriptions/${saasAppId}`, { method: 'DELETE', headers: authHeaders });
+      const res = await apiFetch(`${BAPI}/super-admin/subscriptions/${saasAppId}`, { method: 'DELETE', headers: authHeaders });
       const data = await res.json();
       if (data.success) fetchSubscriptions(); else alert(data.error);
     };
