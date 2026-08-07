@@ -7,16 +7,20 @@ class DatabaseService {
 
   get pool() {
     if (!this._pool) {
-      this._pool = new Pool({
-        host: process.env.DB_HOST || 'localhost',
-        port: parseInt(process.env.DB_PORT) || 5432,
-        database: process.env.DB_NAME || 'ssgzone_mail',
-        user: process.env.DB_APP_USER || 'app_user',
-        password: String(process.env.DB_APP_PASSWORD || ''),
-        max: 20,
-        idleTimeoutMillis: 30050,
-        connectionTimeoutMillis: 2000,
-      });
+      // Prefer DATABASE_URL (single connection string) over individual vars.
+      // This avoids PM2 env_file partial-injection issues.
+      this._pool = process.env.DATABASE_URL
+        ? new Pool({ connectionString: process.env.DATABASE_URL, max: 20, idleTimeoutMillis: 30050, connectionTimeoutMillis: 2000 })
+        : new Pool({
+            host: process.env.DB_HOST || 'localhost',
+            port: parseInt(process.env.DB_PORT) || 5432,
+            database: process.env.DB_NAME || 'ssgzone_mail',
+            user: process.env.DB_APP_USER || 'app_user',
+            password: String(process.env.DB_APP_PASSWORD || ''),
+            max: 20,
+            idleTimeoutMillis: 30050,
+            connectionTimeoutMillis: 2000,
+          });
     }
     return this._pool;
   }
