@@ -1,64 +1,62 @@
-/**
- * SSGzone Mail - SaaS Integration API
- * 
- * This API handles automatic user/tenant creation when:
- * 1. New SaaS Company is created
- * 2. New Employee is added to a SaaS Company
- * 
- * Token-based authentication system for seamless login
- */
-
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
 const db = require('../services/DatabaseService');
+
+// ============================================
+// HELPERS
+// ============================================
+
+function generateTemporaryPassword() {
+  const charset = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%^&*';
+  return Array.from(crypto.randomBytes(12))
+    .map(b => charset[b % charset.length])
+    .join('');
+}
+
+async function createSsoToken(userId, tenantId, saasAppId) {
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+  await db.query(
+    `INSERT INTO sso_tokens (token, user_id, tenant_id, saas_app_id, expires_at)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [token, userId, tenantId, saasAppId, expiresAt]
+  );
+  return token;
+}
+
+async function validateSaasCredentials(saas_app_id, saas_app_secret) {
+  const result = await db.query(
+    'SELECT * FROM saas_applications WHERE id = $1 AND api_secret = $2 AND status = $3',
+    [saas_app_id, saas_app_secret, 'active']
+  );
+  return result.rows[0] || null;
+}
+
+async function logIntegrationAction(action, details) {
+  try {
+    await db.query(
+      `INSERT INTO integration_logs (action, details, created_at) VALUES ($1, $2, NOW())`,
+      [action, JSON.stringify(details)]
+    );
+  } catch {}
+}
 
 // ============================================
 // 1. CREATE TENANT (SaaS Company)
 // ============================================
-/**
- * POST /api/v1/saas/integration/create-tenant
- * 
- * Called by: SaaS Application
- * When: New company/organization is created in SaaS
- * 
- * Request Body:
- * {
- *   "saas_app_id": "app_123",
- *   "saas_app_secret": "secret_key",
- *   "tenant_data": {
- *     "company_name": "Acme Corp",
- *     "company_slug": "acme-corp",
- *     "admin_email": "admin@acmecorp.com",
- *     "admin_name": "John Doe",
- *     "admin_phone": "+1234567890",
- *     "company_website": "https://acmecorp.com",
- *     "industry": "Technology",
- *     "employees_count": 50
- *   }
- * }
- */
 router.post('/create-tenant', async (req, res) => {
   try {
     const { saas_app_id, saas_app_secret, tenant_data } = req.body;
 
-    // Validate SaaS credentials
-    const saasApp = await db.query(
-      'SELECT * FROM saas_applications WHERE id = $1 AND secret_key = $2',
-      [saas_app_id, saas_app_secret]
-    );
-
-    if (saasApp.rows.length === 0) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid SaaS credentials'
-      });
+    const saasApp = await validateSaasCredentials(saas_app_id, saas_app_secret);
+    if (!saasApp) {
+      return res.status(401).json({ success: false, error: 'Invalid SaaS credentials' });
     }
 
-    // Validate required fields
-    const { company_name, company_slug, admin_email, admin_name } = tenant_data;
+    const { company_name, company_slug, admin_email, admin_name } = tenant_data || {};
     if (!company_name || !company_slug || !admin_email || !admin_name) {
       return res.status(400).json({
         success: false,
@@ -66,39 +64,27 @@ router.post('/create-tenant', async (req, res) => {
       });
     }
 
-    // Check if tenant already exists
-    const existingTenant = await db.query(
-      'SELECT * FROM tenant_companies WHERE company_slug = $1',
+    const existing = await db.query(
+      'SELECT id FROM tenant_companies WHERE company_slug = $1',
       [company_slug]
     );
-
-    if (existingTenant.rows.length > 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'Tenant with this slug already exists'
-      });
+    if (existing.rows.length > 0) {
+      return res.status(400).json({ success: false, error: 'Tenant with this slug already exists' });
     }
 
-    // Generate temporary password
     const tempPassword = generateTemporaryPassword();
     const passwordHash = await bcrypt.hash(tempPassword, 10);
 
-    // Create tenant in database
     const tenantResult = await db.query(
-      `INSERT INTO tenant_companies 
-       (name, slug, admin_email, admin_name, status, created_at, saas_app_id)
-       VALUES ($1, $2, $3, $4, $5, NOW(), $6)
-       RETURNING *`,
-      [company_name, company_slug, admin_email, admin_name, 'active', saas_app_id]
+      `INSERT INTO tenant_companies (saas_app_id, company_name, company_slug, admin_email, admin_name, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, 'active', NOW()) RETURNING *`,
+      [saas_app_id, company_name, company_slug, admin_email, admin_name]
     );
-
     const tenant = tenantResult.rows[0];
 
-    // Create tenant admin user
     const userResult = await db.query(
-      `INSERT INTO tenant_users 
-       (tenant_id, username, email, password_hash, first_name, last_name, role, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+      `INSERT INTO tenant_users (tenant_id, username, email, password_hash, first_name, last_name, role, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'admin', 'active', NOW())
        RETURNING id, email, username`,
       [
         tenant.id,
@@ -106,123 +92,59 @@ router.post('/create-tenant', async (req, res) => {
         admin_email,
         passwordHash,
         admin_name.split(' ')[0],
-        admin_name.split(' ')[1] || '',
-        'tenant_admin',
-        'active'
+        admin_name.split(' ').slice(1).join(' ') || ''
       ]
     );
-
     const user = userResult.rows[0];
 
-    // Generate JWT token for auto-login
-    const token = jwt.sign(
-      {
-        type: 'tenant',
-        userId: user.id,
-        tenantId: tenant.id,
-        email: user.email,
-        role: 'tenant_admin'
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    const ssoToken = await createSsoToken(user.id, tenant.id, saas_app_id);
 
-    // Log this action
-    await logIntegrationAction('tenant_created', {
-      saas_app_id,
-      tenant_id: tenant.id,
-      admin_email
-    });
+    await logIntegrationAction('tenant_created', { saas_app_id, tenant_id: tenant.id, admin_email });
 
     return res.json({
       success: true,
       message: 'Tenant created successfully',
       data: {
         tenant_id: tenant.id,
-        tenant_name: tenant.name,
-        tenant_slug: tenant.slug,
+        company_name: tenant.company_name,
+        company_slug: tenant.company_slug,
         admin_email: user.email,
         admin_username: user.username,
         temporary_password: tempPassword,
-        login_token: token,
-        login_url: `https://ssgzone.in/login?token=${token}`,
-        instructions: {
-          step1: 'Use the temporary_password to login for the first time',
-          step2: 'Change password immediately after first login',
-          step3: 'Or use login_token for direct auto-login (valid for 7 days)',
-          step4: 'Share login credentials with tenant admin'
-        }
+        sso_token: ssoToken,
+        sso_token_expires_in: '15 minutes',
+        login_url: `https://ssgzone.in/sso?token=${ssoToken}`
       }
     });
 
   } catch (error) {
     console.error('Error creating tenant:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to create tenant',
-      details: error.message
-    });
+    return res.status(500).json({ success: false, error: 'Failed to create tenant', details: error.message });
   }
 });
 
 // ============================================
 // 2. CREATE USER (Employee)
 // ============================================
-/**
- * POST /api/v1/saas/integration/create-user
- * 
- * Called by: SaaS Application
- * When: New employee is added to a company in SaaS
- * 
- * Request Body:
- * {
- *   "saas_app_id": "app_123",
- *   "saas_app_secret": "secret_key",
- *   "tenant_slug": "acme-corp",
- *   "user_data": {
- *     "email": "john@acmecorp.com",
- *     "first_name": "John",
- *     "last_name": "Smith",
- *     "employee_id": "EMP_001",
- *     "department": "Engineering",
- *     "designation": "Senior Developer"
- *   }
- * }
- */
 router.post('/create-user', async (req, res) => {
   try {
     const { saas_app_id, saas_app_secret, tenant_slug, user_data } = req.body;
 
-    // Validate SaaS credentials
-    const saasApp = await db.query(
-      'SELECT * FROM saas_applications WHERE id = $1 AND secret_key = $2',
-      [saas_app_id, saas_app_secret]
-    );
-
-    if (saasApp.rows.length === 0) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid SaaS credentials'
-      });
+    const saasApp = await validateSaasCredentials(saas_app_id, saas_app_secret);
+    if (!saasApp) {
+      return res.status(401).json({ success: false, error: 'Invalid SaaS credentials' });
     }
 
-    // Get tenant
     const tenantResult = await db.query(
       'SELECT * FROM tenant_companies WHERE company_slug = $1',
       [tenant_slug]
     );
-
     if (tenantResult.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Tenant not found'
-      });
+      return res.status(404).json({ success: false, error: 'Tenant not found' });
     }
-
     const tenant = tenantResult.rows[0];
 
-    // Validate required fields
-    const { email, first_name, last_name } = user_data;
+    const { email, first_name, last_name } = user_data || {};
     if (!email || !first_name || !last_name) {
       return res.status(400).json({
         success: false,
@@ -230,65 +152,29 @@ router.post('/create-user', async (req, res) => {
       });
     }
 
-    // Check if user already exists
     const existingUser = await db.query(
-      'SELECT * FROM tenant_users WHERE email = $1 AND tenant_id = $2',
+      'SELECT id FROM tenant_users WHERE email = $1 AND tenant_id = $2',
       [email, tenant.id]
     );
-
     if (existingUser.rows.length > 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'User with this email already exists in this tenant'
-      });
+      return res.status(400).json({ success: false, error: 'User with this email already exists in this tenant' });
     }
 
-    // Generate temporary password
     const tempPassword = generateTemporaryPassword();
     const passwordHash = await bcrypt.hash(tempPassword, 10);
+    const username = email.split('@')[0] + '_' + crypto.randomBytes(3).toString('hex');
 
-    // Create username from email
-    const username = email.split('@')[0] + '_' + Math.random().toString(36).substr(2, 5);
-
-    // Create user
     const userResult = await db.query(
-      `INSERT INTO tenant_users 
-       (tenant_id, username, email, password_hash, first_name, last_name, role, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+      `INSERT INTO tenant_users (tenant_id, username, email, password_hash, first_name, last_name, role, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, 'user', 'active', NOW())
        RETURNING id, email, username`,
-      [
-        tenant.id,
-        username,
-        email,
-        passwordHash,
-        first_name,
-        last_name,
-        'user',
-        'active'
-      ]
+      [tenant.id, username, email, passwordHash, first_name, last_name]
     );
-
     const user = userResult.rows[0];
 
-    // Generate JWT token for auto-login
-    const token = jwt.sign(
-      {
-        type: 'user',
-        userId: user.id,
-        tenantId: tenant.id,
-        email: user.email,
-        role: 'user'
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    const ssoToken = await createSsoToken(user.id, tenant.id, saas_app_id);
 
-    // Log this action
-    await logIntegrationAction('user_created', {
-      saas_app_id,
-      tenant_id: tenant.id,
-      user_email: email
-    });
+    await logIntegrationAction('user_created', { saas_app_id, tenant_id: tenant.id, user_email: email });
 
     return res.json({
       success: true,
@@ -298,74 +184,53 @@ router.post('/create-user', async (req, res) => {
         email: user.email,
         username: user.username,
         temporary_password: tempPassword,
-        login_token: token,
-        login_url: `https://ssgzone.in/login?token=${token}`,
-        instructions: {
-          step1: 'Use the temporary_password to login for the first time',
-          step2: 'Change password immediately after first login',
-          step3: 'Or use login_token for direct auto-login (valid for 7 days)',
-          step4: 'Share login credentials with employee'
-        }
+        sso_token: ssoToken,
+        sso_token_expires_in: '15 minutes',
+        login_url: `https://ssgzone.in/sso?token=${ssoToken}`
       }
     });
 
   } catch (error) {
     console.error('Error creating user:', error);
-    return res.status(500).json({
-      success: false,
-      error: 'Failed to create user',
-      details: error.message
-    });
+    return res.status(500).json({ success: false, error: 'Failed to create user', details: error.message });
   }
 });
 
 // ============================================
-// 3. TOKEN-BASED LOGIN
+// 3. SSO TOKEN LOGIN
 // ============================================
-/**
- * POST /api/v1/saas/integration/token-login
- * 
- * Called by: Frontend (with token from create-tenant or create-user)
- * Purpose: Auto-login using token
- */
 router.post('/token-login', async (req, res) => {
   try {
     const { token } = req.body;
-
     if (!token) {
-      return res.status(400).json({
-        success: false,
-        error: 'Token is required'
-      });
+      return res.status(400).json({ success: false, error: 'token required' });
     }
 
-    // Verify token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    // Get user details
-    const userResult = await db.query(
-      'SELECT * FROM tenant_users WHERE id = $1',
-      [decoded.userId]
+    const tokenRow = await db.query(
+      `SELECT * FROM sso_tokens WHERE token = $1 AND used_at IS NULL AND expires_at > NOW()`,
+      [token]
     );
+    if (!tokenRow.rows.length) {
+      return res.status(401).json({ success: false, error: 'Invalid or expired SSO token' });
+    }
 
-    if (userResult.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'User not found'
-      });
+    const t = tokenRow.rows[0];
+    await db.query(`UPDATE sso_tokens SET used_at = NOW() WHERE id = $1`, [t.id]);
+
+    const userResult = await db.query(
+      `SELECT tu.*, tc.company_name, tc.company_slug, tc.saas_app_id
+       FROM tenant_users tu
+       JOIN tenant_companies tc ON tc.id = tu.tenant_id
+       WHERE tu.id = $1 AND tu.status = 'active'`,
+      [t.user_id]
+    );
+    if (!userResult.rows.length) {
+      return res.status(404).json({ success: false, error: 'User not found' });
     }
 
     const user = userResult.rows[0];
-
-    // Generate new session token
     const sessionToken = jwt.sign(
-      {
-        type: decoded.type,
-        userId: user.id,
-        tenantId: decoded.tenantId,
-        email: user.email,
-        role: decoded.role
-      },
+      { type: 'user', id: user.id, tenant_id: user.tenant_id, saas_id: user.saas_app_id, email: user.email, role: user.role },
       process.env.JWT_SECRET,
       { expiresIn: '8h' }
     );
@@ -381,45 +246,18 @@ router.post('/token-login', async (req, res) => {
           username: user.username,
           first_name: user.first_name,
           last_name: user.last_name,
-          role: decoded.role,
-          type: decoded.type
+          role: user.role,
+          tenant_id: user.tenant_id,
+          company_name: user.company_name,
+          company_slug: user.company_slug
         }
       }
     });
 
   } catch (error) {
     console.error('Error in token login:', error);
-    return res.status(401).json({
-      success: false,
-      error: 'Invalid or expired token'
-    });
+    return res.status(401).json({ success: false, error: 'Invalid or expired token' });
   }
 });
-
-// ============================================
-// 4. HELPER FUNCTIONS
-// ============================================
-
-function generateTemporaryPassword() {
-  const length = 12;
-  const charset = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*';
-  let password = '';
-  for (let i = 0; i < length; i++) {
-    password += charset.charAt(Math.floor(Math.random() * charset.length));
-  }
-  return password;
-}
-
-async function logIntegrationAction(action, details) {
-  try {
-    await db.query(
-      `INSERT INTO integration_logs (action, details, created_at)
-       VALUES ($1, $2, NOW())`,
-      [action, JSON.stringify(details)]
-    );
-  } catch (error) {
-    console.error('Error logging integration action:', error);
-  }
-}
 
 module.exports = router;
