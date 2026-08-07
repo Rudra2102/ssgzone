@@ -1,0 +1,7 @@
+{
+  "migrations-dir": "migrations/versioned",
+  "migrations-table": "pgmigrations",
+  "database-url-var": "DATABASE_URL",
+  "verbose": true,
+  "decamelize": true
+}

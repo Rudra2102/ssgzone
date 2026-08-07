@@ -1,0 +1,17 @@
+{
+  "name": "ssgzone-database",
+  "version": "1.0.0",
+  "description": "Database migration management for SSGzone Communication Platform",
+  "scripts": {
+    "migrate:up": "node-pg-migrate up",
+    "migrate:down": "node-pg-migrate down",
+    "migrate:create": "node-pg-migrate create",
+    "migrate:status": "node-pg-migrate status",
+    "migrate:seed-history": "node scripts/seed-migration-history.js"
+  },
+  "dependencies": {
+    "node-pg-migrate": "^7.3.2",
+    "pg": "^8.11.3",
+    "dotenv": "^16.3.1"
+  }
+}
