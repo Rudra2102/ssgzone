@@ -347,7 +347,6 @@ function SuperAdminDashboard() {
       { id: 'applications', label: 'Applications', icon: '▦' },
       { id: 'tenants', label: 'Tenants', icon: '🏢' },
       { id: 'direct-clients', label: 'Direct Clients', icon: '👤' },
-      { id: 'direct-clients', label: 'Direct Clients', icon: '👤' },
       { id: 'users', label: 'Users', icon: '👥' },
       { id: 'mailboxes', label: 'Mailboxes', icon: '📬' },
       { id: 'permissions', label: 'Feature Permissions', icon: '🔑' },
