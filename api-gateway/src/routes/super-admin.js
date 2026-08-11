@@ -1559,6 +1559,46 @@ router.get('/audit-logs', superAdminAuth, requireRole('admin', 'support'), async
   }
 });
 
+// GET /direct-clients/:id/api-keys
+router.get('/direct-clients/:id/api-keys', superAdminAuth, async (req, res) => {
+  try {
+    await db.query(`CREATE TABLE IF NOT EXISTS direct_client_api_keys (
+      id SERIAL PRIMARY KEY, client_id INT NOT NULL, name TEXT NOT NULL,
+      api_key TEXT UNIQUE NOT NULL, api_secret TEXT NOT NULL,
+      status TEXT DEFAULT 'active', created_at TIMESTAMPTZ DEFAULT NOW()
+    )`);
+    const result = await db.query(
+      `SELECT id, name, api_key, api_secret, status, created_at FROM direct_client_api_keys WHERE client_id=$1 ORDER BY created_at DESC`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /direct-clients/:id/api-keys
+router.post('/direct-clients/:id/api-keys', superAdminAuth, async (req, res) => {
+  const crypto = require('crypto');
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ success: false, error: 'name required' });
+  try {
+    const api_key = 'ssg_' + crypto.randomBytes(16).toString('hex');
+    const api_secret = crypto.randomBytes(32).toString('hex');
+    const result = await db.query(
+      `INSERT INTO direct_client_api_keys (client_id, name, api_key, api_secret) VALUES ($1,$2,$3,$4) RETURNING *`,
+      [req.params.id, name, api_key, api_secret]
+    );
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// DELETE /direct-clients/api-keys/:keyId
+router.delete('/direct-clients/api-keys/:keyId', superAdminAuth, async (req, res) => {
+  try {
+    await db.query('DELETE FROM direct_client_api_keys WHERE id=$1', [req.params.keyId]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 // ── Direct Clients (Solo Tenant — Option A) ─────────────────────────────
 // GET /api/v1/super-admin/direct-clients
 router.get('/direct-clients', superAdminAuth, async (req, res) => {

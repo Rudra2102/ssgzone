@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import EnhancedMetricCard from './components/EnhancedMetricCard';
 import EmailOverview from './components/EmailOverview';
 import SystemActivity from './components/SystemActivity';
@@ -2396,6 +2396,32 @@ function SuperAdminDashboard() {
     const [msg, setMsg] = React.useState('');
     const [newCreds, setNewCreds] = React.useState(null);
 
+    const [apiKeysClient, setApiKeysClient] = React.useState(null);
+    const [apiKeys, setApiKeys] = React.useState([]);
+    const [newKeyName, setNewKeyName] = React.useState('');
+    const [newKeyResult, setNewKeyResult] = React.useState(null);
+
+    const loadApiKeys = async (clientId) => {
+      const res = await apiFetch(API + '/direct-clients/' + clientId + '/api-keys', { headers: authHeaders });
+      const data = await res.json();
+      if (data.success) setApiKeys(data.data);
+    };
+
+    const generateApiKey = async (clientId) => {
+      if (!newKeyName.trim()) return;
+      const res = await apiFetch(API + '/direct-clients/' + clientId + '/api-keys', {
+        method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newKeyName })
+      });
+      const data = await res.json();
+      if (data.success) { setNewKeyResult(data.data); setNewKeyName(''); loadApiKeys(clientId); }
+    };
+
+    const deleteApiKey = async (keyId, clientId) => {
+      if (!window.confirm('Delete this API key?')) return;
+      await apiFetch(API + '/direct-clients/api-keys/' + keyId, { method: 'DELETE', headers: authHeaders });
+      loadApiKeys(clientId);
+    };
     const load = async (q) => {
       setLoading(true);
       const params = q ? '?search=' + encodeURIComponent(q) : '';
@@ -2536,6 +2562,10 @@ function SuperAdminDashboard() {
                         style={{ background: 'none', border: `1px solid ${cl.status === 'active' ? colors.danger : colors.success}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: cl.status === 'active' ? colors.danger : colors.success, fontWeight: 600 }}>
                         {cl.status === 'active' ? 'Suspend' : 'Activate'}
                       </button>
+                      <button onClick={() => { setApiKeysClient(cl); loadApiKeys(cl.id); setNewKeyResult(null); }}
+                        style={{ background: 'none', border: `1px solid ${colors.primary}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: colors.primary }}>
+                        🔑 API Keys
+                      </button>
                       <button onClick={() => del(cl.id)}
                         style={{ background: 'none', border: `1px solid ${colors.danger}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: colors.danger }}>
                         Delete
@@ -2549,6 +2579,51 @@ function SuperAdminDashboard() {
         </div>
       </div>
     );
+      {apiKeysClient && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setApiKeysClient(null)}>
+          <div style={{ background: colors.card, borderRadius: 12, width: 600, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
+            <div style={{ padding: '16px 20px', borderBottom: `1px solid ${colors.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 15, fontWeight: 700, color: colors.text }}>🔑 API Keys — {apiKeysClient.first_name} {apiKeysClient.last_name}</span>
+              <button onClick={() => setApiKeysClient(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: colors.textMuted }}>×</button>
+            </div>
+            <div style={{ padding: 20, overflowY: 'auto' }}>
+              {newKeyResult && (
+                <div style={{ background: colors.successLight, border: `1px solid ${colors.success}`, borderRadius: 8, padding: 14, marginBottom: 16 }}>
+                  <div style={{ fontWeight: 700, color: colors.success, marginBottom: 8 }}>✅ API Key Generated — Save these now, secret shown only once!</div>
+                  <div style={{ fontSize: 12, fontFamily: 'monospace', marginBottom: 4 }}>API Key: <strong>{newKeyResult.api_key}</strong></div>
+                  <div style={{ fontSize: 12, fontFamily: 'monospace' }}>API Secret: <strong>{newKeyResult.api_secret}</strong></div>
+                  <button onClick={() => setNewKeyResult(null)} style={{ marginTop: 8, background: 'none', border: `1px solid ${colors.success}`, borderRadius: 6, padding: '3px 10px', fontSize: 11, cursor: 'pointer', color: colors.success }}>Dismiss</button>
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                <input value={newKeyName} onChange={e => setNewKeyName(e.target.value)} placeholder="Key name (e.g. VastiQ Production)"
+                  style={{ flex: 1, padding: '8px 12px', border: `1px solid ${colors.border}`, borderRadius: 7, fontSize: 13, outline: 'none' }} />
+                <button onClick={() => generateApiKey(apiKeysClient.id)}
+                  style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 7, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Generate</button>
+              </div>
+              {apiKeys.length === 0 && <div style={{ color: colors.textMuted, fontSize: 13, textAlign: 'center', padding: 20 }}>No API keys yet</div>}
+              {apiKeys.map(k => (
+                <div key={k.id} style={{ background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 12, marginBottom: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>{k.name}</div>
+                      <div style={{ fontSize: 11, fontFamily: 'monospace', color: colors.textMuted, marginTop: 2 }}>{k.api_key}</div>
+                      <div style={{ fontSize: 11, color: colors.textMuted }}>Created: {new Date(k.created_at).toLocaleDateString()}</div>
+                    </div>
+                    <button onClick={() => deleteApiKey(k.id, apiKeysClient.id)}
+                      style={{ background: 'none', border: `1px solid ${colors.danger}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: colors.danger }}>Delete</button>
+                  </div>
+                </div>
+              ))}
+              <div style={{ marginTop: 16, padding: 12, background: '#f0f4ff', borderRadius: 8, fontSize: 12, color: colors.textMuted }}>
+                <strong>Relay API Usage:</strong><br/>
+                POST https://api.ssgzone.in/api/v1/saas/integration/email/send<br/>
+                Body: api_key, api_secret, to, subject, html, from_name, from_email
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
   };
 
   const GDPRSection = () => {

@@ -266,16 +266,32 @@ router.post('/token-login', async (req, res) => {
 router.post('/email/send', async (req, res) => {
   const nodemailer = require('nodemailer');
   try {
-    const { saas_app_id, saas_app_secret, to, subject, html, text, from_name, from_email } = req.body;
-
-    if (!saas_app_id || !saas_app_secret)
-      return res.status(401).json({ success: false, error: 'saas_app_id and saas_app_secret required' });
+    const { api_key, api_secret, to, subject, html, text, from_name, from_email } = req.body;
+    if (!api_key || !api_secret)
+      return res.status(401).json({ success: false, error: 'api_key and api_secret required' });
     if (!to || !subject || (!html && !text))
       return res.status(400).json({ success: false, error: 'to, subject, and html or text required' });
 
-    const saasApp = await validateSaasCredentials(saas_app_id, saas_app_secret);
-    if (!saasApp)
-      return res.status(401).json({ success: false, error: 'Invalid SaaS credentials' });
+    // Validate — check direct_client_api_keys first, then saas_applications
+    let clientName = null;
+    const keyRow = await db.query(
+      `SELECT k.*, tu.first_name, tu.last_name FROM direct_client_api_keys k
+       JOIN tenant_users tu ON tu.id = k.client_id
+       WHERE k.api_key=$1 AND k.api_secret=$2 AND k.status='active'`,
+      [api_key, api_secret]
+    ).catch(() => ({ rows: [] }));
+
+    if (keyRow.rows.length > 0) {
+      clientName = keyRow.rows[0].first_name + ' ' + keyRow.rows[0].last_name;
+    } else {
+      const saasRow = await db.query(
+        `SELECT saas_name FROM saas_applications WHERE api_key=$1 AND api_secret=$2 AND status='active'`,
+        [api_key, api_secret]
+      );
+      if (!saasRow.rows.length)
+        return res.status(401).json({ success: false, error: 'Invalid API credentials' });
+      clientName = saasRow.rows[0].saas_name;
+    }
 
     const transporter = nodemailer.createTransport({
       host: process.env.SMTP_HOST || 'email-smtp.ap-south-1.amazonaws.com',
@@ -285,13 +301,12 @@ router.post('/email/send', async (req, res) => {
     });
 
     await transporter.sendMail({
-      from: `"${from_name || saasApp.saas_name}" <${from_email || process.env.SMTP_USER}>`,
+      from: `"${from_name || clientName}" <${from_email || process.env.SMTP_USER}>`,
       to, subject,
       html: html || text,
-      text: text || html.replace(/<[^>]*>/g, '')
+      text: text || (html || '').replace(/<[^>]*>/g, '')
     });
 
-    await logIntegrationAction('email_sent', { saas_app_id, to, subject });
     res.json({ success: true, message: 'Email sent' });
   } catch (err) {
     console.error('Relay email error:', err);
