@@ -21,7 +21,7 @@ function ComposeEmailPanel({ token }) {
   const handleSend = async () => {
     if (!form.to || !form.subject || !form.body) { setStatus('Please fill all fields'); return; }
     try {
-      const res = await fetch(`${API}/api/v1/tenant-admin/communication/email/send`, {
+      const res = await apiFetch(`${API}/api/v1/tenant-admin/communication/email/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ to: form.to, subject: form.subject, body: form.body })
@@ -90,12 +90,16 @@ function TenantAdminDashboard() {
 
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const token = localStorage.getItem('tenant_admin_token');
-  const [csrfToken] = React.useState(() => localStorage.getItem('csrf_token') || '');
-  const auth = { Authorization: `Bearer ${token}`, 'X-CSRF-Token': csrfToken };
+  const csrfTokenRef = React.useRef(localStorage.getItem('csrf_token') || '');
+  const auth = { Authorization: `Bearer ${token}`, 'X-CSRF-Token': csrfTokenRef.current };
+  const apiFetch = (url, opts = {}) => {
+    const headers = { Authorization: `Bearer ${token}`, 'X-CSRF-Token': csrfTokenRef.current, ...(opts.headers || {}) };
+    return fetch(url, { credentials: 'include', ...opts, headers });
+  };
 
   React.useEffect(() => {
-    fetch('https://api.ssgzone.in/api/v1/auth/csrf-token', { credentials: 'include' })
-      .then(r => r.json()).then(d => { if (d.csrf_token) localStorage.setItem('csrf_token', d.csrf_token); }).catch(() => {});
+    apiFetch('https://api.ssgzone.in/api/v1/auth/csrf-token', { credentials: 'include' })
+      .then(r => r.json()).then(d => { if (d.csrf_token) { csrfTokenRef.current = d.csrf_token; localStorage.setItem('csrf_token', d.csrf_token); } }).catch(() => {});
   }, []);
 
   const getJwtPermissions = () => {
@@ -117,10 +121,10 @@ function TenantAdminDashboard() {
   const fetchDashboardData = async () => {
     try {
       const [sRes, uRes, dRes, cRes] = await Promise.all([
-        fetch(`${API}/api/v1/tenant-admin/dashboard/stats`, { headers: auth }),
-        fetch(`${API}/api/v1/tenant-admin/users`, { headers: auth }),
-        fetch(`${API}/api/v1/tenant-admin/departments`, { headers: auth }),
-        fetch(`${API}/api/v1/tenant-admin/communication/settings`, { headers: auth }),
+        apiFetch(`${API}/api/v1/tenant-admin/dashboard/stats`, { headers: auth }),
+        apiFetch(`${API}/api/v1/tenant-admin/users`, { headers: auth }),
+        apiFetch(`${API}/api/v1/tenant-admin/departments`, { headers: auth }),
+        apiFetch(`${API}/api/v1/tenant-admin/communication/settings`, { headers: auth }),
       ]);
       const [s, u, d, cs] = await Promise.all([sRes.json(), uRes.json(), dRes.json(), cRes.json()]);
       if (s.success) setStats(s.data);
@@ -132,7 +136,7 @@ function TenantAdminDashboard() {
 
   const fetchOooList = async () => {
     setOooLoading(true);
-    const res = await fetch(`${API}/api/v1/tenant-admin/team/ooo`, { headers: auth });
+    const res = await apiFetch(`${API}/api/v1/tenant-admin/team/ooo`, { headers: auth });
     const data = await res.json();
     if (data.success) setOooList(data.data);
     setOooLoading(false);
@@ -145,7 +149,7 @@ function TenantAdminDashboard() {
     const password = Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
     const username = inviteForm.email.split('@')[0] + Math.floor(Math.random() * 100);
     try {
-      const res = await fetch(`${API}/api/v1/tenant-admin/users`, {
+      const res = await apiFetch(`${API}/api/v1/tenant-admin/users`, {
         method: 'POST',
         headers: { ...auth, 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...inviteForm, username, password_override: password })
@@ -162,7 +166,7 @@ function TenantAdminDashboard() {
 
   const toggleUserStatus = async (user) => {
     const newStatus = user.status === 'active' ? 'suspended' : 'active';
-    const res = await fetch(`${API}/api/v1/tenant-admin/users/${user.id}/status`, {
+    const res = await apiFetch(`${API}/api/v1/tenant-admin/users/${user.id}/status`, {
       method: 'PATCH', headers: { ...auth, 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: newStatus })
     });
@@ -174,7 +178,7 @@ function TenantAdminDashboard() {
   };
 
   const resetUserPassword = async (userId) => {
-    const res = await fetch(`${API}/api/v1/tenant-admin/users/${userId}/reset-password`, { method: 'POST', headers: auth });
+    const res = await apiFetch(`${API}/api/v1/tenant-admin/users/${userId}/reset-password`, { method: 'POST', headers: auth });
     const data = await res.json();
     if (data.success) showToast(`New password: ${data.data.new_password}`);
     else showToast(data.error, 'error');
@@ -182,7 +186,7 @@ function TenantAdminDashboard() {
 
   const handleDeleteUser = async (userId) => {
     if (!window.confirm('Delete this employee?')) return;
-    const res = await fetch(`${API}/api/v1/tenant-admin/users/${userId}`, { method: 'DELETE', headers: auth });
+    const res = await apiFetch(`${API}/api/v1/tenant-admin/users/${userId}`, { method: 'DELETE', headers: auth });
     const data = await res.json();
     if (data.success) { setUsers(prev => prev.filter(u => u.id !== userId)); showToast('Employee deleted'); }
     else showToast(data.error, 'error');
@@ -197,7 +201,7 @@ function TenantAdminDashboard() {
   const saveUser = async () => {
     if (!userForm.username || !userForm.email || !userForm.first_name || !userForm.last_name) { setModalError('Fill all required fields'); return; }
     const url = editingUser ? `${API}/api/v1/tenant-admin/users/${editingUser.id}` : `${API}/api/v1/tenant-admin/users`;
-    const res = await fetch(url, { method: editingUser ? 'PUT' : 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify(userForm) });
+    const res = await apiFetch(url, { method: editingUser ? 'PUT' : 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify(userForm) });
     const data = await res.json();
     if (data.success) {
       if (editingUser) setUsers(prev => prev.map(u => u.id === editingUser.id ? data.data : u));
@@ -217,7 +221,7 @@ function TenantAdminDashboard() {
   const saveDept = async () => {
     if (!deptForm.name) { setModalError('Department name required'); return; }
     const url = editingDept ? `${API}/api/v1/tenant-admin/departments/${editingDept.id}` : `${API}/api/v1/tenant-admin/departments`;
-    const res = await fetch(url, { method: editingDept ? 'PUT' : 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify(deptForm) });
+    const res = await apiFetch(url, { method: editingDept ? 'PUT' : 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify(deptForm) });
     const data = await res.json();
     if (data.success) {
       if (editingDept) setDepartments(prev => prev.map(d => d.id === editingDept.id ? data.data : d));
@@ -230,7 +234,7 @@ function TenantAdminDashboard() {
 
   const handleDeleteDept = async (deptId) => {
     if (!window.confirm('Delete this department?')) return;
-    const res = await fetch(`${API}/api/v1/tenant-admin/departments/${deptId}`, { method: 'DELETE', headers: auth });
+    const res = await apiFetch(`${API}/api/v1/tenant-admin/departments/${deptId}`, { method: 'DELETE', headers: auth });
     const data = await res.json();
     if (data.success) { setDepartments(prev => prev.filter(d => d.id !== deptId)); showToast('Department deleted'); }
     else showToast(data.error, 'error');
@@ -239,7 +243,7 @@ function TenantAdminDashboard() {
   const updateCommSetting = async (key, val) => {
     const updated = { ...communicationSettings, [key]: val };
     setCommunicationSettings(updated);
-    await fetch(`${API}/api/v1/tenant-admin/communication/settings`, { method: 'PUT', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify(updated) });
+    await apiFetch(`${API}/api/v1/tenant-admin/communication/settings`, { method: 'PUT', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify(updated) });
   };
 
   const logout = () => { localStorage.clear(); window.location.href = '/'; };
@@ -269,7 +273,7 @@ function TenantAdminDashboard() {
       <div style={{ flex: 1, padding: '12px 8px' }}>
         {nav.map(item => (
           <div key={item.id}
-            onClick={() => { setActiveNav(item.id); if (item.id === 'ooo') fetchOooList(); if (item.id === 'security') fetch('https://api.ssgzone.in/api/v1/tenant-admin/2fa/status',{headers:{Authorization:'Bearer '+token}}).then(r=>r.json()).then(d=>d.success&&setTwoFAStatus(d.data.enabled)); }}
+            onClick={() => { setActiveNav(item.id); if (item.id === 'ooo') fetchOooList(); if (item.id === 'security') apiFetch('https://api.ssgzone.in/api/v1/tenant-admin/2fa/status',{headers:{Authorization:'Bearer '+token}}).then(r=>r.json()).then(d=>d.success&&setTwoFAStatus(d.data.enabled)); }}
             style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 10px', borderRadius: 6, cursor: 'pointer', marginBottom: 2, background: activeNav === item.id ? c.primaryLight : 'transparent', color: activeNav === item.id ? c.primary : c.text, fontWeight: activeNav === item.id ? 600 : 400, fontSize: 13 }}>
             <span>{item.icon}</span>{item.label}
           </div>
@@ -530,7 +534,7 @@ function TenantAdminDashboard() {
   const fetchUserPerms = async (userId) => {
     setUserPermsLoading(true);
     try {
-      const res = await fetch(`https://api.ssgzone.in/api/v1/tenant-admin/users/${userId}/permissions`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await apiFetch(`https://api.ssgzone.in/api/v1/tenant-admin/users/${userId}/permissions`, { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       if (data.success) setUserPerms(data.data);
     } catch {}
@@ -542,7 +546,7 @@ function TenantAdminDashboard() {
     const permsObj = {};
     userPerms.forEach(p => { permsObj[p.feature_key] = p.is_enabled; });
     try {
-      const res = await fetch(`https://api.ssgzone.in/api/v1/tenant-admin/users/${userId}/permissions`, {
+      const res = await apiFetch(`https://api.ssgzone.in/api/v1/tenant-admin/users/${userId}/permissions`, {
         method: 'PUT', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ permissions: permsObj })
       });
@@ -557,14 +561,14 @@ function TenantAdminDashboard() {
     const [localCode, setLocalCode] = React.useState('');
     const setup2FA = async () => {
       setTwoFASaving(true);
-      const res = await fetch('https://api.ssgzone.in/api/v1/tenant-admin/2fa/setup', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      const res = await apiFetch('https://api.ssgzone.in/api/v1/tenant-admin/2fa/setup', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
       const d = await res.json();
       if (d.success) setTwoFASetup(d.data);
       setTwoFASaving(false);
     };
     const enable2FA = async () => {
       setTwoFASaving(true);
-      const res = await fetch('https://api.ssgzone.in/api/v1/tenant-admin/2fa/enable', {
+      const res = await apiFetch('https://api.ssgzone.in/api/v1/tenant-admin/2fa/enable', {
         method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: localCode })
       });
@@ -575,7 +579,7 @@ function TenantAdminDashboard() {
     };
     const disable2FA = async () => {
       if (!window.confirm('Disable 2FA?')) return;
-      const res = await fetch('https://api.ssgzone.in/api/v1/tenant-admin/2fa/disable', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      const res = await apiFetch('https://api.ssgzone.in/api/v1/tenant-admin/2fa/disable', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
       const d = await res.json();
       if (d.success) { setTwoFAStatus(false); showToast('2FA disabled'); }
     };
@@ -628,8 +632,8 @@ function TenantAdminDashboard() {
         setLoading(true);
         try {
           const [bRes, iRes] = await Promise.all([
-            fetch(`${BAPI}/tenant-admin/current`, { headers: auth }),
-            fetch(`${BAPI}/tenant-admin/invoices`, { headers: auth }),
+            apiFetch(`${BAPI}/tenant-admin/current`, { headers: auth }),
+            apiFetch(`${BAPI}/tenant-admin/invoices`, { headers: auth }),
           ]);
           const [bData, iData] = await Promise.all([bRes.json(), iRes.json()]);
           if (bData.success) setBilling(bData.data);

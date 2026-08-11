@@ -274,15 +274,19 @@ router.post('/email/send', async (req, res) => {
 
     // Validate — check direct_client_api_keys first, then saas_applications
     let clientName = null;
+    let allowedDomains = null;
     const keyRow = await db.query(
-      `SELECT k.*, tu.first_name, tu.last_name FROM direct_client_api_keys k
-       JOIN tenant_users tu ON tu.id = k.client_id
-       WHERE k.api_key=$1 AND k.api_secret=$2 AND k.status='active'`,
+      `SELECT k.*, dc.company_name, dc.allowed_domains FROM direct_client_api_keys k
+       JOIN direct_clients dc ON dc.id = k.direct_client_id
+       WHERE k.api_key=$1 AND k.api_secret=$2 AND k.status='active' AND dc.status='active'`,
       [api_key, api_secret]
     ).catch(() => ({ rows: [] }));
 
     if (keyRow.rows.length > 0) {
-      clientName = keyRow.rows[0].first_name + ' ' + keyRow.rows[0].last_name;
+      clientName = keyRow.rows[0].company_name;
+      allowedDomains = keyRow.rows[0].allowed_domains;
+      // Update last_used_at
+      db.query('UPDATE direct_client_api_keys SET last_used_at=NOW() WHERE id=$1', [keyRow.rows[0].id]).catch(() => {});
     } else {
       const saasRow = await db.query(
         `SELECT saas_name FROM saas_applications WHERE api_key=$1 AND api_secret=$2 AND status='active'`,
@@ -299,6 +303,14 @@ router.post('/email/send', async (req, res) => {
       secure: false,
       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
     });
+
+    // Validate from_email domain if allowed_domains is set
+    if (allowedDomains && allowedDomains.length > 0 && from_email) {
+      const fromDomain = from_email.split('@')[1];
+      if (!allowedDomains.includes(fromDomain)) {
+        return res.status(403).json({ success: false, error: `from_email domain not allowed. Allowed: ${allowedDomains.join(', ')}` });
+      }
+    }
 
     await transporter.sendMail({
       from: `"${from_name || clientName}" <${from_email || process.env.SMTP_USER}>`,

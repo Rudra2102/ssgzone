@@ -1559,16 +1559,98 @@ router.get('/audit-logs', superAdminAuth, requireRole('admin', 'support'), async
   }
 });
 
+// ── Direct Clients — Company-Level Architecture ─────────────────────────
+
+// GET /direct-clients
+router.get('/direct-clients', superAdminAuth, async (req, res) => {
+  try {
+    const { search } = req.query;
+    const params = [];
+    let where = 'WHERE 1=1';
+    if (search) { params.push(`%${search}%`); where += ` AND (dc.company_name ILIKE $${params.length} OR dc.contact_email ILIKE $${params.length} OR dc.company_slug ILIKE $${params.length})`; }
+    const result = await db.query(
+      `SELECT dc.*, COUNT(k.id) as api_key_count
+       FROM direct_clients dc
+       LEFT JOIN direct_client_api_keys k ON k.direct_client_id = dc.id
+       ${where}
+       GROUP BY dc.id ORDER BY dc.created_at DESC`,
+      params
+    );
+    res.json({ success: true, data: result.rows, total: result.rows.length });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /direct-clients
+router.post('/direct-clients', superAdminAuth, async (req, res) => {
+  const { company_name, company_slug, contact_name, contact_email, allowed_domains, plan_type, notes } = req.body;
+  if (!company_name || !company_slug)
+    return res.status(400).json({ success: false, error: 'company_name and company_slug required' });
+  try {
+    const domains = Array.isArray(allowed_domains) ? allowed_domains : (allowed_domains ? [allowed_domains] : []);
+    const result = await db.query(
+      `INSERT INTO direct_clients (company_name, company_slug, contact_name, contact_email, allowed_domains, plan_type, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       RETURNING *`,
+      [company_name, company_slug, contact_name || null, contact_email || null, domains, plan_type || 'starter', notes || null]
+    );
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    if (err.code === '23505') return res.status(400).json({ success: false, error: 'Company slug already exists' });
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PUT /direct-clients/:id
+router.put('/direct-clients/:id', superAdminAuth, async (req, res) => {
+  const { company_name, contact_name, contact_email, allowed_domains, plan_type, notes } = req.body;
+  try {
+    const domains = Array.isArray(allowed_domains) ? allowed_domains : (allowed_domains ? [allowed_domains] : null);
+    const result = await db.query(
+      `UPDATE direct_clients SET
+         company_name=COALESCE($1,company_name),
+         contact_name=COALESCE($2,contact_name),
+         contact_email=COALESCE($3,contact_email),
+         allowed_domains=COALESCE($4,allowed_domains),
+         plan_type=COALESCE($5,plan_type),
+         notes=COALESCE($6,notes),
+         updated_at=NOW()
+       WHERE id=$7 RETURNING *`,
+      [company_name, contact_name, contact_email, domains, plan_type, notes, req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Client not found' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// PATCH /direct-clients/:id/status
+router.patch('/direct-clients/:id/status', superAdminAuth, async (req, res) => {
+  const { status } = req.body;
+  if (!['active', 'suspended'].includes(status))
+    return res.status(400).json({ success: false, error: 'Invalid status' });
+  try {
+    const result = await db.query(
+      `UPDATE direct_clients SET status=$1, updated_at=NOW() WHERE id=$2 RETURNING id, company_name, status`,
+      [status, req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Client not found' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// DELETE /direct-clients/:id
+router.delete('/direct-clients/:id', superAdminAuth, async (req, res) => {
+  try {
+    await db.query('DELETE FROM direct_clients WHERE id=$1', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 // GET /direct-clients/:id/api-keys
 router.get('/direct-clients/:id/api-keys', superAdminAuth, async (req, res) => {
   try {
-    await db.query(`CREATE TABLE IF NOT EXISTS direct_client_api_keys (
-      id SERIAL PRIMARY KEY, client_id INT NOT NULL, name TEXT NOT NULL,
-      api_key TEXT UNIQUE NOT NULL, api_secret TEXT NOT NULL,
-      status TEXT DEFAULT 'active', created_at TIMESTAMPTZ DEFAULT NOW()
-    )`);
     const result = await db.query(
-      `SELECT id, name, api_key, api_secret, status, created_at FROM direct_client_api_keys WHERE client_id=$1 ORDER BY created_at DESC`,
+      `SELECT id, name, api_key, api_secret, status, last_used_at, created_at
+       FROM direct_client_api_keys WHERE direct_client_id=$1 ORDER BY created_at DESC`,
       [req.params.id]
     );
     res.json({ success: true, data: result.rows });
@@ -1577,14 +1659,15 @@ router.get('/direct-clients/:id/api-keys', superAdminAuth, async (req, res) => {
 
 // POST /direct-clients/:id/api-keys
 router.post('/direct-clients/:id/api-keys', superAdminAuth, async (req, res) => {
-  const crypto = require('crypto');
   const { name } = req.body;
   if (!name) return res.status(400).json({ success: false, error: 'name required' });
   try {
-    const api_key = 'ssg_' + crypto.randomBytes(16).toString('hex');
-    const api_secret = crypto.randomBytes(32).toString('hex');
+    const clientCheck = await db.query('SELECT id FROM direct_clients WHERE id=$1', [req.params.id]);
+    if (!clientCheck.rows.length) return res.status(404).json({ success: false, error: 'Client not found' });
+    const api_key = 'ssg_' + require('crypto').randomBytes(16).toString('hex');
+    const api_secret = require('crypto').randomBytes(32).toString('hex');
     const result = await db.query(
-      `INSERT INTO direct_client_api_keys (client_id, name, api_key, api_secret) VALUES ($1,$2,$3,$4) RETURNING *`,
+      `INSERT INTO direct_client_api_keys (direct_client_id, name, api_key, api_secret) VALUES ($1,$2,$3,$4) RETURNING *`,
       [req.params.id, name, api_key, api_secret]
     );
     res.json({ success: true, data: result.rows[0] });
@@ -1595,87 +1678,6 @@ router.post('/direct-clients/:id/api-keys', superAdminAuth, async (req, res) => 
 router.delete('/direct-clients/api-keys/:keyId', superAdminAuth, async (req, res) => {
   try {
     await db.query('DELETE FROM direct_client_api_keys WHERE id=$1', [req.params.keyId]);
-    res.json({ success: true });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
-});
-
-// ── Direct Clients (Solo Tenant — Option A) ─────────────────────────────
-// GET /api/v1/super-admin/direct-clients
-router.get('/direct-clients', superAdminAuth, async (req, res) => {
-  try {
-    const tenant = await db.query(
-      `SELECT tc.id FROM tenant_companies tc
-       JOIN saas_applications sa ON sa.id = tc.saas_app_id
-       WHERE sa.saas_slug = 'direct' AND tc.company_slug = 'platform' LIMIT 1`
-    );
-    if (!tenant.rows.length) return res.json({ success: true, data: [], message: 'Direct tenant not set up yet' });
-    const tenantId = tenant.rows[0].id;
-    const { search } = req.query;
-    const params = [tenantId];
-    let where = 'WHERE tu.tenant_id = $1';
-    if (search) { params.push(`%${search}%`); where += ` AND (tu.email ILIKE $${params.length} OR tu.first_name ILIKE $${params.length} OR tu.last_name ILIKE $${params.length})`; }
-    const result = await db.query(
-      `SELECT tu.id, tu.username, tu.email, tu.first_name, tu.last_name,
-              tu.status, tu.last_login, tu.created_at
-       FROM tenant_users tu ${where} ORDER BY tu.created_at DESC`,
-      params
-    );
-    res.json({ success: true, data: result.rows, total: result.rows.length });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
-});
-
-// POST /api/v1/super-admin/direct-clients
-router.post('/direct-clients', superAdminAuth, async (req, res) => {
-  const { first_name, last_name, username, email, password } = req.body;
-  if (!first_name || !last_name || !username || !email)
-    return res.status(400).json({ success: false, error: 'first_name, last_name, username, email required' });
-  try {
-    const tenant = await db.query(
-      `SELECT tc.id FROM tenant_companies tc
-       JOIN saas_applications sa ON sa.id = tc.saas_app_id
-       WHERE sa.saas_slug = 'direct' AND tc.company_slug = 'platform' LIMIT 1`
-    );
-    if (!tenant.rows.length)
-      return res.status(500).json({ success: false, error: 'Direct tenant not configured. Run phase6b.sql migration first.' });
-    const tenantId = tenant.rows[0].id;
-    const plain = password || 'Welcome@123';
-    const hash = await bcrypt.hash(plain, 10);
-    const result = await db.query(
-      `INSERT INTO tenant_users (tenant_id, username, email, first_name, last_name, role, password_hash, status)
-       VALUES ($1, $2, $3, $4, $5, 'user', $6, 'active')
-       RETURNING id, username, email, first_name, last_name, status, created_at`,
-      [tenantId, username, email, first_name, last_name, hash]
-    );
-    res.json({
-      success: true,
-      data: result.rows[0],
-      credentials: { email, password: plain, login_url: 'https://mail.ssgzone.in' }
-    });
-  } catch (err) {
-    if (err.code === '23505') return res.status(400).json({ success: false, error: 'Username or email already exists' });
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// PATCH /api/v1/super-admin/direct-clients/:id/status
-router.patch('/direct-clients/:id/status', superAdminAuth, async (req, res) => {
-  const { status } = req.body;
-  if (!['active', 'suspended'].includes(status))
-    return res.status(400).json({ success: false, error: 'Invalid status' });
-  try {
-    const result = await db.query(
-      `UPDATE tenant_users SET status=$1 WHERE id=$2 RETURNING id, email, status`,
-      [status, req.params.id]
-    );
-    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Client not found' });
-    res.json({ success: true, data: result.rows[0] });
-  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
-});
-
-// DELETE /api/v1/super-admin/direct-clients/:id
-router.delete('/direct-clients/:id', superAdminAuth, async (req, res) => {
-  try {
-    await db.query('DELETE FROM tenant_users WHERE id=$1', [req.params.id]);
     res.json({ success: true });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });

@@ -58,12 +58,16 @@ export default function EmployeeDashboard() {
   const token    = localStorage.getItem('platform_admin_token');
   const userData = JSON.parse(localStorage.getItem('user_data') || '{}');
   const role     = localStorage.getItem('user_role') || userData.role || 'support';
-  const csrfToken = localStorage.getItem('csrf_token') || '';
-  const authH    = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken };
+  const csrfTokenRef = React.useRef(localStorage.getItem('csrf_token') || '');
+  const authH    = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'X-CSRF-Token': csrfTokenRef.current };
+  const apiFetch = (url, opts = {}) => {
+    const headers = { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json', 'X-CSRF-Token': csrfTokenRef.current, ...(opts.headers || {}) };
+    return fetch(url, { credentials: 'include', ...opts, headers });
+  };
 
   React.useEffect(() => {
     fetch('https://api.ssgzone.in/api/v1/auth/csrf-token', { credentials: 'include' })
-      .then(r => r.json()).then(d => { if (d.csrf_token) localStorage.setItem('csrf_token', d.csrf_token); }).catch(() => {});
+      .then(r => r.json()).then(d => { if (d.csrf_token) { csrfTokenRef.current = d.csrf_token; localStorage.setItem('csrf_token', d.csrf_token); } }).catch(() => {});
   }, []);
 
   const [section, setSection]     = useState('dashboard');

@@ -2391,15 +2391,54 @@ function SuperAdminDashboard() {
     const [loading, setLoading] = React.useState(false);
     const [search, setSearch] = React.useState('');
     const [showForm, setShowForm] = React.useState(false);
-    const [form, setForm] = React.useState({ first_name: '', last_name: '', username: '', email: '', password: '' });
+    const [editingClient, setEditingClient] = React.useState(null);
+    const emptyForm = { company_name: '', company_slug: '', contact_name: '', contact_email: '', allowed_domains: '', plan_type: 'starter', notes: '' };
+    const [form, setForm] = React.useState(emptyForm);
     const [saving, setSaving] = React.useState(false);
     const [msg, setMsg] = React.useState('');
-    const [newCreds, setNewCreds] = React.useState(null);
-
     const [apiKeysClient, setApiKeysClient] = React.useState(null);
     const [apiKeys, setApiKeys] = React.useState([]);
     const [newKeyName, setNewKeyName] = React.useState('');
     const [newKeyResult, setNewKeyResult] = React.useState(null);
+
+    const load = async (q) => {
+      setLoading(true);
+      const params = q ? '?search=' + encodeURIComponent(q) : '';
+      const res = await apiFetch(API + '/direct-clients' + params, { headers: authHeaders });
+      const data = await res.json();
+      if (data.success) setClients(data.data);
+      setLoading(false);
+    };
+    React.useEffect(() => { load(); }, []);
+
+    const save = async () => {
+      if (!form.company_name || !form.company_slug) { setMsg('Company name and slug are required'); return; }
+      setSaving(true); setMsg('');
+      const payload = { ...form, allowed_domains: form.allowed_domains ? form.allowed_domains.split(',').map(d => d.trim()).filter(Boolean) : [] };
+      const url = editingClient ? API + '/direct-clients/' + editingClient.id : API + '/direct-clients';
+      const method = editingClient ? 'PUT' : 'POST';
+      const res = await apiFetch(url, { method, headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const data = await res.json();
+      setSaving(false);
+      if (data.success) { setShowForm(false); setEditingClient(null); setForm(emptyForm); load(); }
+      else setMsg(data.error || 'Failed');
+    };
+
+    const toggleStatus = async (client) => {
+      const newStatus = client.status === 'active' ? 'suspended' : 'active';
+      const res = await apiFetch(API + '/direct-clients/' + client.id + '/status', {
+        method: 'PATCH', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus })
+      });
+      const data = await res.json();
+      if (data.success) setClients(p => p.map(cl => cl.id === client.id ? { ...cl, status: newStatus } : cl));
+    };
+
+    const del = async (id) => {
+      if (!window.confirm('Delete this client and all their API keys?')) return;
+      await apiFetch(API + '/direct-clients/' + id, { method: 'DELETE', headers: authHeaders });
+      setClients(p => p.filter(cl => cl.id !== id));
+    };
 
     const loadApiKeys = async (clientId) => {
       const res = await apiFetch(API + '/direct-clients/' + clientId + '/api-keys', { headers: authHeaders });
@@ -2415,56 +2454,16 @@ function SuperAdminDashboard() {
       });
       const data = await res.json();
       if (data.success) { setNewKeyResult(data.data); setNewKeyName(''); loadApiKeys(clientId); }
+      else alert(data.error);
     };
 
     const deleteApiKey = async (keyId, clientId) => {
-      if (!window.confirm('Delete this API key?')) return;
+      if (!window.confirm('Delete this API key? This will break any integrations using it.')) return;
       await apiFetch(API + '/direct-clients/api-keys/' + keyId, { method: 'DELETE', headers: authHeaders });
       loadApiKeys(clientId);
     };
-    const load = async (q) => {
-      setLoading(true);
-      const params = q ? '?search=' + encodeURIComponent(q) : '';
-      const res = await apiFetch(API + '/direct-clients' + params, { headers: authHeaders });
-      const data = await res.json();
-      if (data.success) setClients(data.data);
-      setLoading(false);
-    };
-    React.useEffect(() => { load(); }, []);
 
-    const create = async () => {
-      if (!form.first_name || !form.last_name || !form.username || !form.email) { setMsg('All fields except password are required'); return; }
-      setSaving(true); setMsg('');
-      const res = await apiFetch(API + '/direct-clients', {
-        method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
-      });
-      const data = await res.json();
-      setSaving(false);
-      if (data.success) {
-        setNewCreds(data.credentials);
-        setClients(p => [data.data, ...p]);
-        setShowForm(false);
-        setForm({ first_name: '', last_name: '', username: '', email: '', password: '' });
-      } else setMsg(data.error || 'Failed');
-    };
-
-    const toggleStatus = async (client) => {
-      const newStatus = client.status === 'active' ? 'suspended' : 'active';
-      const res = await apiFetch(API + '/direct-clients/' + client.id + '/status', {
-        method: 'PATCH', headers: { ...authHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus })
-      });
-      const data = await res.json();
-      if (data.success) setClients(p => p.map(cl => cl.id === client.id ? { ...cl, status: newStatus } : cl));
-    };
-
-    const del = async (id) => {
-      if (!window.confirm('Delete this client?')) return;
-      await apiFetch(API + '/direct-clients/' + id, { method: 'DELETE', headers: authHeaders });
-      setClients(p => p.filter(cl => cl.id !== id));
-    };
-
+    const planColors = { starter: { bg: colors.primaryLight, color: colors.primary }, pro: { bg: colors.cyanLight, color: colors.cyan }, enterprise: { bg: colors.purpleLight, color: colors.purple } };
     const inp = { padding: '9px 12px', border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 13, color: colors.text, background: colors.bg, outline: 'none', boxSizing: 'border-box' };
 
     return (
@@ -2472,9 +2471,9 @@ function SuperAdminDashboard() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div>
             <div style={{ fontSize: 22, fontWeight: 700, color: colors.text }}>Direct Clients</div>
-            <div style={{ fontSize: 13, color: colors.textMuted, marginTop: 2 }}>Individual users with direct ssgzone.in mailboxes</div>
+            <div style={{ fontSize: 13, color: colors.textMuted, marginTop: 2 }}>Companies with direct SSGzone email relay access</div>
           </div>
-          <button onClick={() => setShowForm(p => !p)}
+          <button onClick={() => { setEditingClient(null); setForm(emptyForm); setMsg(''); setShowForm(p => !p); }}
             style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
             + New Client
           </button>
@@ -2482,48 +2481,56 @@ function SuperAdminDashboard() {
 
         {showForm && (
           <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 24, marginBottom: 20 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: colors.text, marginBottom: 16 }}>Create Direct Client</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: colors.text, marginBottom: 16 }}>{editingClient ? 'Edit Client' : 'Create Direct Client'}</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-              {[['first_name','First Name'],['last_name','Last Name'],['username','Username (login)'],['email','Email Address']].map(([k, lbl]) => (
-                <div key={k}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4 }}>{lbl} *</div>
-                  <input value={form[k]} onChange={e => setForm(p => ({ ...p, [k]: e.target.value }))}
-                    style={{ ...inp, width: '100%' }} placeholder={lbl} />
-                </div>
-              ))}
               <div>
-                <div style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4 }}>Password (optional)</div>
-                <input type="password" value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))}
-                  style={{ ...inp, width: '100%' }} placeholder="Leave blank for Welcome@123" />
+                <div style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4 }}>Company Name *</div>
+                <input value={form.company_name} onChange={e => setForm(p => ({ ...p, company_name: e.target.value }))} style={{ ...inp, width: '100%' }} placeholder="e.g. VastiQ" />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4 }}>Slug * <span style={{ fontWeight: 400, color: colors.textMuted }}>(unique identifier)</span></div>
+                <input value={form.company_slug} onChange={e => setForm(p => ({ ...p, company_slug: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '') }))} style={{ ...inp, width: '100%' }} placeholder="e.g. vastiq" disabled={!!editingClient} />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4 }}>Contact Name</div>
+                <input value={form.contact_name} onChange={e => setForm(p => ({ ...p, contact_name: e.target.value }))} style={{ ...inp, width: '100%' }} placeholder="Primary contact" />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4 }}>Contact Email</div>
+                <input value={form.contact_email} onChange={e => setForm(p => ({ ...p, contact_email: e.target.value }))} style={{ ...inp, width: '100%' }} placeholder="admin@company.com" />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4 }}>Allowed Domains <span style={{ fontWeight: 400 }}>(comma separated)</span></div>
+                <input value={form.allowed_domains} onChange={e => setForm(p => ({ ...p, allowed_domains: e.target.value }))} style={{ ...inp, width: '100%' }} placeholder="vastiqonline.in, vastiq.com" />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4 }}>Plan</div>
+                <select value={form.plan_type} onChange={e => setForm(p => ({ ...p, plan_type: e.target.value }))} style={{ ...inp, width: '100%' }}>
+                  <option value="starter">Starter</option>
+                  <option value="pro">Pro</option>
+                  <option value="enterprise">Enterprise</option>
+                </select>
+              </div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4 }}>Notes</div>
+                <input value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} style={{ ...inp, width: '100%' }} placeholder="Internal notes" />
               </div>
             </div>
             {msg && <div style={{ color: colors.danger, fontSize: 13, marginBottom: 10 }}>{msg}</div>}
             <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={create} disabled={saving}
+              <button onClick={save} disabled={saving}
                 style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '9px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: saving ? 0.7 : 1 }}>
-                {saving ? 'Creating...' : 'Create Client'}
+                {saving ? 'Saving...' : editingClient ? 'Update Client' : 'Create Client'}
               </button>
-              <button onClick={() => { setShowForm(false); setMsg(''); }}
-                style={{ background: 'none', border: `1px solid ${colors.border}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, cursor: 'pointer', color: colors.textMuted }}>
-                Cancel
-              </button>
+              <button onClick={() => { setShowForm(false); setEditingClient(null); setMsg(''); }}
+                style={{ background: 'none', border: `1px solid ${colors.border}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, cursor: 'pointer', color: colors.textMuted }}>Cancel</button>
             </div>
-          </div>
-        )}
-
-        {newCreds && (
-          <div style={{ background: colors.successLight, border: `1px solid ${colors.success}`, borderRadius: 10, padding: 16, marginBottom: 20 }}>
-            <div style={{ fontWeight: 700, color: colors.success, marginBottom: 8 }}>✅ Client Created — Share these credentials:</div>
-            <div style={{ fontSize: 13, color: colors.text }}>Email: <strong>{newCreds.email}</strong></div>
-            <div style={{ fontSize: 13, color: colors.text }}>Password: <strong>{newCreds.password}</strong></div>
-            <div style={{ fontSize: 13, color: colors.text }}>Login URL: <a href={newCreds.login_url} target="_blank" rel="noreferrer" style={{ color: colors.primary }}>{newCreds.login_url}</a></div>
-            <button onClick={() => setNewCreds(null)} style={{ marginTop: 10, background: 'none', border: `1px solid ${colors.success}`, borderRadius: 6, padding: '4px 12px', fontSize: 12, cursor: 'pointer', color: colors.success }}>Dismiss</button>
           </div>
         )}
 
         <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
           <input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && load(search)}
-            placeholder="Search by name or email..."
+            placeholder="Search by company name, email..."
             style={{ ...inp, flex: 1 }} />
           <button onClick={() => load(search)} style={{ background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 8, padding: '9px 16px', fontSize: 13, cursor: 'pointer', color: colors.text }}>Search</button>
         </div>
@@ -2531,45 +2538,52 @@ function SuperAdminDashboard() {
         <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead><tr style={{ background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
-              {['Name', 'Email / Login', 'Status', 'Last Login', 'Created', 'Actions'].map(h => (
+              {['Company', 'Contact', 'Allowed Domains', 'Plan', 'API Keys', 'Status', 'Created', 'Actions'].map(h => (
                 <th key={h} style={{ textAlign: 'left', padding: '12px 16px', color: colors.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>
               ))}
             </tr></thead>
             <tbody>
-              {loading && <tr><td colSpan={6} style={{ padding: 30, textAlign: 'center', color: colors.textMuted }}>Loading...</td></tr>}
+              {loading && <tr><td colSpan={8} style={{ padding: 30, textAlign: 'center', color: colors.textMuted }}>Loading...</td></tr>}
               {!loading && clients.length === 0 && (
-                <tr><td colSpan={6} style={{ padding: 40, textAlign: 'center', color: colors.textMuted }}>
-                  <div style={{ fontSize: 32, marginBottom: 8 }}>👤</div>
+                <tr><td colSpan={8} style={{ padding: 40, textAlign: 'center', color: colors.textMuted }}>
+                  <div style={{ fontSize: 32, marginBottom: 8 }}>🏢</div>
                   <div style={{ fontWeight: 600, color: colors.text }}>No direct clients yet</div>
-                  <div style={{ fontSize: 12, marginTop: 4 }}>Click "+ New Client" to create one</div>
+                  <div style={{ fontSize: 12, marginTop: 4 }}>Click "+ New Client" to add a company</div>
                 </td></tr>
               )}
               {clients.map(cl => (
                 <tr key={cl.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
-                  <td style={{ padding: '12px 16px', fontWeight: 600, color: colors.text }}>{cl.first_name} {cl.last_name}</td>
                   <td style={{ padding: '12px 16px' }}>
-                    <div style={{ color: colors.text, fontFamily: 'monospace', fontSize: 12 }}>{cl.email}</div>
-                    <div style={{ color: colors.textMuted, fontSize: 11 }}>@{cl.username}</div>
+                    <div style={{ fontWeight: 600, color: colors.text }}>{cl.company_name}</div>
+                    <div style={{ fontSize: 11, color: colors.textMuted, fontFamily: 'monospace' }}>{cl.company_slug}</div>
                   </td>
+                  <td style={{ padding: '12px 16px' }}>
+                    <div style={{ color: colors.text, fontSize: 12 }}>{cl.contact_name || '—'}</div>
+                    <div style={{ color: colors.textMuted, fontSize: 11 }}>{cl.contact_email || ''}</div>
+                  </td>
+                  <td style={{ padding: '12px 16px', fontSize: 11, color: colors.textMuted, fontFamily: 'monospace' }}>
+                    {cl.allowed_domains?.length ? cl.allowed_domains.join(', ') : <span style={{ color: colors.warning }}>⚠ Any domain</span>}
+                  </td>
+                  <td style={{ padding: '12px 16px' }}>
+                    <span style={{ background: planColors[cl.plan_type]?.bg || colors.primaryLight, color: planColors[cl.plan_type]?.color || colors.primary, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>{cl.plan_type}</span>
+                  </td>
+                  <td style={{ padding: '12px 16px', color: colors.text, fontSize: 13 }}>{cl.api_key_count || 0}</td>
                   <td style={{ padding: '12px 16px' }}>
                     <span style={{ background: cl.status === 'active' ? colors.successLight : colors.dangerLight, color: cl.status === 'active' ? colors.success : colors.danger, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>{cl.status}</span>
                   </td>
-                  <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{cl.last_login ? new Date(cl.last_login).toLocaleDateString() : '—'}</td>
                   <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{new Date(cl.created_at).toLocaleDateString()}</td>
                   <td style={{ padding: '12px 16px' }}>
                     <div style={{ display: 'flex', gap: 6 }}>
+                      <button onClick={() => { setEditingClient(cl); setForm({ company_name: cl.company_name, company_slug: cl.company_slug, contact_name: cl.contact_name || '', contact_email: cl.contact_email || '', allowed_domains: (cl.allowed_domains || []).join(', '), plan_type: cl.plan_type || 'starter', notes: cl.notes || '' }); setMsg(''); setShowForm(true); }}
+                        style={{ background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: colors.text }}>✏ Edit</button>
                       <button onClick={() => toggleStatus(cl)}
                         style={{ background: 'none', border: `1px solid ${cl.status === 'active' ? colors.danger : colors.success}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: cl.status === 'active' ? colors.danger : colors.success, fontWeight: 600 }}>
                         {cl.status === 'active' ? 'Suspend' : 'Activate'}
                       </button>
-                      <button onClick={() => { setApiKeysClient(cl); loadApiKeys(cl.id); setNewKeyResult(null); }}
-                        style={{ background: 'none', border: `1px solid ${colors.primary}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: colors.primary }}>
-                        🔑 API Keys
-                      </button>
+                      <button onClick={() => { setApiKeysClient(cl); loadApiKeys(cl.id); setNewKeyResult(null); setNewKeyName(''); }}
+                        style={{ background: colors.primaryLight, border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: colors.primary }}>🔑 API Keys</button>
                       <button onClick={() => del(cl.id)}
-                        style={{ background: 'none', border: `1px solid ${colors.danger}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: colors.danger }}>
-                        Delete
-                      </button>
+                        style={{ background: 'none', border: `1px solid ${colors.danger}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: colors.danger }}>Delete</button>
                     </div>
                   </td>
                 </tr>
@@ -2577,53 +2591,67 @@ function SuperAdminDashboard() {
             </tbody>
           </table>
         </div>
-      </div>
-    );
-      {apiKeysClient && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setApiKeysClient(null)}>
-          <div style={{ background: colors.card, borderRadius: 12, width: 600, maxHeight: '80vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
-            <div style={{ padding: '16px 20px', borderBottom: `1px solid ${colors.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: 15, fontWeight: 700, color: colors.text }}>🔑 API Keys — {apiKeysClient.first_name} {apiKeysClient.last_name}</span>
-              <button onClick={() => setApiKeysClient(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: colors.textMuted }}>×</button>
-            </div>
-            <div style={{ padding: 20, overflowY: 'auto' }}>
-              {newKeyResult && (
-                <div style={{ background: colors.successLight, border: `1px solid ${colors.success}`, borderRadius: 8, padding: 14, marginBottom: 16 }}>
-                  <div style={{ fontWeight: 700, color: colors.success, marginBottom: 8 }}>✅ API Key Generated — Save these now, secret shown only once!</div>
-                  <div style={{ fontSize: 12, fontFamily: 'monospace', marginBottom: 4 }}>API Key: <strong>{newKeyResult.api_key}</strong></div>
-                  <div style={{ fontSize: 12, fontFamily: 'monospace' }}>API Secret: <strong>{newKeyResult.api_secret}</strong></div>
-                  <button onClick={() => setNewKeyResult(null)} style={{ marginTop: 8, background: 'none', border: `1px solid ${colors.success}`, borderRadius: 6, padding: '3px 10px', fontSize: 11, cursor: 'pointer', color: colors.success }}>Dismiss</button>
+
+        {/* API Keys Modal */}
+        {apiKeysClient && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setApiKeysClient(null)}>
+            <div style={{ background: colors.card, borderRadius: 12, width: 620, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
+              <div style={{ padding: '16px 20px', borderBottom: `1px solid ${colors.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: colors.text }}>🔑 API Keys — {apiKeysClient.company_name}</div>
+                  <div style={{ fontSize: 12, color: colors.textMuted, marginTop: 2 }}>Allowed: {apiKeysClient.allowed_domains?.join(', ') || <span style={{ color: colors.warning }}>⚠ Any domain</span>}</div>
                 </div>
-              )}
-              <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-                <input value={newKeyName} onChange={e => setNewKeyName(e.target.value)} placeholder="Key name (e.g. VastiQ Production)"
-                  style={{ flex: 1, padding: '8px 12px', border: `1px solid ${colors.border}`, borderRadius: 7, fontSize: 13, outline: 'none' }} />
-                <button onClick={() => generateApiKey(apiKeysClient.id)}
-                  style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 7, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Generate</button>
+                <button onClick={() => setApiKeysClient(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: colors.textMuted }}>×</button>
               </div>
-              {apiKeys.length === 0 && <div style={{ color: colors.textMuted, fontSize: 13, textAlign: 'center', padding: 20 }}>No API keys yet</div>}
-              {apiKeys.map(k => (
-                <div key={k.id} style={{ background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 12, marginBottom: 8 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>{k.name}</div>
-                      <div style={{ fontSize: 11, fontFamily: 'monospace', color: colors.textMuted, marginTop: 2 }}>{k.api_key}</div>
-                      <div style={{ fontSize: 11, color: colors.textMuted }}>Created: {new Date(k.created_at).toLocaleDateString()}</div>
-                    </div>
-                    <button onClick={() => deleteApiKey(k.id, apiKeysClient.id)}
-                      style={{ background: 'none', border: `1px solid ${colors.danger}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: colors.danger }}>Delete</button>
+              <div style={{ padding: 20, overflowY: 'auto' }}>
+                {newKeyResult && (
+                  <div style={{ background: colors.successLight, border: `1px solid ${colors.success}`, borderRadius: 8, padding: 14, marginBottom: 16 }}>
+                    <div style={{ fontWeight: 700, color: colors.success, marginBottom: 8 }}>✅ Save these now — secret shown only once!</div>
+                    <div style={{ fontSize: 12, fontFamily: 'monospace', marginBottom: 4 }}>Key: <strong>{newKeyResult.api_key}</strong> <button onClick={() => navigator.clipboard.writeText(newKeyResult.api_key)} style={{ marginLeft: 6, background: 'none', border: `1px solid ${colors.success}`, borderRadius: 4, padding: '1px 6px', fontSize: 10, cursor: 'pointer', color: colors.success }}>📋</button></div>
+                    <div style={{ fontSize: 12, fontFamily: 'monospace' }}>Secret: <strong>{newKeyResult.api_secret}</strong> <button onClick={() => navigator.clipboard.writeText(newKeyResult.api_secret)} style={{ marginLeft: 6, background: 'none', border: `1px solid ${colors.success}`, borderRadius: 4, padding: '1px 6px', fontSize: 10, cursor: 'pointer', color: colors.success }}>📋</button></div>
+                    <button onClick={() => setNewKeyResult(null)} style={{ marginTop: 8, background: 'none', border: `1px solid ${colors.success}`, borderRadius: 6, padding: '3px 10px', fontSize: 11, cursor: 'pointer', color: colors.success }}>Dismiss</button>
                   </div>
+                )}
+                <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                  <input value={newKeyName} onChange={e => setNewKeyName(e.target.value)} onKeyDown={e => e.key === 'Enter' && generateApiKey(apiKeysClient.id)}
+                    placeholder="Key name (e.g. Production, Test)"
+                    style={{ flex: 1, padding: '8px 12px', border: `1px solid ${colors.border}`, borderRadius: 7, fontSize: 13, outline: 'none', background: colors.bg, color: colors.text }} />
+                  <button onClick={() => generateApiKey(apiKeysClient.id)}
+                    style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 7, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Generate</button>
                 </div>
-              ))}
-              <div style={{ marginTop: 16, padding: 12, background: '#f0f4ff', borderRadius: 8, fontSize: 12, color: colors.textMuted }}>
-                <strong>Relay API Usage:</strong><br/>
-                POST https://api.ssgzone.in/api/v1/saas/integration/email/send<br/>
-                Body: api_key, api_secret, to, subject, html, from_name, from_email
+                {apiKeys.length === 0 && <div style={{ color: colors.textMuted, fontSize: 13, textAlign: 'center', padding: 20 }}>No API keys yet</div>}
+                {apiKeys.map(k => (
+                  <div key={k.id} style={{ background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 12, marginBottom: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>{k.name}</div>
+                        <div style={{ fontSize: 11, fontFamily: 'monospace', color: colors.textMuted, marginTop: 2 }}>{k.api_key}</div>
+                        <div style={{ fontSize: 11, color: colors.textMuted, marginTop: 2 }}>Created: {new Date(k.created_at).toLocaleDateString()}{k.last_used_at && ` · Last used: ${new Date(k.last_used_at).toLocaleDateString()}`}</div>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <span style={{ background: k.status === 'active' ? colors.successLight : colors.dangerLight, color: k.status === 'active' ? colors.success : colors.danger, borderRadius: 20, padding: '2px 8px', fontSize: 10, fontWeight: 600 }}>{k.status}</span>
+                        <button onClick={() => deleteApiKey(k.id, apiKeysClient.id)}
+                          style={{ background: 'none', border: `1px solid ${colors.danger}`, borderRadius: 6, padding: '3px 8px', fontSize: 11, cursor: 'pointer', color: colors.danger }}>Delete</button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <div style={{ marginTop: 16, padding: 14, background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 12 }}>
+                  <div style={{ fontWeight: 700, color: colors.text, marginBottom: 6 }}>Relay API</div>
+                  <div style={{ fontFamily: 'monospace', fontSize: 11, color: colors.textMuted, lineHeight: 1.8 }}>
+                    POST https://api.ssgzone.in/api/v1/saas/integration/email/send<br/>
+                    {`{ api_key, api_secret, to, subject, html, from_name, from_email }`}
+                  </div>
+                  {apiKeysClient.allowed_domains?.length > 0 && (
+                    <div style={{ marginTop: 6, fontSize: 11, color: colors.warning }}>⚠ from_email must be from: {apiKeysClient.allowed_domains.join(', ')}</div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+    );
   };
 
   const GDPRSection = () => {
