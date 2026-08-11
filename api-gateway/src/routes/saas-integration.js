@@ -260,4 +260,43 @@ router.post('/token-login', async (req, res) => {
   }
 });
 
+// ============================================
+// 4. EMAIL RELAY
+// ============================================
+router.post('/email/send', async (req, res) => {
+  const nodemailer = require('nodemailer');
+  try {
+    const { saas_app_id, saas_app_secret, to, subject, html, text, from_name, from_email } = req.body;
+
+    if (!saas_app_id || !saas_app_secret)
+      return res.status(401).json({ success: false, error: 'saas_app_id and saas_app_secret required' });
+    if (!to || !subject || (!html && !text))
+      return res.status(400).json({ success: false, error: 'to, subject, and html or text required' });
+
+    const saasApp = await validateSaasCredentials(saas_app_id, saas_app_secret);
+    if (!saasApp)
+      return res.status(401).json({ success: false, error: 'Invalid SaaS credentials' });
+
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || 'email-smtp.ap-south-1.amazonaws.com',
+      port: parseInt(process.env.SMTP_PORT) || 587,
+      secure: false,
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
+    });
+
+    await transporter.sendMail({
+      from: `"${from_name || saasApp.saas_name}" <${from_email || process.env.SMTP_USER}>`,
+      to, subject,
+      html: html || text,
+      text: text || html.replace(/<[^>]*>/g, '')
+    });
+
+    await logIntegrationAction('email_sent', { saas_app_id, to, subject });
+    res.json({ success: true, message: 'Email sent' });
+  } catch (err) {
+    console.error('Relay email error:', err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 module.exports = router;
