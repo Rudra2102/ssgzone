@@ -2625,7 +2625,14 @@ function SuperAdminDashboard() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>{k.name}</div>
-                        <div style={{ fontSize: 11, fontFamily: 'monospace', color: colors.textMuted, marginTop: 2 }}>{k.api_key}</div>
+                        <div style={{ fontSize: 11, fontFamily: 'monospace', color: colors.textMuted, marginTop: 2 }}>
+                          {k.api_key} <button onClick={() => navigator.clipboard.writeText(k.api_key)} style={{ marginLeft: 4, background: 'none', border: `1px solid ${colors.border}`, borderRadius: 4, padding: '1px 5px', fontSize: 10, cursor: 'pointer', color: colors.textMuted }}>📋</button>
+                        </div>
+                        {k.api_secret && (
+                          <div style={{ fontSize: 11, fontFamily: 'monospace', color: colors.textMuted, marginTop: 2 }}>
+                            Secret: {'•'.repeat(16)} <button onClick={() => navigator.clipboard.writeText(k.api_secret)} style={{ marginLeft: 4, background: 'none', border: `1px solid ${colors.border}`, borderRadius: 4, padding: '1px 5px', fontSize: 10, cursor: 'pointer', color: colors.textMuted }}>📋 Copy</button>
+                          </div>
+                        )}
                         <div style={{ fontSize: 11, color: colors.textMuted, marginTop: 2 }}>Created: {new Date(k.created_at).toLocaleDateString()}{k.last_used_at && ` · Last used: ${new Date(k.last_used_at).toLocaleDateString()}`}</div>
                       </div>
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>

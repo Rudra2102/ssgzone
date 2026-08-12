@@ -121,6 +121,9 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
+// Saas integration relay — CSRF exempt (server-to-server, API key auth)
+app.use('/api/v1/saas/integration', saasIntegrationRoutes);
+
 // CSRF protection on all state-changing routes
 app.use(csrfProtection);
 
@@ -184,7 +187,6 @@ app.use('/api/v1/signatures', signaturesRoutes);
 app.use('/api/v1/whatsapp', whatsappRoutes);
 app.use('/api/v1/notifications', notificationsRoutes);
 app.use('/api/v1/calendar', calendarRoutes);
-app.use('/api/v1/saas/integration', saasIntegrationRoutes);
 app.use('/api/v1/employee', employeeRoutes);
 app.use('/api/v1/billing', billingRoutes);
 app.use('/api/v1/auth', authRoutes);
