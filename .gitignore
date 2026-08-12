@@ -127,3 +127,5 @@ credentials.json
 # Production config files
 production.env
 staging.envunified-login/build/
+api-gateway/node_modules/
+unified-login/node_modules/
