@@ -266,7 +266,7 @@ router.post('/token-login', async (req, res) => {
 router.post('/email/send', async (req, res) => {
   const nodemailer = require('nodemailer');
   try {
-    const { api_key, api_secret, to, subject, html, text, from_name, from_email } = req.body;
+    const { api_key, api_secret, to, subject, html, text, from_name, from_email, attachments } = req.body;
     if (!api_key || !api_secret)
       return res.status(401).json({ success: false, error: 'api_key and api_secret required' });
     if (!to || !subject || (!html && !text))
@@ -316,7 +316,13 @@ router.post('/email/send', async (req, res) => {
       from: `"${from_name || clientName}" <${from_email || process.env.SMTP_USER}>`,
       to, subject,
       html: html || text,
-      text: text || (html || '').replace(/<[^>]*>/g, '')
+      text: text || (html || '').replace(/<[^>]*>/g, ''),
+      attachments: Array.isArray(attachments) ? attachments.map(a => ({
+        filename: a.filename,
+        content: a.content,
+        encoding: a.encoding || 'base64',
+        contentType: a.contentType || a.mimetype
+      })) : []
     });
 
     res.json({ success: true, message: 'Email sent' });
