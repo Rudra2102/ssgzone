@@ -1682,4 +1682,61 @@ router.delete('/direct-clients/api-keys/:keyId', superAdminAuth, async (req, res
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// ── Direct Client Email Identities ─────────────────────────────────────
+
+// GET /direct-clients/:id/identities
+router.get('/direct-clients/:id/identities', superAdminAuth, async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT * FROM direct_client_email_identities WHERE direct_client_id=$1 ORDER BY created_at DESC`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /direct-clients/:id/identities
+router.post('/direct-clients/:id/identities', superAdminAuth, async (req, res) => {
+  const { email_address, display_name, identity_type, forwards_to, notes } = req.body;
+  if (!email_address) return res.status(400).json({ success: false, error: 'email_address required' });
+  if (identity_type === 'alias' && !forwards_to)
+    return res.status(400).json({ success: false, error: 'forwards_to required for alias type' });
+  try {
+    const clientCheck = await db.query('SELECT id FROM direct_clients WHERE id=$1', [req.params.id]);
+    if (!clientCheck.rows.length) return res.status(404).json({ success: false, error: 'Client not found' });
+    const result = await db.query(
+      `INSERT INTO direct_client_email_identities (direct_client_id, email_address, display_name, identity_type, forwards_to, notes)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+      [req.params.id, email_address, display_name || null, identity_type || 'send-only', forwards_to || null, notes || null]
+    );
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    if (err.code === '23505') return res.status(400).json({ success: false, error: 'Email address already exists' });
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// PATCH /direct-clients/identities/:identityId/status
+router.patch('/direct-clients/identities/:identityId/status', superAdminAuth, async (req, res) => {
+  const { status } = req.body;
+  if (!['active', 'suspended'].includes(status))
+    return res.status(400).json({ success: false, error: 'Invalid status' });
+  try {
+    const result = await db.query(
+      `UPDATE direct_client_email_identities SET status=$1, updated_at=NOW() WHERE id=$2 RETURNING *`,
+      [status, req.params.identityId]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Identity not found' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// DELETE /direct-clients/identities/:identityId
+router.delete('/direct-clients/identities/:identityId', superAdminAuth, async (req, res) => {
+  try {
+    await db.query('DELETE FROM direct_client_email_identities WHERE id=$1', [req.params.identityId]);
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 module.exports = router;

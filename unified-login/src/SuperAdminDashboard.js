@@ -2400,6 +2400,9 @@ function SuperAdminDashboard() {
     const [apiKeys, setApiKeys] = React.useState([]);
     const [newKeyName, setNewKeyName] = React.useState('');
     const [newKeyResult, setNewKeyResult] = React.useState(null);
+    const [identitiesClient, setIdentitiesClient] = React.useState(null);
+    const [identities, setIdentities] = React.useState([]);
+    const [newIdentity, setNewIdentity] = React.useState({ email_address: '', display_name: '', identity_type: 'send-only', forwards_to: '', notes: '' });
 
     const load = async (q) => {
       setLoading(true);
@@ -2444,6 +2447,29 @@ function SuperAdminDashboard() {
       const res = await apiFetch(API + '/direct-clients/' + clientId + '/api-keys', { headers: authHeaders });
       const data = await res.json();
       if (data.success) setApiKeys(data.data);
+    };
+
+    const loadIdentities = async (clientId) => {
+      const res = await apiFetch(API + '/direct-clients/' + clientId + '/identities', { headers: authHeaders });
+      const data = await res.json();
+      if (data.success) setIdentities(data.data);
+    };
+
+    const addIdentity = async (clientId) => {
+      if (!newIdentity.email_address.trim()) return;
+      const res = await apiFetch(API + '/direct-clients/' + clientId + '/identities', {
+        method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify(newIdentity)
+      });
+      const data = await res.json();
+      if (data.success) { setNewIdentity({ email_address: '', display_name: '', identity_type: 'send-only', forwards_to: '', notes: '' }); loadIdentities(clientId); }
+      else alert(data.error);
+    };
+
+    const deleteIdentity = async (identityId, clientId) => {
+      if (!window.confirm('Delete this identity?')) return;
+      await apiFetch(API + '/direct-clients/identities/' + identityId, { method: 'DELETE', headers: authHeaders });
+      loadIdentities(clientId);
     };
 
     const generateApiKey = async (clientId) => {
@@ -2582,6 +2608,8 @@ function SuperAdminDashboard() {
                       </button>
                       <button onClick={() => { setApiKeysClient(cl); loadApiKeys(cl.id); setNewKeyResult(null); setNewKeyName(''); }}
                         style={{ background: colors.primaryLight, border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: colors.primary }}>🔑 API Keys</button>
+                      <button onClick={() => { setIdentitiesClient(cl); loadIdentities(cl.id); setNewIdentity({ email_address: '', display_name: '', identity_type: 'send-only', forwards_to: '', notes: '' }); }}
+                        style={{ background: colors.cyanLight, border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: colors.cyan }}>📧 Identities</button>
                       <button onClick={() => del(cl.id)}
                         style={{ background: 'none', border: `1px solid ${colors.danger}`, borderRadius: 6, padding: '4px 10px', fontSize: 11, cursor: 'pointer', color: colors.danger }}>Delete</button>
                     </div>
@@ -2652,6 +2680,66 @@ function SuperAdminDashboard() {
                   {apiKeysClient.allowed_domains?.length > 0 && (
                     <div style={{ marginTop: 6, fontSize: 11, color: colors.warning }}>⚠ from_email must be from: {apiKeysClient.allowed_domains.join(', ')}</div>
                   )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Identities Modal */}
+        {identitiesClient && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setIdentitiesClient(null)}>
+            <div style={{ background: colors.card, borderRadius: 12, width: 640, maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }} onClick={e => e.stopPropagation()}>
+              <div style={{ padding: '16px 20px', borderBottom: `1px solid ${colors.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: colors.text }}>📧 Email Identities — {identitiesClient.company_name}</div>
+                  <div style={{ fontSize: 12, color: colors.textMuted, marginTop: 2 }}>Send-from addresses and aliases for this client</div>
+                </div>
+                <button onClick={() => setIdentitiesClient(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: colors.textMuted }}>×</button>
+              </div>
+              <div style={{ padding: 20, overflowY: 'auto' }}>
+                <div style={{ background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 14, marginBottom: 16 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: colors.text, marginBottom: 10 }}>Add New Identity</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                    <input value={newIdentity.email_address} onChange={e => setNewIdentity(p => ({ ...p, email_address: e.target.value }))}
+                      placeholder="info@vastiqonline.in"
+                      style={{ padding: '8px 10px', border: `1px solid ${colors.border}`, borderRadius: 7, fontSize: 12, outline: 'none', background: colors.card, color: colors.text }} />
+                    <input value={newIdentity.display_name} onChange={e => setNewIdentity(p => ({ ...p, display_name: e.target.value }))}
+                      placeholder="Display Name (e.g. VastiQ Support)"
+                      style={{ padding: '8px 10px', border: `1px solid ${colors.border}`, borderRadius: 7, fontSize: 12, outline: 'none', background: colors.card, color: colors.text }} />
+                    <select value={newIdentity.identity_type} onChange={e => setNewIdentity(p => ({ ...p, identity_type: e.target.value }))}
+                      style={{ padding: '8px 10px', border: `1px solid ${colors.border}`, borderRadius: 7, fontSize: 12, outline: 'none', background: colors.card, color: colors.text }}>
+                      <option value="send-only">Send-Only (relay from this address)</option>
+                      <option value="alias">Alias (forward incoming to another address)</option>
+                    </select>
+                    {newIdentity.identity_type === 'alias' && (
+                      <input value={newIdentity.forwards_to} onChange={e => setNewIdentity(p => ({ ...p, forwards_to: e.target.value }))}
+                        placeholder="Forwards to (e.g. admin@vastiqonline.in)"
+                        style={{ padding: '8px 10px', border: `1px solid ${colors.border}`, borderRadius: 7, fontSize: 12, outline: 'none', background: colors.card, color: colors.text }} />
+                    )}
+                  </div>
+                  <button onClick={() => addIdentity(identitiesClient.id)}
+                    style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 7, padding: '8px 16px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>+ Add Identity</button>
+                </div>
+                {identities.length === 0 && <div style={{ color: colors.textMuted, fontSize: 13, textAlign: 'center', padding: 20 }}>No identities yet</div>}
+                {identities.map(ident => (
+                  <div key={ident.id} style={{ background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 12, marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: colors.text }}>{ident.display_name || ident.email_address}</div>
+                      <div style={{ fontSize: 11, fontFamily: 'monospace', color: colors.textMuted }}>{ident.email_address}</div>
+                      {ident.forwards_to && <div style={{ fontSize: 11, color: colors.textMuted }}>→ {ident.forwards_to}</div>}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <span style={{ background: ident.identity_type === 'alias' ? colors.cyanLight : colors.primaryLight, color: ident.identity_type === 'alias' ? colors.cyan : colors.primary, borderRadius: 20, padding: '2px 8px', fontSize: 10, fontWeight: 600 }}>{ident.identity_type}</span>
+                      <span style={{ background: ident.status === 'active' ? colors.successLight : colors.dangerLight, color: ident.status === 'active' ? colors.success : colors.danger, borderRadius: 20, padding: '2px 8px', fontSize: 10, fontWeight: 600 }}>{ident.status}</span>
+                      <button onClick={() => deleteIdentity(ident.id, identitiesClient.id)}
+                        style={{ background: 'none', border: `1px solid ${colors.danger}`, borderRadius: 6, padding: '3px 8px', fontSize: 11, cursor: 'pointer', color: colors.danger }}>Delete</button>
+                    </div>
+                  </div>
+                ))}
+                <div style={{ marginTop: 12, padding: 12, background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 8, fontSize: 12, color: colors.textMuted }}>
+                  <strong style={{ color: colors.text }}>Send-Only:</strong> Use as <code>from_email</code> in relay API. &nbsp;
+                  <strong style={{ color: colors.text }}>Alias:</strong> Forwards incoming mail to target mailbox.
                 </div>
               </div>
             </div>
