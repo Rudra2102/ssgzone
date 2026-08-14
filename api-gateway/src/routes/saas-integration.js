@@ -312,16 +312,29 @@ router.post('/email/send', async (req, res) => {
       }
     }
 
-    if (attachments?.length) console.log('[ATTACH DEBUG]', JSON.stringify(attachments[0]).substring(0, 200));
+    const https = require('https');
+    const http = require('http');
+    const resolvedAttachments = await Promise.all((Array.isArray(attachments) ? attachments : []).map(a => new Promise((resolve, reject) => {
+      if (a.url) {
+        const lib = a.url.startsWith('https') ? https : http;
+        lib.get(a.url, res => {
+          const chunks = [];
+          res.on('data', c => chunks.push(c));
+          res.on('end', () => resolve({ filename: a.filename, content: Buffer.concat(chunks), contentType: a.contentType || res.headers['content-type'] }));
+          res.on('error', reject);
+        }).on('error', reject);
+      } else {
+        const raw = typeof a.content === 'string' && a.content.includes(',') ? a.content.split(',')[1] : a.content;
+        resolve({ filename: a.filename, content: raw, encoding: 'base64', contentType: a.contentType || a.mimetype });
+      }
+    })));
+
     await transporter.sendMail({
       from: `"${from_name || clientName}" <${from_email || process.env.SMTP_USER}>`,
       to, subject,
       html: html || text,
       text: text || (html || '').replace(/<[^>]*>/g, ''),
-      attachments: Array.isArray(attachments) ? attachments.map(a => {
-        const raw = typeof a.content === 'string' && a.content.includes(',') ? a.content.split(',')[1] : a.content;
-        return { filename: a.filename, content: raw, encoding: 'base64', contentType: a.contentType || a.mimetype };
-      }) : []
+      attachments: resolvedAttachments
     });
 
     res.json({ success: true, message: 'Email sent' });
