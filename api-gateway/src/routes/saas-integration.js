@@ -312,6 +312,7 @@ router.post('/email/send', async (req, res) => {
       }
     }
 
+    if (attachments?.length) console.log('[ATTACH DEBUG]', JSON.stringify(attachments[0]).substring(0, 200));
     await transporter.sendMail({
       from: `"${from_name || clientName}" <${from_email || process.env.SMTP_USER}>`,
       to, subject,
