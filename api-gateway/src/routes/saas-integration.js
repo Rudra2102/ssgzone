@@ -317,12 +317,10 @@ router.post('/email/send', async (req, res) => {
       to, subject,
       html: html || text,
       text: text || (html || '').replace(/<[^>]*>/g, ''),
-      attachments: Array.isArray(attachments) ? attachments.map(a => ({
-        filename: a.filename,
-        content: a.content,
-        encoding: a.encoding || 'base64',
-        contentType: a.contentType || a.mimetype
-      })) : []
+      attachments: Array.isArray(attachments) ? attachments.map(a => {
+        const raw = typeof a.content === 'string' && a.content.includes(',') ? a.content.split(',')[1] : a.content;
+        return { filename: a.filename, content: raw, encoding: 'base64', contentType: a.contentType || a.mimetype };
+      }) : []
     });
 
     res.json({ success: true, message: 'Email sent' });
