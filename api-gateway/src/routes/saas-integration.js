@@ -320,7 +320,11 @@ router.post('/email/send', async (req, res) => {
         lib.get(a.url, res => {
           const chunks = [];
           res.on('data', c => chunks.push(c));
-          res.on('end', () => resolve({ filename: a.filename, content: Buffer.concat(chunks), contentType: a.contentType || res.headers['content-type'] }));
+          res.on('end', () => {
+            const obj = { filename: a.filename, content: Buffer.concat(chunks), contentType: a.contentType || res.headers['content-type'] };
+            if (a.cid) { obj.cid = a.cid; obj.contentDisposition = a.inline ? 'inline' : 'attachment'; }
+            resolve(obj);
+          });
           res.on('error', reject);
         }).on('error', reject);
       } else {

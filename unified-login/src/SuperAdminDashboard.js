@@ -353,7 +353,7 @@ function SuperAdminDashboard() {
     { section: 'EMAIL', items: [
       { id: 'email', label: 'Email', icon: '📧' },
       { id: 'compose', label: 'Campaigns', icon: '📢' },
-      { id: 'templates', label: 'Automations', icon: '⚙' },
+      { id: 'templates', label: 'Email Templates', icon: '📄' },
       { id: 'scheduled', label: 'Scheduled', icon: '⏰' },
       { id: 'drafts', label: 'Drafts', icon: '📝' },
       { id: 'trash', label: 'Trash', icon: '🗑' },
@@ -1871,7 +1871,10 @@ function SuperAdminDashboard() {
           {/* Left: Form */}
           <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, padding: 24 }}>
             {/* Template selector - common for both modes */}
-            <label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>Use Template</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted }}>Use Template</label>
+              <button onClick={() => setActiveSection('templates')} style={{ background: 'none', border: 'none', color: colors.primary, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>+ Manage Templates</button>
+            </div>
             <select style={inputS} value={selectedTemplate} onChange={e => handleTemplateSelect(e.target.value)}>
               <option value="">— Select Template —</option>
               {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
