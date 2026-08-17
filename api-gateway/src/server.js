@@ -224,6 +224,8 @@ httpServer.listen(PORT, () => {
   retentionJob.start();
   gdprDeletionJob.start();
   digestJob.start();
+  const scheduledEmailJob = require('./jobs/scheduledEmailJob');
+  scheduledEmailJob.start();
 });
 
 module.exports = app;

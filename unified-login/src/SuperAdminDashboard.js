@@ -1277,6 +1277,77 @@ function SuperAdminDashboard() {
     )}
   </>);
 
+  const ScheduledSection = () => {
+    const [emails, setEmails] = useState([]);
+    const fetch = () => apiFetch(`${API}/scheduled-emails`, { headers: authHeaders })
+      .then(r => r.json()).then(d => { if (d.success) setEmails(d.data); });
+    useEffect(() => { fetch(); }, []);
+
+    const cancel = async (id) => {
+      if (!window.confirm('Cancel this scheduled email?')) return;
+      const res = await apiFetch(`${API}/scheduled-emails/${id}`, { method: 'DELETE', headers: authHeaders });
+      const data = await res.json();
+      if (data.success) fetch(); else alert(data.error);
+    };
+
+    const statusColors = {
+      pending: { bg: colors.warningLight, color: colors.warning },
+      sent: { bg: colors.successLight, color: colors.success },
+      cancelled: { bg: colors.bg, color: colors.textMuted },
+      failed: { bg: colors.dangerLight, color: colors.danger },
+    };
+
+    return (
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: colors.text }}>Scheduled Emails</div>
+            <div style={{ fontSize: 13, color: colors.textMuted }}>{emails.filter(e => e.status === 'pending').length} pending</div>
+          </div>
+          <button onClick={() => setActiveSection('compose')} style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>+ Schedule New</button>
+        </div>
+        <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 12, overflow: 'hidden' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead><tr style={{ background: colors.bg, borderBottom: `1px solid ${colors.border}` }}>
+              {['Type', 'To / Target', 'Subject', 'Scheduled At', 'Status', 'Created By', 'Actions'].map(h =>
+                <th key={h} style={{ textAlign: 'left', padding: '12px 16px', color: colors.textMuted, fontWeight: 600, fontSize: 12 }}>{h}</th>
+              )}
+            </tr></thead>
+            <tbody>
+              {emails.map(e => (
+                <tr key={e.id} style={{ borderBottom: `1px solid ${colors.border}` }}>
+                  <td style={{ padding: '12px 16px' }}>
+                    <span style={{ background: e.mode === 'broadcast' ? colors.warningLight : colors.primaryLight, color: e.mode === 'broadcast' ? colors.warning : colors.primary, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>
+                      {e.mode === 'broadcast' ? '📢 Broadcast' : '✉ Single'}
+                    </span>
+                  </td>
+                  <td style={{ padding: '12px 16px', color: colors.text, fontSize: 12 }}>
+                    {e.mode === 'broadcast' ? `All ${e.broadcast_target}` : e.to_email}
+                  </td>
+                  <td style={{ padding: '12px 16px', color: colors.text }}>{e.subject}</td>
+                  <td style={{ padding: '12px 16px', color: colors.text, fontSize: 12 }}>{new Date(e.scheduled_at).toLocaleString()}</td>
+                  <td style={{ padding: '12px 16px' }}>
+                    <span style={{ background: statusColors[e.status]?.bg, color: statusColors[e.status]?.color, borderRadius: 20, padding: '3px 10px', fontSize: 11, fontWeight: 600 }}>{e.status}</span>
+                  </td>
+                  <td style={{ padding: '12px 16px', color: colors.textMuted, fontSize: 12 }}>{e.created_by}</td>
+                  <td style={{ padding: '12px 16px' }}>
+                    {e.status === 'pending' && (
+                      <button onClick={() => cancel(e.id)} style={{ background: colors.dangerLight, color: colors.danger, border: 'none', borderRadius: 6, padding: '5px 10px', fontSize: 11, cursor: 'pointer' }}>✕ Cancel</button>
+                    )}
+                    {e.status === 'failed' && e.error_message && (
+                      <span style={{ fontSize: 11, color: colors.danger }} title={e.error_message}>⚠ Error</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+              {emails.length === 0 && <tr><td colSpan={7} style={{ padding: 30, textAlign: 'center', color: colors.textMuted }}>No scheduled emails</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
   const TemplatesSection = () => {
     const [templates, setTemplates] = useState([]);
     const [openDialog, setOpenDialog] = useState(false);
@@ -1810,6 +1881,8 @@ function SuperAdminDashboard() {
     const [templates, setTemplates] = useState([]);
     const [selectedTemplate, setSelectedTemplate] = useState('');
     const [showPreview, setShowPreview] = useState(false);
+    const [scheduleEnabled, setScheduleEnabled] = useState(false);
+    const [scheduledAt, setScheduledAt] = useState('');
 
     useEffect(() => {
       apiFetch(`${API}/email/templates`, { headers: authHeaders }).then(r => r.json()).then(d => { if (d.success) setTemplates(d.data); });
@@ -1826,6 +1899,17 @@ function SuperAdminDashboard() {
 
     const send = async () => {
       if (!form.to_email || !form.subject || !form.body) return alert('To Email, Subject and Body required');
+      if (scheduleEnabled) {
+        if (!scheduledAt) return alert('Please select a date and time to schedule');
+        setSending(true);
+        try {
+          const res = await apiFetch(`${API}/scheduled-emails`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'single', ...form, scheduled_at: scheduledAt }) });
+          const data = await res.json();
+          if (data.success) { alert('✅ Email scheduled!'); setForm({ to_email: '', to_name: '', subject: '', body: '', tenant_id: '' }); setSelectedTemplate(''); setScheduleEnabled(false); setScheduledAt(''); }
+          else alert(data.error);
+        } catch (err) { alert(err.message); }
+        setSending(false); return;
+      }
       setSending(true);
       try {
         const res = await apiFetch(`${API}/email/send`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
@@ -1838,6 +1922,17 @@ function SuperAdminDashboard() {
 
     const sendBroadcast = async () => {
       if (!broadcastForm.subject || !broadcastForm.body) return alert('Subject and Body required');
+      if (scheduleEnabled) {
+        if (!scheduledAt) return alert('Please select a date and time to schedule');
+        setSending(true);
+        try {
+          const res = await apiFetch(`${API}/scheduled-emails`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'broadcast', ...broadcastForm, scheduled_at: scheduledAt }) });
+          const data = await res.json();
+          if (data.success) { alert('✅ Broadcast scheduled!'); setBroadcastForm({ subject: '', body: '', target: 'tenants' }); setSelectedTemplate(''); setScheduleEnabled(false); setScheduledAt(''); }
+          else alert(data.error);
+        } catch (err) { alert(err.message); }
+        setSending(false); return;
+      }
       if (!window.confirm(`Send broadcast to all ${broadcastForm.target}? This cannot be undone.`)) return;
       setSending(true);
       try {
@@ -1894,9 +1989,22 @@ function SuperAdminDashboard() {
               <input style={inputS} value={form.subject} onChange={e => setForm({ ...form, subject: e.target.value })} placeholder="Email subject" />
               <label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>Body (HTML) *</label>
               <textarea style={{ ...inputS, height: 160, resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }} value={form.body} onChange={e => setForm({ ...form, body: e.target.value })} placeholder="<h2>Hello!</h2><p>Your message here...</p>" />
+              {/* Schedule Toggle */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, padding: '10px 12px', background: scheduleEnabled ? colors.warningLight : colors.bg, borderRadius: 8, border: `1px solid ${scheduleEnabled ? colors.warning : colors.border}` }}>
+                <div onClick={() => setScheduleEnabled(p => !p)} style={{ width: 36, height: 20, borderRadius: 10, background: scheduleEnabled ? colors.warning : colors.border, cursor: 'pointer', position: 'relative', flexShrink: 0 }}>
+                  <div style={{ width: 14, height: 14, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: scheduleEnabled ? 19 : 3, transition: 'left 0.2s' }} />
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 600, color: scheduleEnabled ? colors.warning : colors.textMuted }}>⏰ Schedule for later</span>
+                {scheduleEnabled && (
+                  <input type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)}
+                    min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
+                    style={{ flex: 1, padding: '6px 10px', border: `1px solid ${colors.warning}`, borderRadius: 6, fontSize: 12, outline: 'none', background: colors.card, color: colors.text }} />
+                )}
+              </div>
               <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={send} disabled={sending} style={{ background: colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 24px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: sending ? 0.7 : 1 }}>{sending ? 'Sending...' : '📤 Send Email'}</button>
+                <button onClick={send} disabled={sending} style={{ background: scheduleEnabled ? colors.warning : colors.primary, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 24px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: sending ? 0.7 : 1 }}>{sending ? '...' : scheduleEnabled ? '⏰ Schedule Email' : '📤 Send Email'}</button>
                 <button onClick={() => setActiveSection('email')} style={{ background: colors.bg, color: colors.text, border: `1px solid ${colors.border}`, borderRadius: 8, padding: '10px 20px', fontSize: 13, cursor: 'pointer' }}>View Sent</button>
+                <button onClick={() => setActiveSection('scheduled')} style={{ background: colors.bg, color: colors.text, border: `1px solid ${colors.border}`, borderRadius: 8, padding: '10px 20px', fontSize: 13, cursor: 'pointer' }}>⏰ Scheduled</button>
               </div>
             </>) : (<>
               <label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>Send To *</label>
@@ -1909,7 +2017,19 @@ function SuperAdminDashboard() {
               <label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>Body (HTML) *</label>
               <textarea style={{ ...inputS, height: 160, resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }} value={broadcastForm.body} onChange={e => setBroadcastForm({ ...broadcastForm, body: e.target.value })} placeholder="<h2>Hello!</h2><p>Your message here...</p>" />
               <div style={{ background: colors.warningLight, borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: colors.warning }}>⚠ This will send email to ALL {broadcastForm.target === 'tenants' ? 'tenant admins' : 'users'}. Cannot be undone.</div>
-              <button onClick={sendBroadcast} disabled={sending} style={{ background: colors.warning, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 24px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: sending ? 0.7 : 1 }}>{sending ? 'Sending...' : '📢 Send Broadcast'}</button>
+              {/* Schedule Toggle for Broadcast */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12, padding: '10px 12px', background: scheduleEnabled ? colors.warningLight : colors.bg, borderRadius: 8, border: `1px solid ${scheduleEnabled ? colors.warning : colors.border}` }}>
+                <div onClick={() => setScheduleEnabled(p => !p)} style={{ width: 36, height: 20, borderRadius: 10, background: scheduleEnabled ? colors.warning : colors.border, cursor: 'pointer', position: 'relative', flexShrink: 0 }}>
+                  <div style={{ width: 14, height: 14, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3, left: scheduleEnabled ? 19 : 3, transition: 'left 0.2s' }} />
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 600, color: scheduleEnabled ? colors.warning : colors.textMuted }}>⏰ Schedule for later</span>
+                {scheduleEnabled && (
+                  <input type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)}
+                    min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
+                    style={{ flex: 1, padding: '6px 10px', border: `1px solid ${colors.warning}`, borderRadius: 6, fontSize: 12, outline: 'none', background: colors.card, color: colors.text }} />
+                )}
+              </div>
+              <button onClick={sendBroadcast} disabled={sending} style={{ background: scheduleEnabled ? colors.warning : colors.warning, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 24px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: sending ? 0.7 : 1 }}>{sending ? '...' : scheduleEnabled ? '⏰ Schedule Broadcast' : '📢 Send Broadcast'}</button>
             </>)}
           </div>
 
@@ -3415,6 +3535,7 @@ function SuperAdminDashboard() {
       case 'tenants': return <TenantsSection />;
       case 'users': return <UsersSection />;
       case 'email': return <EmailSection />;
+      case 'scheduled': return <ScheduledSection />;
       case 'compose': return <ComposeSection />;
       case 'templates': return <TemplatesSection />;
       case 'permissions': return <PermissionsSection />;

@@ -1739,4 +1739,48 @@ router.delete('/direct-clients/identities/:identityId', superAdminAuth, async (r
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
 
+// ── Scheduled Emails ────────────────────────────────────────────────────
+
+// GET /scheduled-emails
+router.get('/scheduled-emails', superAdminAuth, requireRole('admin', 'support'), async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT se.*, tc.company_name as tenant_name
+       FROM scheduled_emails se
+       LEFT JOIN tenant_companies tc ON tc.id::text = se.tenant_id::text
+       ORDER BY se.scheduled_at ASC`
+    );
+    res.json({ success: true, data: result.rows });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// POST /scheduled-emails
+router.post('/scheduled-emails', superAdminAuth, requireRole(), async (req, res) => {
+  const { mode, to_email, to_name, subject, body, tenant_id, broadcast_target, scheduled_at } = req.body;
+  if (!subject || !body || !scheduled_at) return res.status(400).json({ success: false, error: 'subject, body, scheduled_at required' });
+  if (mode === 'single' && !to_email) return res.status(400).json({ success: false, error: 'to_email required for single mode' });
+  if (new Date(scheduled_at) <= new Date()) return res.status(400).json({ success: false, error: 'scheduled_at must be in the future' });
+  try {
+    const result = await db.query(
+      `INSERT INTO scheduled_emails (created_by, mode, to_email, to_name, subject, body, tenant_id, broadcast_target, scheduled_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [req.admin.username, mode || 'single', to_email || null, to_name || null, subject, body,
+       tenant_id || null, broadcast_target || null, scheduled_at]
+    );
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
+// DELETE /scheduled-emails/:id (cancel)
+router.delete('/scheduled-emails/:id', superAdminAuth, requireRole(), async (req, res) => {
+  try {
+    const result = await db.query(
+      `UPDATE scheduled_emails SET status='cancelled' WHERE id=$1 AND status='pending' RETURNING id`,
+      [req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, error: 'Scheduled email not found or already processed' });
+    res.json({ success: true });
+  } catch (err) { res.status(500).json({ success: false, error: err.message }); }
+});
+
 module.exports = router;
