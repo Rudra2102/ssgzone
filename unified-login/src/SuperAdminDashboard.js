@@ -3785,12 +3785,7 @@ function SuperAdminDashboard() {
           )}
         </div>
       );
-      case 'scheduled': return (
-        <div>
-          <h2 style={{ marginBottom: 20, fontSize: 22, fontWeight: 700, color: colors.text }}>Scheduled Emails</h2>
-          <div style={{ background: colors.card, border: `1px solid ${colors.border}`, borderRadius: 8, padding: 24, color: colors.textMuted, fontSize: 13 }}>Scheduled emails will appear here.</div>
-        </div>
-      );
+
       case 'drafts': return (
         <div>
           <h2 style={{ marginBottom: 20, fontSize: 22, fontWeight: 700, color: colors.text }}>Drafts</h2>
