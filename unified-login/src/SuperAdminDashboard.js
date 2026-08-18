@@ -1883,10 +1883,14 @@ function SuperAdminDashboard() {
     const [showPreview, setShowPreview] = useState(false);
     const [scheduleEnabled, setScheduleEnabled] = useState(false);
     const [scheduledAt, setScheduledAt] = useState('');
+    const [templateVars, setTemplateVars] = useState({});
 
     useEffect(() => {
       apiFetch(`${API}/email/templates`, { headers: authHeaders }).then(r => r.json()).then(d => { if (d.success) setTemplates(d.data); });
     }, []);
+
+    const extractVars = (str) => [...new Set([...(str || '').matchAll(/{{(\w+)}}/g)].map(m => m[1]))];
+    const applyVars = (str) => Object.entries(templateVars).reduce((s, [k, v]) => s.replaceAll(`{{${k}}}`, v), str);
 
     const handleTemplateSelect = (templateId) => {
       setSelectedTemplate(templateId);
@@ -1894,27 +1898,32 @@ function SuperAdminDashboard() {
       if (t) {
         if (mode === 'single') setForm(f => ({ ...f, subject: t.subject, body: t.body }));
         else setBroadcastForm(f => ({ ...f, subject: t.subject, body: t.body }));
+        const vars = extractVars((t.subject || '') + ' ' + (t.body || ''));
+        setTemplateVars(Object.fromEntries(vars.map(v => [v, ''])));
+      } else {
+        setTemplateVars({});
       }
     };
 
     const send = async () => {
       if (!form.to_email || !form.subject || !form.body) return alert('To Email, Subject and Body required');
+      const payload = { ...form, subject: applyVars(form.subject), body: applyVars(form.body) };
       if (scheduleEnabled) {
         if (!scheduledAt) return alert('Please select a date and time to schedule');
         setSending(true);
         try {
-          const res = await apiFetch(`${API}/scheduled-emails`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'single', ...form, scheduled_at: scheduledAt }) });
+          const res = await apiFetch(`${API}/scheduled-emails`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'single', ...payload, scheduled_at: scheduledAt }) });
           const data = await res.json();
-          if (data.success) { alert('✅ Email scheduled!'); setForm({ to_email: '', to_name: '', subject: '', body: '', tenant_id: '' }); setSelectedTemplate(''); setScheduleEnabled(false); setScheduledAt(''); }
+          if (data.success) { alert('✅ Email scheduled!'); setForm({ to_email: '', to_name: '', subject: '', body: '', tenant_id: '' }); setSelectedTemplate(''); setScheduleEnabled(false); setScheduledAt(''); setTemplateVars({}); }
           else alert(data.error);
         } catch (err) { alert(err.message); }
         setSending(false); return;
       }
       setSending(true);
       try {
-        const res = await apiFetch(`${API}/email/send`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(form) });
+        const res = await apiFetch(`${API}/email/send`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         const data = await res.json();
-        if (data.success) { alert('✅ Email sent successfully!'); setForm({ to_email: '', to_name: '', subject: '', body: '', tenant_id: '' }); setSelectedTemplate(''); }
+        if (data.success) { alert('✅ Email sent successfully!'); setForm({ to_email: '', to_name: '', subject: '', body: '', tenant_id: '' }); setSelectedTemplate(''); setTemplateVars({}); }
         else alert(data.error);
       } catch (err) { alert(err.message); }
       setSending(false);
@@ -1922,13 +1931,14 @@ function SuperAdminDashboard() {
 
     const sendBroadcast = async () => {
       if (!broadcastForm.subject || !broadcastForm.body) return alert('Subject and Body required');
+      const bPayload = { ...broadcastForm, subject: applyVars(broadcastForm.subject), body: applyVars(broadcastForm.body) };
       if (scheduleEnabled) {
         if (!scheduledAt) return alert('Please select a date and time to schedule');
         setSending(true);
         try {
-          const res = await apiFetch(`${API}/scheduled-emails`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'broadcast', ...broadcastForm, scheduled_at: scheduledAt }) });
+          const res = await apiFetch(`${API}/scheduled-emails`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'broadcast', ...bPayload, scheduled_at: scheduledAt }) });
           const data = await res.json();
-          if (data.success) { alert('✅ Broadcast scheduled!'); setBroadcastForm({ subject: '', body: '', target: 'tenants' }); setSelectedTemplate(''); setScheduleEnabled(false); setScheduledAt(''); }
+          if (data.success) { alert('✅ Broadcast scheduled!'); setBroadcastForm({ subject: '', body: '', target: 'tenants' }); setSelectedTemplate(''); setScheduleEnabled(false); setScheduledAt(''); setTemplateVars({}); }
           else alert(data.error);
         } catch (err) { alert(err.message); }
         setSending(false); return;
@@ -1936,9 +1946,9 @@ function SuperAdminDashboard() {
       if (!window.confirm(`Send broadcast to all ${broadcastForm.target}? This cannot be undone.`)) return;
       setSending(true);
       try {
-        const res = await apiFetch(`${API}/email/broadcast`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(broadcastForm) });
+        const res = await apiFetch(`${API}/email/broadcast`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(bPayload) });
         const data = await res.json();
-        if (data.success) { alert(`✅ Broadcast complete!\nSent: ${data.sent}\nFailed: ${data.failed}\nTotal: ${data.total}`); setBroadcastForm({ subject: '', body: '', target: 'tenants' }); setSelectedTemplate(''); }
+        if (data.success) { alert(`✅ Broadcast complete!\nSent: ${data.sent}\nFailed: ${data.failed}\nTotal: ${data.total}`); setBroadcastForm({ subject: '', body: '', target: 'tenants' }); setSelectedTemplate(''); setTemplateVars({}); }
         else alert(data.error);
       } catch (err) { alert(err.message); }
       setSending(false);
@@ -1974,6 +1984,18 @@ function SuperAdminDashboard() {
               <option value="">— Select Template —</option>
               {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
+
+            {Object.keys(templateVars).length > 0 && (
+              <div style={{ background: colors.bg, border: `1px solid ${colors.border}`, borderRadius: 8, padding: '12px 14px', marginBottom: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: colors.textMuted, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>Template Variables</div>
+                {Object.keys(templateVars).map(key => (
+                  <div key={key}>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: colors.textMuted, marginBottom: 4, display: 'block' }}>{key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</label>
+                    <input style={inputS} value={templateVars[key]} onChange={e => setTemplateVars(v => ({ ...v, [key]: e.target.value }))} placeholder={`Enter ${key.replace(/_/g, ' ')}`} />
+                  </div>
+                ))}
+              </div>
+            )}
 
             {mode === 'single' ? (<>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
