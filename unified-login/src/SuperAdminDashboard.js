@@ -1908,11 +1908,12 @@ function SuperAdminDashboard() {
     const send = async () => {
       if (!form.to_email || !form.subject || !form.body) return alert('To Email, Subject and Body required');
       const payload = { ...form, subject: applyVars(form.subject), body: applyVars(form.body) };
+      const toUTC = (localDt) => localDt ? new Date(localDt).toISOString() : localDt;
       if (scheduleEnabled) {
         if (!scheduledAt) return alert('Please select a date and time to schedule');
         setSending(true);
         try {
-          const res = await apiFetch(`${API}/scheduled-emails`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'single', ...payload, scheduled_at: scheduledAt }) });
+          const res = await apiFetch(`${API}/scheduled-emails`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'single', ...payload, scheduled_at: toUTC(scheduledAt) }) });
           const data = await res.json();
           if (data.success) { alert('✅ Email scheduled!'); setForm({ to_email: '', to_name: '', subject: '', body: '', tenant_id: '' }); setSelectedTemplate(''); setScheduleEnabled(false); setScheduledAt(''); setTemplateVars({}); }
           else alert(data.error);
@@ -1932,11 +1933,12 @@ function SuperAdminDashboard() {
     const sendBroadcast = async () => {
       if (!broadcastForm.subject || !broadcastForm.body) return alert('Subject and Body required');
       const bPayload = { ...broadcastForm, subject: applyVars(broadcastForm.subject), body: applyVars(broadcastForm.body) };
+      const toUTC = (localDt) => localDt ? new Date(localDt).toISOString() : localDt;
       if (scheduleEnabled) {
         if (!scheduledAt) return alert('Please select a date and time to schedule');
         setSending(true);
         try {
-          const res = await apiFetch(`${API}/scheduled-emails`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'broadcast', ...bPayload, scheduled_at: scheduledAt }) });
+          const res = await apiFetch(`${API}/scheduled-emails`, { method: 'POST', headers: { ...authHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: 'broadcast', ...bPayload, scheduled_at: toUTC(scheduledAt) }) });
           const data = await res.json();
           if (data.success) { alert('✅ Broadcast scheduled!'); setBroadcastForm({ subject: '', body: '', target: 'tenants' }); setSelectedTemplate(''); setScheduleEnabled(false); setScheduledAt(''); setTemplateVars({}); }
           else alert(data.error);
@@ -2021,6 +2023,7 @@ function SuperAdminDashboard() {
                   <input type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)}
                     min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
                     style={{ flex: 1, padding: '6px 10px', border: `1px solid ${colors.warning}`, borderRadius: 6, fontSize: 12, outline: 'none', background: colors.card, color: colors.text }} />
+                  <button type="button" onClick={() => {}} style={{ padding: '4px 10px', background: colors.primary, color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'default', whiteSpace: 'nowrap' }}>&#10003; Set</button>
                 )}
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
@@ -2049,6 +2052,7 @@ function SuperAdminDashboard() {
                   <input type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)}
                     min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
                     style={{ flex: 1, padding: '6px 10px', border: `1px solid ${colors.warning}`, borderRadius: 6, fontSize: 12, outline: 'none', background: colors.card, color: colors.text }} />
+                  <button type="button" onClick={() => {}} style={{ padding: '4px 10px', background: colors.primary, color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'default', whiteSpace: 'nowrap' }}>&#10003; Set</button>
                 )}
               </div>
               <button onClick={sendBroadcast} disabled={sending} style={{ background: scheduleEnabled ? colors.warning : colors.warning, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 24px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: sending ? 0.7 : 1 }}>{sending ? '...' : scheduleEnabled ? '⏰ Schedule Broadcast' : '📢 Send Broadcast'}</button>
