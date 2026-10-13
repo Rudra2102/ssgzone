@@ -123,6 +123,7 @@ app.use(cookieParser());
 
 // Saas integration relay — CSRF exempt (server-to-server, API key auth)
 app.use('/api/v1/saas/integration', saasIntegrationRoutes);
+app.use('/api/saas-integration', saasIntegrationRoutes);
 
 // CSRF protection on all state-changing routes
 app.use(csrfProtection);
@@ -210,7 +211,14 @@ app.use('*', (req, res) => {
 
 const httpServer = http.createServer(app);
 const io = new Server(httpServer, {
-  cors: { origin: '*', methods: ['GET', 'POST'] },
+  cors: {
+    origin: (origin, cb) => {
+      if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+      cb(new Error('Not allowed by CORS'));
+    },
+    credentials: true,
+    methods: ['GET', 'POST']
+  },
   transports: ['websocket', 'polling']
 });
 initChatSocket(io);
