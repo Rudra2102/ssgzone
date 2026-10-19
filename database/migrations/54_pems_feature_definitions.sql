@@ -13,5 +13,5 @@ INSERT INTO saas_feature_permissions (saas_id, feature_key, is_enabled)
 SELECT sa.id, fd.feature_key, true
 FROM saas_applications sa
 CROSS JOIN feature_definitions fd
-WHERE sa.slug = 'pems'
+WHERE sa.saas_slug = 'pems'
 ON CONFLICT (saas_id, feature_key) DO NOTHING;
