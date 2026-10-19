@@ -501,6 +501,27 @@ router.post('/tenants', saasAdminAuth, async (req, res) => {
       [tenant.id, tenantAdminEmail, admin_name.split(' ')[0], admin_name.split(' ').slice(1).join(' ') || 'Admin', hashedPassword]
     );
     await pool.query('INSERT INTO tenant_communication_settings (tenant_id) VALUES ($1)', [tenant.id]);
+    // Auto-assign all SaaS-enabled features to the new tenant as defaults
+    try {
+      const saasPerms = await pool.query(
+        'SELECT feature_key, is_enabled FROM saas_feature_permissions WHERE saas_id = $1',
+        [req.decoded.saas_id]
+      );
+      if (saasPerms.rows.length > 0) {
+        const values = saasPerms.rows.map((p, i) => `($1, $${i * 2 + 2}, $${i * 2 + 3})`).join(', ');
+        const params = [tenant.id];
+        saasPerms.rows.forEach(p => { params.push(p.feature_key); params.push(p.is_enabled); });
+        await pool.query(
+          `INSERT INTO tenant_feature_permissions (tenant_id, feature_key, is_enabled)
+           VALUES ${values}
+           ON CONFLICT (tenant_id, feature_key) DO NOTHING`,
+          params
+        );
+      }
+    } catch (e) {
+      // Non-fatal — tenant is created, permissions can be set manually
+      console.warn('Could not auto-assign tenant permissions:', e.message);
+    }
     res.json({ success: true, data: { ...tenant, admin_credentials: { username: 'admin', password: defaultPassword, login_url: `https://${domain}/admin` } } });
   } catch (err) {
     if (err.code === '23505') return res.status(400).json({ success: false, error: 'Tenant slug already exists' });
