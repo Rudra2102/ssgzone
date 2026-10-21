@@ -2020,10 +2020,12 @@ function SuperAdminDashboard() {
                 </div>
                 <span style={{ fontSize: 12, fontWeight: 600, color: scheduleEnabled ? colors.warning : colors.textMuted }}>⏰ Schedule for later</span>
                 {scheduleEnabled && (
-                  <input type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)}
-                    min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
-                    style={{ flex: 1, padding: '6px 10px', border: `1px solid ${colors.warning}`, borderRadius: 6, fontSize: 12, outline: 'none', background: colors.card, color: colors.text }} />
-                  <button type="button" onClick={() => {}} style={{ padding: '4px 10px', background: colors.primary, color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'default', whiteSpace: 'nowrap' }}>&#10003; Set</button>
+                  <>
+                    <input type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)}
+                      min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
+                      style={{ flex: 1, padding: '6px 10px', border: `1px solid ${colors.warning}`, borderRadius: 6, fontSize: 12, outline: 'none', background: colors.card, color: colors.text }} />
+                    <button type="button" onClick={() => {}} style={{ padding: '4px 10px', background: colors.primary, color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'default', whiteSpace: 'nowrap' }}>&#10003; Set</button>
+                  </>
                 )}
               </div>
               <div style={{ display: 'flex', gap: 10 }}>
@@ -2049,10 +2051,12 @@ function SuperAdminDashboard() {
                 </div>
                 <span style={{ fontSize: 12, fontWeight: 600, color: scheduleEnabled ? colors.warning : colors.textMuted }}>⏰ Schedule for later</span>
                 {scheduleEnabled && (
-                  <input type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)}
-                    min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
-                    style={{ flex: 1, padding: '6px 10px', border: `1px solid ${colors.warning}`, borderRadius: 6, fontSize: 12, outline: 'none', background: colors.card, color: colors.text }} />
-                  <button type="button" onClick={() => {}} style={{ padding: '4px 10px', background: colors.primary, color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'default', whiteSpace: 'nowrap' }}>&#10003; Set</button>
+                  <>
+                    <input type="datetime-local" value={scheduledAt} onChange={e => setScheduledAt(e.target.value)}
+                      min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
+                      style={{ flex: 1, padding: '6px 10px', border: `1px solid ${colors.warning}`, borderRadius: 6, fontSize: 12, outline: 'none', background: colors.card, color: colors.text }} />
+                    <button type="button" onClick={() => {}} style={{ padding: '4px 10px', background: colors.primary, color: '#fff', border: 'none', borderRadius: 6, fontSize: 11, fontWeight: 600, cursor: 'default', whiteSpace: 'nowrap' }}>&#10003; Set</button>
+                  </>
                 )}
               </div>
               <button onClick={sendBroadcast} disabled={sending} style={{ background: scheduleEnabled ? colors.warning : colors.warning, color: '#fff', border: 'none', borderRadius: 8, padding: '10px 24px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: sending ? 0.7 : 1 }}>{sending ? '...' : scheduleEnabled ? '⏰ Schedule Broadcast' : '📢 Send Broadcast'}</button>
