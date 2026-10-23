@@ -1073,7 +1073,7 @@ router.patch('/profile/change-password', superAdminAuth, async (req, res) => {
     if (!valid) return res.status(400).json({ success: false, error: 'Current password is incorrect' });
 
     const newHash = await bcrypt.hash(new_password, 10);
-    await db.query(`UPDATE ${table} SET password_hash=$1, updated_at=NOW() WHERE id=$2`, [newHash, row.id]);
+    await db.query(`UPDATE ${table} SET password_hash=$1 WHERE id=$2`, [newHash, row.id]);
     res.json({ success: true, message: 'Password changed successfully' });
   } catch (err) { res.status(500).json({ success: false, error: err.message }); }
 });
